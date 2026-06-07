@@ -1,0 +1,18 @@
+# Build artifacts
+.build/
+Packages/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+*.swp
+
+# IDE
+.vscode/
+.idea/
