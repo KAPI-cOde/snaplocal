@@ -79,7 +79,8 @@ enum AnnotationColor: String, Codable, CaseIterable {
 
 enum LineWidth: CGFloat, Codable, CaseIterable {
     case thin = 2
-    case thick = 5
+    case medium = 4
+    case thick = 8
 }
 
 // MARK: - Drawing Tool
@@ -91,9 +92,8 @@ enum DrawingTool: String, Codable, CaseIterable {
     case rectangle = "rectangle"
     case ellipse = "ellipse"
     case text = "text"
-    case mosaic = "mosaic"
-    case blur = "blur"
-    
+    case redact = "redact"   // unified mosaic/blur
+
     var systemImage: String {
         switch self {
         case .select: return "arrow.up.left.and.arrow.down.right"
@@ -102,11 +102,10 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .rectangle: return "rectangle"
         case .ellipse: return "circle"
         case .text: return "textformat"
-        case .mosaic: return "square.grid.3x3"
-        case .blur: return "circle.lefthalf.filled"
+        case .redact: return "eye.slash"
         }
     }
-    
+
     var displayName: String {
         switch self {
         case .select: return "選択"
@@ -115,33 +114,35 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .rectangle: return "長方形"
         case .ellipse: return "楕円"
         case .text: return "テキスト"
-        case .mosaic: return "モザイク"
-        case .blur: return "ぼかし"
+        case .redact: return "隠す"
         }
     }
-    
+
     var annotationType: AnnotationType? {
         switch self {
-        case .select: return nil
+        case .select, .redact: return nil
         case .line: return .line
         case .arrow: return .arrow
         case .rectangle: return .rectangle
         case .ellipse: return .ellipse
         case .text: return .text
-        case .mosaic: return .mosaic
-        case .blur: return .blur
         }
     }
-    
-    // Whether this tool uses line width (stroke-based tools)
+
     var usesLineWidth: Bool {
         switch self {
-        case .line, .arrow, .rectangle, .ellipse, .text:
-            return true
-        case .select, .mosaic, .blur:
-            return false
+        case .line, .arrow, .rectangle, .ellipse, .text: return true
+        case .select, .redact: return false
         }
     }
+}
+
+enum RedactMode: String, Codable, CaseIterable {
+    case mosaic, blur
+
+    var annotationType: AnnotationType { self == .mosaic ? .mosaic : .blur }
+    var systemImage: String { self == .mosaic ? "square.grid.3x3" : "aqi.medium" }
+    var displayName: String { self == .mosaic ? "モザイク" : "ぼかし" }
 }
 
 // MARK: - Drag State for Drawing
@@ -186,6 +187,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentTool: DrawingTool = .arrow
     @Published var currentColor: AnnotationColor = .red
     @Published var currentLineWidth: LineWidth = .thin
+    @Published var currentRedactMode: RedactMode = .mosaic
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
@@ -193,6 +195,11 @@ final class CanvasViewModel: ObservableObject {
     @Published var textInputRect: CGRect = .zero
     @Published var textInputString = ""
     @Published var selectedAnnotationID: UUID?
+    @Published var isDraggingAnnotation = false
+    // Crop mode
+    @Published var isCropMode = false
+    @Published var cropStart: CGPoint?
+    @Published var cropEnd: CGPoint?
 
     let undoManager = UndoManager()
     private var isUndoing = false
@@ -312,12 +319,20 @@ final class CanvasViewModel: ObservableObject {
             removeAnnotation(id: id)
         }
     }
+
     
     // MARK: - Drawing Actions
     
     func handleDragStart(at point: CGPoint, in canvasRect: CGRect) {
         let localPoint = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
-        
+
+        if isCropMode {
+            dragState.start(at: localPoint)
+            cropStart = localPoint
+            cropEnd = localPoint
+            return
+        }
+
         switch currentTool {
         case .select:
             dragState.start(at: localPoint)
@@ -345,15 +360,21 @@ final class CanvasViewModel: ObservableObject {
     func handleDragUpdate(at point: CGPoint, in canvasRect: CGRect) {
         let localPoint = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
         dragState.update(to: localPoint)
-        
+
+        if isCropMode {
+            cropEnd = localPoint
+            objectWillChange.send()
+            return
+        }
+
         if currentTool == .select, let id = selectedAnnotationID,
            var annotation = annotations.first(where: { $0.id == id }) {
+            isDraggingAnnotation = true
             let newCenter = CGPoint(x: localPoint.x - dragState.dragOffset.width, y: localPoint.y - dragState.dragOffset.height)
             let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
             let deltaX = newCenter.x - bounds.midX
             let deltaY = newCenter.y - bounds.midY
             annotation.applyTransform(CGAffineTransform(translationX: deltaX, y: deltaY))
-            // 直接更新 — undoはdragEnd時に1回だけ登録
             if let index = annotations.firstIndex(where: { $0.id == id }) {
                 annotations[index] = annotation
             }
@@ -364,9 +385,15 @@ final class CanvasViewModel: ObservableObject {
     func handleDragEnd(at point: CGPoint, in canvasRect: CGRect) {
         guard let (start, end) = dragState.end() else { return }
 
+        if isCropMode {
+            cropEnd = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
+            objectWillChange.send()
+            return
+        }
+
         switch currentTool {
         case .select:
-            // ドラッグ全体を1回のundoとして登録
+            isDraggingAnnotation = false
             if let original = dragStartAnnotation,
                let index = annotations.firstIndex(where: { $0.id == original.id }) {
                 let orig = original
@@ -384,6 +411,8 @@ final class CanvasViewModel: ObservableObject {
             dragStartAnnotation = nil
         case .text:
             break
+        case .redact:
+            createAnnotation(type: currentRedactMode.annotationType, from: start, to: end)
         default:
             if let type = currentTool.annotationType {
                 createAnnotation(type: type, from: start, to: end)
@@ -393,7 +422,9 @@ final class CanvasViewModel: ObservableObject {
     }
     
     func handleDragCancel() {
+        isDraggingAnnotation = false
         dragState.cancel()
+        if isCropMode { cropStart = nil; cropEnd = nil }
         objectWillChange.send()
     }
     
@@ -470,7 +501,51 @@ final class CanvasViewModel: ObservableObject {
         showTextInput = false
         textInputString = ""
     }
-    
+
+    // MARK: - Crop
+
+    func enterCropMode() {
+        dragState.cancel()
+        isDraggingAnnotation = false
+        isCropMode = true
+        cropStart = nil
+        cropEnd = nil
+        selectedAnnotationID = nil
+        showTextInput = false
+    }
+
+    func confirmCrop() {
+        defer { cancelCrop() }
+        guard let start = cropStart, let end = cropEnd,
+              let bgImage = backgroundImage,
+              canvasSize.width > 0, canvasSize.height > 0 else { return }
+        let sel = CGRect(
+            x: min(start.x, end.x), y: min(start.y, end.y),
+            width: abs(end.x - start.x), height: abs(end.y - start.y)
+        )
+        guard sel.width > 4, sel.height > 4 else { return }
+        let scaleX = CGFloat(bgImage.width) / canvasSize.width
+        let scaleY = CGFloat(bgImage.height) / canvasSize.height
+        let pixelRect = CGRect(
+            x: sel.minX * scaleX, y: sel.minY * scaleY,
+            width: sel.width * scaleX, height: sel.height * scaleY
+        ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
+        guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
+              let cropped = bgImage.cropping(to: pixelRect) else { return }
+        backgroundImage = cropped
+        annotations.removeAll()
+        selectedAnnotationID = nil
+        undoManager.removeAllActions()
+        updateUndoRedoState()
+        recomputeAllFilterPreviews()
+    }
+
+    func cancelCrop() {
+        isCropMode = false
+        cropStart = nil
+        cropEnd = nil
+    }
+
     // MARK: - Undo/Redo
 
     @Published var canUndo: Bool = false

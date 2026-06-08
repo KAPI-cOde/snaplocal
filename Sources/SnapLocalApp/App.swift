@@ -151,6 +151,15 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     // MARK: - Clipboard
 
+    func pasteFromClipboard() {
+        guard let nsImage = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+              let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            showStatus("クリップボードに画像がありません")
+            return
+        }
+        acceptCapture(cgImage)
+    }
+
     func copyToClipboard() {
         guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage else {
             showStatus("コピーする画像がありません")
@@ -275,8 +284,42 @@ struct CompactToolbar: View {
     let onCaptureRegion: () -> Void
     let onSave: () -> Void
     let onCopy: () -> Void
+    let onPaste: () -> Void
 
     var body: some View {
+        HStack(spacing: 6) {
+            if canvas.isCropMode {
+                cropModeControls
+            } else {
+                normalControls
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+    }
+
+    private var cropModeControls: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "crop")
+                .foregroundStyle(Color.accentColor)
+            Text("切り取りモード — ドラッグで範囲選択")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("確定") { canvas.confirmCrop() }
+                .keyboardShortcut(.return, modifiers: [])
+                .disabled(canvas.cropStart == nil || canvas.cropEnd == nil)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            Button("キャンセル") { canvas.cancelCrop() }
+                .keyboardShortcut(.escape, modifiers: [])
+                .controlSize(.small)
+        }
+    }
+
+    private var normalControls: some View {
         HStack(spacing: 6) {
             Button(action: onCapture) {
                 Image(systemName: "camera.viewfinder")
@@ -289,6 +332,19 @@ struct CompactToolbar: View {
             }
             .help("範囲選択撮影 (⌘⇧4)")
             .keyboardShortcut("4", modifiers: [.command, .shift])
+
+            Button(action: onPaste) {
+                Image(systemName: "doc.on.clipboard.fill")
+            }
+            .help("クリップボードから貼り付け (⌘V)")
+            .keyboardShortcut("v", modifiers: .command)
+
+            Button(action: { canvas.enterCropMode() }) {
+                Image(systemName: "scissors")
+            }
+            .help("画像を切り取り (⌘K)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("k", modifiers: .command)
 
             Button(action: onCopy) {
                 Image(systemName: "doc.on.clipboard")
@@ -312,7 +368,18 @@ struct CompactToolbar: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 264)
+            .frame(width: 240)
+
+            if canvas.currentTool == .redact {
+                Picker("", selection: $canvas.currentRedactMode) {
+                    ForEach(RedactMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 60)
+                .help("モザイク / ぼかし")
+            }
 
             Divider().frame(height: 18)
 
@@ -340,13 +407,14 @@ struct CompactToolbar: View {
             }
 
             Divider().frame(height: 18)
-            
+
             Picker("", selection: $canvas.currentLineWidth) {
                 Text("S").tag(LineWidth.thin)
+                Text("M").tag(LineWidth.medium)
                 Text("L").tag(LineWidth.thick)
             }
             .pickerStyle(.segmented)
-            .frame(width: 52)
+            .frame(width: 76)
             .disabled(!canvas.currentTool.usesLineWidth)
             .opacity(canvas.currentTool.usesLineWidth ? 1.0 : 0.5)
 
@@ -373,10 +441,6 @@ struct CompactToolbar: View {
             .help("削除 (⌫)")
             .keyboardShortcut(.delete, modifiers: [])
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial)
     }
 }
 
@@ -502,7 +566,8 @@ struct ContentView: View {
                 onCapture: state.captureNow,
                 onCaptureRegion: state.captureRegion,
                 onSave: state.saveAnnotatedImage,
-                onCopy: state.copyToClipboard
+                onCopy: state.copyToClipboard,
+                onPaste: state.pasteFromClipboard
             )
             Divider()
             HStack(spacing: 0) {
@@ -541,6 +606,7 @@ struct AnnotationCanvasView: View {
     var onOpenPermissions: (() -> Void)? = nil
 
     @FocusState private var textFieldFocused: Bool
+    @FocusState private var canvasFocused: Bool
 
     var body: some View {
         GeometryReader { proxy in
@@ -575,12 +641,88 @@ struct AnnotationCanvasView: View {
             .onAppear { viewModel.canvasSize = proxy.size }
             .onChange(of: proxy.size) { _, newSize in viewModel.canvasSize = newSize }
             .overlay(textInputOverlay)
+            .focusable()
+            .focused($canvasFocused)
+            // Tool shortcut keys (only when text field not focused)
+            .onKeyPress("v") { if !viewModel.showTextInput { viewModel.currentTool = .select }; return .handled }
+            .onKeyPress("l") { if !viewModel.showTextInput { viewModel.currentTool = .line }; return .handled }
+            .onKeyPress("a") { if !viewModel.showTextInput { viewModel.currentTool = .arrow }; return .handled }
+            .onKeyPress("r") { if !viewModel.showTextInput { viewModel.currentTool = .rectangle }; return .handled }
+            .onKeyPress("e") { if !viewModel.showTextInput { viewModel.currentTool = .ellipse }; return .handled }
+            .onKeyPress("t") { if !viewModel.showTextInput { viewModel.currentTool = .text }; return .handled }
+            .onKeyPress("x") { if !viewModel.showTextInput { viewModel.currentTool = .redact }; return .handled }
+            .onKeyPress("[") {
+                if !viewModel.showTextInput {
+                    let all = LineWidth.allCases
+                    if let i = all.firstIndex(of: viewModel.currentLineWidth), i > 0 { viewModel.currentLineWidth = all[i - 1] }
+                }
+                return .handled
+            }
+            .onKeyPress("]") {
+                if !viewModel.showTextInput {
+                    let all = LineWidth.allCases
+                    if let i = all.firstIndex(of: viewModel.currentLineWidth), i < all.count - 1 { viewModel.currentLineWidth = all[i + 1] }
+                }
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                if viewModel.isCropMode { viewModel.cancelCrop(); return .handled }
+                if viewModel.showTextInput { viewModel.cancelTextInput(); return .handled }
+                if viewModel.selectedAnnotationID != nil {
+                    viewModel.selectedAnnotationID = nil
+                    viewModel.objectWillChange.send()
+                    return .handled
+                }
+                return .ignored
+            }
         }
     }
 
     private func annotationLayer(size: CGSize) -> some View {
         Canvas { context, _ in
             let canvasRect = CGRect(origin: .zero, size: size)
+
+            // Crop mode: draw only the crop selection overlay
+            if viewModel.isCropMode {
+                if let start = viewModel.cropStart, let end = viewModel.cropEnd {
+                    let sel = CGRect(
+                        x: min(start.x, end.x), y: min(start.y, end.y),
+                        width: abs(end.x - start.x), height: abs(end.y - start.y)
+                    )
+                    let dim = Color.black.opacity(0.45)
+                    // Four dark panels around selection
+                    context.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: sel.minY)), with: .color(dim))
+                    context.fill(Path(CGRect(x: 0, y: sel.maxY, width: size.width, height: size.height - sel.maxY)), with: .color(dim))
+                    context.fill(Path(CGRect(x: 0, y: sel.minY, width: sel.minX, height: sel.height)), with: .color(dim))
+                    context.fill(Path(CGRect(x: sel.maxX, y: sel.minY, width: size.width - sel.maxX, height: sel.height)), with: .color(dim))
+                    // Selection border
+                    context.stroke(Path(sel), with: .color(.white), lineWidth: 1.5)
+                    // Rule-of-thirds grid inside selection
+                    let dash = StrokeStyle(lineWidth: 0.5, dash: [4, 3])
+                    for i in [1, 2] {
+                        let x = sel.minX + sel.width * CGFloat(i) / 3
+                        let y = sel.minY + sel.height * CGFloat(i) / 3
+                        var lv = Path(); lv.move(to: CGPoint(x: x, y: sel.minY)); lv.addLine(to: CGPoint(x: x, y: sel.maxY))
+                        var lh = Path(); lh.move(to: CGPoint(x: sel.minX, y: y)); lh.addLine(to: CGPoint(x: sel.maxX, y: y))
+                        context.stroke(lv, with: .color(.white.opacity(0.5)), style: dash)
+                        context.stroke(lh, with: .color(.white.opacity(0.5)), style: dash)
+                    }
+                    // Corner handles
+                    let h: CGFloat = 10
+                    for corner in [CGPoint(x: sel.minX, y: sel.minY), CGPoint(x: sel.maxX, y: sel.minY),
+                                   CGPoint(x: sel.minX, y: sel.maxY), CGPoint(x: sel.maxX, y: sel.maxY)] {
+                        context.fill(Path(CGRect(x: corner.x - h/2, y: corner.y - h/2, width: h, height: h).insetBy(dx: 1, dy: 1)), with: .color(.white))
+                    }
+                } else {
+                    // No selection yet — show a hint
+                    context.fill(Path(canvasRect), with: .color(.black.opacity(0.2)))
+                }
+                return
+            }
+
+            // Normal annotation rendering
+            let beingDragged = viewModel.isDraggingAnnotation ? viewModel.selectedAnnotationID : nil
+
             for annotation in viewModel.annotations {
                 if annotation.type == .text, let text = annotation.textContent {
                     let bounds = annotation.bounds(in: canvasRect)
@@ -597,13 +739,17 @@ struct AnnotationCanvasView: View {
                     }
                 } else if !annotation.hasStrokeRepresentation {
                     let bounds = annotation.bounds(in: canvasRect)
-                    if let preview = viewModel.filterPreviews[annotation.id] {
-                        // Render actual blurred/pixelated preview cropped to annotation bounds
+                    // Show placeholder while dragging (cached preview belongs to old position)
+                    let showPlaceholder = annotation.id == beingDragged
+                    if !showPlaceholder, let preview = viewModel.filterPreviews[annotation.id] {
                         context.draw(Image(decorative: preview, scale: 1.0, orientation: .up), in: bounds)
                     } else {
-                        context.fill(Path(bounds), with: .color(.gray.opacity(0.35)))
-                        context.stroke(Path(bounds), with: .color(.white.opacity(0.6)),
-                                       style: StrokeStyle(lineWidth: 1, dash: [4, 2]))
+                        context.fill(Path(bounds), with: .color(.gray.opacity(0.4)))
+                        context.stroke(Path(bounds), with: .color(.white.opacity(0.7)),
+                                       style: StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
+                        // Label the type
+                        let label = annotation.type == .mosaic ? "⬛" : "⬜"
+                        context.draw(Text(label).font(.system(size: 11)), at: CGPoint(x: bounds.midX, y: bounds.midY))
                     }
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.stroke(Path(bounds.insetBy(dx: -3, dy: -3)), with: .color(.accentColor),
@@ -611,13 +757,16 @@ struct AnnotationCanvasView: View {
                     }
                 } else {
                     let path = annotation.path(in: canvasRect)
+                    let lw = annotation.lineWidth.rawValue
+                    let strokeStyle = StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round)
                     if annotation.id == viewModel.selectedAnnotationID {
-                        context.stroke(path, with: .color(.white), lineWidth: annotation.lineWidth.rawValue + 4)
+                        context.stroke(path, with: .color(.white),
+                                       style: StrokeStyle(lineWidth: lw + 4, lineCap: .round, lineJoin: .round))
                         if annotation.type == .arrow {
                             context.fill(path, with: .color(.white))
                         }
                     }
-                    context.stroke(path, with: .color(annotation.color.color), lineWidth: annotation.lineWidth.rawValue)
+                    context.stroke(path, with: .color(annotation.color.color), style: strokeStyle)
                     if annotation.type == .arrow {
                         context.fill(path, with: .color(annotation.color.color))
                     }
@@ -628,9 +777,12 @@ struct AnnotationCanvasView: View {
                     }
                 }
             }
+
+            // Drawing preview
             if viewModel.dragState.isDrawing,
                let start = viewModel.dragState.startPoint,
-               let end = viewModel.dragState.currentPoint {
+               let end = viewModel.dragState.currentPoint,
+               !viewModel.isCropMode {
                 let previewColor = viewModel.currentColor.color.opacity(0.75)
                 let lw = viewModel.currentLineWidth.rawValue
                 if viewModel.currentTool == .arrow {
@@ -661,7 +813,7 @@ struct AnnotationCanvasView: View {
                     case .line:
                         preview.move(to: start)
                         preview.addLine(to: end)
-                    case .rectangle, .mosaic, .blur:
+                    case .rectangle, .redact:
                         preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                              width: abs(end.x - start.x), height: abs(end.y - start.y)))
                     case .ellipse:
@@ -684,6 +836,7 @@ struct AnnotationCanvasView: View {
                 if viewModel.dragState.isDrawing {
                     viewModel.handleDragUpdate(at: value.location, in: rect)
                 } else {
+                    canvasFocused = true
                     viewModel.handleDragStart(at: value.location, in: rect)
                 }
             }
