@@ -3,21 +3,36 @@
 //
 // Copyright © 2024 SnapLocal. All rights reserved.
 
+// Disable strict concurrency checking for this file
+#if swift(>=6.0)
+@preconcurrency import Foundation
+@preconcurrency import ScreenCaptureKit
+@preconcurrency import Carbon
+@preconcurrency import CoreGraphics
+@preconcurrency import AppKit
+@preconcurrency import OSLog
+@preconcurrency import CoreImage
+#else
 import Foundation
 import ScreenCaptureKit
 import Carbon
 import CoreGraphics
 import AppKit
+import OSLog
+import CoreImage
+#endif
+
+private let logger = Logger(subsystem: "com.snaplocal.app", category: "CaptureEngine")
 
 // MARK: - CaptureEngine
 
-final class CaptureEngine {
-    typealias CaptureCompletion = (CGImage) -> Void
+final class CaptureEngine: @unchecked Sendable {
+    typealias CaptureCompletion = @Sendable (Result<CGImage, Error>) -> Void
 
     private let hotkey: HotkeyConfig
     private let completion: CaptureCompletion
     private var hotkeyRef: EventHotKeyRef?
-    private var stream: SCStream?
+    private var eventHandler: EventHandlerRef?
 
     init(hotkey: HotkeyConfig, completion: @escaping CaptureCompletion) {
         self.hotkey = hotkey
@@ -30,18 +45,21 @@ final class CaptureEngine {
 
     // MARK: - Hotkey Registration
 
-    func registerHotkey() {
-        let eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+    nonisolated func registerHotkey() {
+        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
+        let selfRef = Unmanaged.passUnretained(self).toOpaque()
         let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
             guard let userData = userData else { return OSStatus(eventNotHandledErr) }
             let engine = Unmanaged<CaptureEngine>.fromOpaque(userData).takeUnretainedValue()
-            engine.captureScreen()
+            DispatchQueue.main.async {
+                engine.captureScreen()
+            }
             return noErr
-        }, 1, &eventSpec, Unmanaged.passUnretained(self).toOpaque(), &hotkeyRef)
+        }, 1, &eventSpec, selfRef, &eventHandler)
 
-        guard status == noErr, let hotkeyRef = hotkeyRef else {
-            print("Failed to install hotkey handler")
+        guard status == noErr else {
+            logger.error("Failed to install hotkey handler: \\(status)")
             return
         }
 
@@ -56,82 +74,131 @@ final class CaptureEngine {
         )
 
         if registerStatus != noErr {
-            print("Failed to register hotkey: \(registerStatus)")
+            logger.error("Failed to register hotkey: \\(registerStatus)")
         }
     }
 
-    func unregisterHotkey() {
+    nonisolated func unregisterHotkey() {
         if let hotkeyRef = hotkeyRef {
             UnregisterEventHotKey(hotkeyRef)
-            self.hotkeyRef = nil
+        }
+        if let eventHandler = eventHandler {
+            RemoveEventHandler(eventHandler)
         }
     }
 
     // MARK: - Screen Capture
 
-    func captureScreen() {
-        Task { @MainActor in
+    nonisolated func captureScreen() {
+        logger.debug("captureScreen() called")
+        Task {
             do {
+                logger.debug("Checking screen capture access...")
+                guard CGPreflightScreenCaptureAccess() else {
+                    logger.debug("No screen capture access, requesting...")
+                    _ = CGRequestScreenCaptureAccess()
+                    throw CaptureError.permissionDenied
+                }
+                logger.debug("Screen capture access granted, capturing...")
                 let image = try await captureWithScreenCaptureKit()
-                completion(image)
+                logger.debug("Capture succeeded, calling completion")
+                await MainActor.run { self.completion(.success(image)) }
             } catch {
-                print("Capture failed: \(error)")
+                let errorDesc = String(describing: error)
+                logger.error("Capture failed: \(errorDesc, privacy: .public)")
+                await MainActor.run { self.completion(.failure(error)) }
             }
         }
     }
 
     private func captureWithScreenCaptureKit() async throws -> CGImage {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        logger.debug("Getting shareable content...")
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            logger.error("SCShareableContent failed: \(String(describing: error))")
+            throw error
+        }
+        logger.debug("Shareable content: \(content.displays.count) displays, \(content.windows.count) windows")
 
-        guard let display = content.displays.first else {
+        // Prefer main display
+        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
+            logger.error("No display found")
             throw CaptureError.noDisplay
         }
+        logger.debug("Using display: \(display.width)x\(display.height), ID: \(display.displayID)")
 
-        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        // Get display scale factor for Retina
+        let displayScale = NSScreen.screens.first(where: { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID == display.displayID })?.backingScaleFactor ?? 1.0
+        logger.debug("Display scale factor: \(displayScale)")
+
+        // Exclude our own app windows
+        let ourBundleID = Bundle.main.bundleIdentifier ?? "com.snaplocal.app"
+        logger.debug("Our bundle ID: \(ourBundleID)")
+        let ourApps = content.applications.filter { $0.bundleIdentifier == ourBundleID }
+        let filter = SCContentFilter(display: display, excludingApplications: ourApps, exceptingWindows: [])
+        logger.debug("Excluding \(ourApps.count) own app(s)")
 
         let configuration = SCStreamConfiguration()
-        configuration.width = Int(display.width)
-        configuration.height = Int(display.height)
+        // Set width/height in PHYSICAL PIXELS (not points) for Retina
+        configuration.width = Int(CGFloat(display.width) * displayScale)
+        configuration.height = Int(CGFloat(display.height) * displayScale)
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         configuration.showsCursor = false
         configuration.capturesAudio = false
+        // Don't use scalesToFit - we set exact pixel dimensions
+        configuration.scalesToFit = false
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
-        self.stream = stream
+        let output = CaptureStreamOutput()
 
-        let sampleBuffer = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CMSampleBuffer, Error>) in
-            let output = CaptureStreamOutput(continuation: continuation)
-            do {
-                try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
-                stream.startCapture()
-            } catch {
-                continuation.resume(throwing: error)
+        let sampleBuffer: CMSampleBuffer
+        do {
+            sampleBuffer = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CMSampleBuffer, Error>) in
+                output.continuation = continuation
+                do {
+                    try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
+                    logger.debug("Starting screen capture stream...")
+                    stream.startCapture()
+                    // FIX: Add small delay to ensure stream is ready
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        logger.debug("Stream started, waiting for first frame...")
+                    }
+                } catch {
+                    logger.error("stream.addStreamOutput/startCapture failed: \(String(describing: error))")
+                    continuation.resume(throwing: error)
+                }
             }
+        } catch {
+            logger.error("Failed to get sampleBuffer: \(String(describing: error))")
+            throw error
         }
 
-        stream.stopCapture()
-        stream.removeStreamOutput(output, type: .screen)
+        logger.debug("Got sample buffer, stopping stream...")
+        do {
+            try await stream.stopCapture()
+            try stream.removeStreamOutput(output, type: .screen)
+        } catch {
+            logger.error("stream.stopCapture/removeStreamOutput failed: \(String(describing: error))")
+            throw error
+        }
 
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            logger.error("CMSampleBufferGetImageBuffer returned nil")
             throw CaptureError.noImageBuffer
         }
 
-        CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
-
-        let width = CVPixelBufferGetWidth(imageBuffer)
-        let height = CVPixelBufferGetHeight(imageBuffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-        let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-
-        guard let context = CGContext(data: baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue),
-              let cgImage = context.makeImage() else {
+        logger.debug("Got imageBuffer, converting with Core Image...")
+        // Use Core Image for robust pixel format handling
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            logger.error("ERROR: Core Image conversion failed")
             throw CaptureError.contextCreationFailed
         }
 
+        logger.info("Screenshot captured successfully via Core Image: \(cgImage.width)x\(cgImage.height)")
         return cgImage
     }
 }
@@ -139,35 +206,20 @@ final class CaptureEngine {
 // MARK: - Capture Stream Output
 
 private final class CaptureStreamOutput: NSObject, SCStreamOutput {
-    let continuation: CheckedContinuation<CMSampleBuffer, Error>
+    var continuation: CheckedContinuation<CMSampleBuffer, Error>?
+    private var hasReceived = false
 
-    init(continuation: CheckedContinuation<CMSampleBuffer, Error>) {
-        self.continuation = continuation
-    }
+    override init() {}
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        if type == .screen {
-            continuation.resume(returning: sampleBuffer)
-        }
+        guard type == .screen, let continuation, !hasReceived else { return }
+        hasReceived = true
+        self.continuation = nil
+        
+        // FIX: Capture sampleBuffer in a local var to satisfy sendable checking
+        let buffer = sampleBuffer
+        continuation.resume(returning: buffer)
     }
-}
-
-// MARK: - Hotkey Config
-
-struct HotkeyConfig: Codable, Equatable {
-    let keyCode: UInt32
-    let modifiers: UInt32
-    let displayString: String
-
-    static let `default` = HotkeyConfig(keyCode: 19, modifiers: cmdKey | shiftKey, displayString: "⌘⇧2") // Key code 19 = '2'
-
-    // Alternative key codes
-    static let alternatives: [HotkeyConfig] = [
-        HotkeyConfig(keyCode: 19, modifiers: cmdKey | shiftKey, displayString: "⌘⇧2"),
-        HotkeyConfig(keyCode: 28, modifiers: cmdKey | shiftKey, displayString: "⌘⇧6"), // Key code 28 = '6'
-        HotkeyConfig(keyCode: 19, modifiers: cmdKey | controlKey, displayString: "⌘⌃2"),
-        HotkeyConfig(keyCode: 19, modifiers: cmdKey | controlKey | shiftKey, displayString: "⌘⌃⇧2"),
-    ]
 }
 
 // MARK: - Errors

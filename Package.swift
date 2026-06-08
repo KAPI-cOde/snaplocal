@@ -46,5 +46,9 @@ let package = Package(
             name: "SnapLocalCLI",
             dependencies: ["SnapLocalCore"],
             path: "Sources/SnapLocalCLI"),
+        .testTarget(
+            name: "SnapLocalTests",
+            dependencies: ["SnapLocalCore"],
+            path: "Tests/SnapLocalTests"),
     ]
 )
