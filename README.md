@@ -49,11 +49,15 @@ The save directory can be pointed at a Google Drive folder or any local path —
 
 ```
 Sources/
-  SnapLocalApp/       # macOS GUI app (SwiftUI)
-  SnapLocalCore/      # shared capture and storage logic (library)
-  SnapLocalCLI/       # minimal command-line interface
+  SnapLocalApp/       # macOS GUI app (SwiftUI + ScreenCaptureKit + Vision)
+    App.swift                 # main view, state management
+    CaptureEngine.swift       # full-screen and region capture
+    RegionCapture.swift       # area-selection overlay
+    PersistentVault.swift     # disk storage + OCR indexing
+    AnnotationCanvas.swift    # annotation canvas and tools
+    Settings.swift            # user preferences
 Tests/
-  SnapLocalTests/     # unit tests for SnapLocalCore
+  SnapLocalTests/     # unit tests
 ```
 
 ## Roadmap
