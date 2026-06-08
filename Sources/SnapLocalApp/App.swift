@@ -349,6 +349,7 @@ struct CompactToolbar: View {
     let onCopy: () -> Void
     let onPaste: () -> Void
     @State private var showHelp = false
+    @State private var showSettings = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -561,6 +562,15 @@ struct CompactToolbar: View {
             .help("ショートカットキー一覧")
             .popover(isPresented: $showHelp, arrowEdge: .bottom) {
                 HelpPopoverContent()
+            }
+
+            Button(action: { showSettings.toggle() }) {
+                Image(systemName: "gearshape")
+            }
+            .help("設定 (⌘,)")
+            .keyboardShortcut(",", modifiers: .command)
+            .sheet(isPresented: $showSettings) {
+                SettingsSheet()
             }
         }
     }
@@ -794,6 +804,90 @@ struct HelpPopoverContent: View {
             .padding(12)
         }
         .frame(width: 280, height: 380)
+    }
+}
+
+// MARK: - Settings Sheet
+
+struct SettingsSheet: View {
+    @StateObject private var settings = SettingsManager.shared
+    @State private var saveDirectoryPath: String = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("設定")
+                    .font(.headline)
+                Spacer()
+                Button("閉じる") { dismiss() }
+                    .keyboardShortcut(.escape)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            Form {
+                Section("保存先") {
+                    HStack {
+                        Text(saveDirectoryPath)
+                            .font(.system(.caption, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("変更…") { chooseSaveDirectory() }
+                            .controlSize(.small)
+                    }
+                }
+
+                Section("ホットキー") {
+                    Picker("全画面撮影", selection: Binding(
+                        get: { settings.hotkeyConfig },
+                        set: { settings.hotkeyConfig = $0 }
+                    )) {
+                        ForEach(settings.availableHotkeys, id: \.displayString) { h in
+                            Text(h.displayString).tag(h)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                Section("通知") {
+                    Toggle("撮影完了を通知する", isOn: Binding(
+                        get: { settings.notificationsEnabled },
+                        set: { settings.notificationsEnabled = $0 }
+                    ))
+                }
+
+                if #available(macOS 13.0, *) {
+                    Section("起動") {
+                        Toggle("ログイン時に起動", isOn: Binding(
+                            get: { settings.launchAtLogin },
+                            set: { settings.launchAtLogin = $0 }
+                        ))
+                    }
+                }
+            }
+            .formStyle(.grouped)
+        }
+        .frame(width: 380)
+        .onAppear { saveDirectoryPath = settings.saveDirectoryURL.path }
+    }
+
+    private func chooseSaveDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "選択"
+        panel.message = "スクリーンショットの保存先を選択してください"
+        panel.directoryURL = settings.saveDirectoryURL
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.saveDirectoryURL = url
+            saveDirectoryPath = url.path
+        }
     }
 }
 

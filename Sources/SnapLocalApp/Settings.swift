@@ -124,7 +124,7 @@ final class SettingsManager: ObservableObject {
 
 // MARK: - Hotkey Config (shared with CaptureEngine)
 
-struct HotkeyConfig: Codable, Equatable {
+struct HotkeyConfig: Codable, Equatable, Hashable {
     let keyCode: UInt32
     let modifiers: UInt32
     let displayString: String
