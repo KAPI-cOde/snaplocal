@@ -726,6 +726,34 @@ struct HistoryRail: View {
 
 // MARK: - Hint Row
 
+// MARK: - Scroll Wheel Zoom/Pan Helper
+
+struct ScrollWheelHandler: NSViewRepresentable {
+    let onScroll: (CGFloat, CGFloat, Bool) -> Void  // dx, dy, isCommandDown
+
+    func makeNSView(context: Context) -> NSView {
+        let view = ScrollableNSView()
+        view.onScroll = onScroll
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? ScrollableNSView)?.onScroll = onScroll
+    }
+
+    class ScrollableNSView: NSView {
+        var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?
+
+        override var acceptsFirstResponder: Bool { false }
+
+        override func scrollWheel(with event: NSEvent) {
+            let cmd = event.modifierFlags.contains(.command)
+            onScroll?(event.scrollingDeltaX, event.scrollingDeltaY, cmd)
+            if !cmd { super.scrollWheel(with: event) }
+        }
+    }
+}
+
 struct HintRow: View {
     let key: String
     let label: String
@@ -1126,6 +1154,22 @@ struct AnnotationCanvasView: View {
             .onAppear { viewModel.canvasSize = proxy.size }
             .onChange(of: proxy.size) { _, newSize in viewModel.canvasSize = newSize }
             .overlay(textInputOverlay)
+            .overlay(
+                ScrollWheelHandler { dx, dy, isCmd in
+                    if isCmd {
+                        // ⌘+scroll → zoom
+                        let factor = 1.0 + dy * 0.02
+                        zoom = max(0.25, min(8.0, zoom * factor))
+                        baseZoom = zoom
+                    } else {
+                        // scroll → pan
+                        panOffset = CGSize(width: basePan.width - dx, height: basePan.height - dy)
+                        basePan = panOffset
+                    }
+                }
+                .allowsHitTesting(true)
+                .opacity(0)
+            )
             .overlay(alignment: .topTrailing) {
                 if abs(zoom - 1.0) > 0.01 {
                     Text("\(Int(zoom * 100))%")
