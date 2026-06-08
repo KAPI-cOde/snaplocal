@@ -211,6 +211,11 @@ final class CanvasViewModel: ObservableObject {
     private var editingAnnotationID: UUID? = nil
     @Published var selectedAnnotationID: UUID?
     @Published var isDraggingAnnotation = false
+    // Multi-selection
+    @Published var selectedAnnotationIDs: Set<UUID> = []
+    @Published var rubberBandRect: CGRect? = nil
+    private var isRubberBanding = false
+    private var multiDragStartPositions: [UUID: CGAffineTransform] = [:]
     // Resize handles
     var resizingHandleIndex: Int? = nil          // 0=TL 1=TR 2=BL 3=BR
     var resizingStartBounds: CGRect? = nil
@@ -225,30 +230,34 @@ final class CanvasViewModel: ObservableObject {
     private var dragStartAnnotation: AnyAnnotation? = nil
 
     func applyCurrentColorToSelection() {
-        guard let id = selectedAnnotationID,
-              var ann = annotations.first(where: { $0.id == id }),
-              ann.hasStrokeRepresentation,
-              ann.color != currentColor else { return }
-        ann.color = currentColor
-        updateAnnotation(ann)
+        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        for id in ids {
+            guard var ann = annotations.first(where: { $0.id == id }),
+                  ann.hasStrokeRepresentation, ann.color != currentColor else { continue }
+            ann.color = currentColor
+            updateAnnotation(ann)
+        }
     }
 
     func applyCurrentLineWidthToSelection() {
-        guard let id = selectedAnnotationID,
-              var ann = annotations.first(where: { $0.id == id }),
-              ann.hasStrokeRepresentation,
-              ann.lineWidth != currentLineWidth else { return }
-        ann.lineWidth = currentLineWidth
-        updateAnnotation(ann)
+        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        for id in ids {
+            guard var ann = annotations.first(where: { $0.id == id }),
+                  ann.hasStrokeRepresentation, ann.lineWidth != currentLineWidth else { continue }
+            ann.lineWidth = currentLineWidth
+            updateAnnotation(ann)
+        }
     }
 
     func applyCurrentFilledToSelection() {
-        guard let id = selectedAnnotationID,
-              var ann = annotations.first(where: { $0.id == id }),
-              (ann.type == .rectangle || ann.type == .ellipse),
-              ann.isFilled != currentFilled else { return }
-        ann.isFilled = currentFilled
-        updateAnnotation(ann)
+        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        for id in ids {
+            guard var ann = annotations.first(where: { $0.id == id }),
+                  (ann.type == .rectangle || ann.type == .ellipse || ann.type == .roundedRect),
+                  ann.isFilled != currentFilled else { continue }
+            ann.isFilled = currentFilled
+            updateAnnotation(ann)
+        }
     }
     // Cached CoreImage previews for mosaic/blur annotations (view-space bounds → filtered CGImage)
     var filterPreviews: [UUID: CGImage] = [:]
@@ -367,6 +376,7 @@ final class CanvasViewModel: ObservableObject {
                     return
                 }
                 selectedAnnotationID = annotation.id
+                selectedAnnotationIDs = [annotation.id]
                 if annotation.hasStrokeRepresentation {
                     currentColor = annotation.color
                     currentLineWidth = annotation.lineWidth
@@ -380,11 +390,30 @@ final class CanvasViewModel: ObservableObject {
                 return
             }
         }
-        if !pickStyleOnly { selectedAnnotationID = nil }
+        if !pickStyleOnly {
+            selectedAnnotationID = nil
+            selectedAnnotationIDs = []
+        }
     }
     
     func deleteSelectedAnnotation() {
-        if let id = selectedAnnotationID {
+        if selectedAnnotationIDs.count > 1 {
+            // Multi-delete
+            let ids = selectedAnnotationIDs
+            let snapshot = annotations
+            undoManager.registerUndo(withTarget: self) { target in
+                target.isUndoing = true
+                target.annotations = snapshot
+                target.isUndoing = false
+                target.recomputeAllFilterPreviews()
+                target.updateUndoRedoState()
+            }
+            annotations.removeAll { ids.contains($0.id) }
+            ids.forEach { filterPreviews.removeValue(forKey: $0) }
+            selectedAnnotationIDs = []
+            selectedAnnotationID = nil
+            updateUndoRedoState()
+        } else if let id = selectedAnnotationID {
             removeAnnotation(id: id)
         }
     }
@@ -421,6 +450,7 @@ final class CanvasViewModel: ObservableObject {
         annotations.removeAll()
         filterPreviews.removeAll()
         selectedAnnotationID = nil
+        selectedAnnotationIDs = []
         updateUndoRedoState()
         objectWillChange.send()
     }
@@ -471,8 +501,9 @@ final class CanvasViewModel: ObservableObject {
 
         switch currentTool {
         case .select:
-            // Check resize handles first
+            // Check resize handles first (single selection only)
             if let id = selectedAnnotationID,
+               selectedAnnotationIDs.count <= 1,
                let ann = annotations.first(where: { $0.id == id }),
                Self.isResizable(ann.type) {
                 let bounds = ann.bounds(in: CGRect(origin: .zero, size: canvasSize))
@@ -491,7 +522,36 @@ final class CanvasViewModel: ObservableObject {
                 selectAnnotation(at: localPoint, pickStyleOnly: true)
                 return
             }
+
+            // Shift+click: toggle annotation in multi-selection
+            if NSEvent.modifierFlags.contains(.shift) {
+                let canvasRect = CGRect(origin: .zero, size: canvasSize)
+                if let ann = annotations.reversed().first(where: { $0.hitTest(localPoint, in: canvasRect) }) {
+                    if selectedAnnotationIDs.contains(ann.id) {
+                        selectedAnnotationIDs.remove(ann.id)
+                        selectedAnnotationID = selectedAnnotationIDs.first
+                    } else {
+                        selectedAnnotationIDs.insert(ann.id)
+                        selectedAnnotationID = ann.id
+                    }
+                }
+                objectWillChange.send()
+                return
+            }
+
             dragState.start(at: localPoint)
+            // Hit-test: if nothing hit, start rubber-band selection
+            let canvasRect = CGRect(origin: .zero, size: canvasSize)
+            let hitAnn = annotations.reversed().first(where: { $0.hitTest(localPoint, in: canvasRect) })
+            if hitAnn == nil {
+                isRubberBanding = true
+                rubberBandRect = CGRect(x: localPoint.x, y: localPoint.y, width: 0, height: 0)
+                selectedAnnotationID = nil
+                selectedAnnotationIDs = []
+                objectWillChange.send()
+                return
+            }
+
             selectAnnotation(at: localPoint)
             if let id = selectedAnnotationID,
                let index = annotations.firstIndex(where: { $0.id == id }) {
@@ -499,6 +559,16 @@ final class CanvasViewModel: ObservableObject {
                 dragStartAnnotation = annotation
                 let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
                 dragState.dragOffset = CGSize(width: localPoint.x - bounds.midX, height: localPoint.y - bounds.midY)
+                // If this annotation is part of multi-selection, store all start transforms
+                if selectedAnnotationIDs.count > 1 && selectedAnnotationIDs.contains(id) {
+                    multiDragStartPositions = Dictionary(uniqueKeysWithValues:
+                        annotations.filter { selectedAnnotationIDs.contains($0.id) }
+                            .map { ($0.id, $0.transform) }
+                    )
+                } else {
+                    selectedAnnotationIDs = [id]
+                    multiDragStartPositions = [:]
+                }
             }
         case .text:
             dragState.start(at: localPoint)
@@ -552,6 +622,15 @@ final class CanvasViewModel: ObservableObject {
         }
 
         if currentTool == .select {
+            // Rubber-band update
+            if isRubberBanding, let start = dragState.startPoint {
+                let minX = min(start.x, localPoint.x), maxX = max(start.x, localPoint.x)
+                let minY = min(start.y, localPoint.y), maxY = max(start.y, localPoint.y)
+                rubberBandRect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+                objectWillChange.send()
+                return
+            }
+
             // Resize mode
             if let handleIdx = resizingHandleIndex,
                let id = selectedAnnotationID,
@@ -611,6 +690,19 @@ final class CanvasViewModel: ObservableObject {
         switch currentTool {
         case .select:
             isDraggingAnnotation = false
+            // Rubber-band selection finalize
+            if isRubberBanding {
+                isRubberBanding = false
+                if let band = rubberBandRect, band.width > 4 || band.height > 4 {
+                    let canvasRect = CGRect(origin: .zero, size: canvasSize)
+                    let hits = annotations.filter { $0.bounds(in: canvasRect).intersects(band) }
+                    selectedAnnotationIDs = Set(hits.map { $0.id })
+                    selectedAnnotationID = hits.last?.id
+                }
+                rubberBandRect = nil
+                objectWillChange.send()
+                return
+            }
             let wasResizing = resizingHandleIndex != nil
             resizingHandleIndex = nil
             resizingStartBounds = nil

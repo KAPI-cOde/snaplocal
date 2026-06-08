@@ -1350,8 +1350,18 @@ struct AnnotationCanvasView: View {
                 }
             }
 
-            // Resize handles for selected resizable annotation
+            // Multi-selection outlines
+            if viewModel.selectedAnnotationIDs.count > 1 {
+                for ann in viewModel.annotations where viewModel.selectedAnnotationIDs.contains(ann.id) {
+                    let bounds = ann.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
+                    context.stroke(Path(bounds), with: .color(.accentColor.opacity(0.7)),
+                                   style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
+            }
+
+            // Resize handles for selected resizable annotation (single select only)
             if viewModel.currentTool == .select,
+               viewModel.selectedAnnotationIDs.count <= 1,
                let id = viewModel.selectedAnnotationID,
                let ann = viewModel.annotations.first(where: { $0.id == id }),
                CanvasViewModel.isResizable(ann.type) {
@@ -1361,6 +1371,13 @@ struct AnnotationCanvasView: View {
                     context.fill(Path(ellipseIn: r), with: .color(.white))
                     context.stroke(Path(ellipseIn: r), with: .color(.accentColor), lineWidth: 1.5)
                 }
+            }
+
+            // Rubber-band selection rectangle
+            if let band = viewModel.rubberBandRect {
+                context.fill(Path(band), with: .color(.accentColor.opacity(0.1)))
+                context.stroke(Path(band), with: .color(.accentColor),
+                               style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
             }
 
             // Drawing preview
