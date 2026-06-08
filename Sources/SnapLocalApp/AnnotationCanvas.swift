@@ -45,6 +45,8 @@ enum AnnotationType: String, Codable, CaseIterable {
     case text = "text"
     case mosaic = "mosaic"
     case blur = "blur"
+    case step = "step"
+    case roundedRect = "roundedRect"
 }
 
 enum AnnotationColor: String, Codable, CaseIterable {
@@ -92,6 +94,8 @@ enum DrawingTool: String, Codable, CaseIterable {
     case rectangle = "rectangle"
     case ellipse = "ellipse"
     case text = "text"
+    case step = "step"
+    case roundedRect = "roundedRect"
     case redact = "redact"   // unified mosaic/blur
 
     var systemImage: String {
@@ -102,6 +106,8 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .rectangle: return "rectangle"
         case .ellipse: return "circle"
         case .text: return "textformat"
+        case .step: return "number.circle"
+        case .roundedRect: return "rectangle.roundedtop"
         case .redact: return "eye.slash"
         }
     }
@@ -114,6 +120,8 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .rectangle: return "長方形"
         case .ellipse: return "楕円"
         case .text: return "テキスト"
+        case .step: return "ステップ"
+        case .roundedRect: return "角丸"
         case .redact: return "隠す"
         }
     }
@@ -126,12 +134,14 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .rectangle: return .rectangle
         case .ellipse: return .ellipse
         case .text: return .text
+        case .step: return .step
+        case .roundedRect: return .roundedRect
         }
     }
 
     var usesLineWidth: Bool {
         switch self {
-        case .line, .arrow, .rectangle, .ellipse, .text: return true
+        case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect: return true
         case .select, .redact: return false
         }
     }
@@ -188,14 +198,23 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentColor: AnnotationColor = .red
     @Published var currentLineWidth: LineWidth = .thin
     @Published var currentRedactMode: RedactMode = .mosaic
+    @Published var currentMosaicScale: Float = 12
+    @Published var currentBlurRadius: Float = 20
+    @Published var currentFontSize: CGFloat = 18
+    @Published var currentFilled: Bool = false
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
     @Published var showTextInput = false
     @Published var textInputRect: CGRect = .zero
     @Published var textInputString = ""
+    private var editingAnnotationID: UUID? = nil
     @Published var selectedAnnotationID: UUID?
     @Published var isDraggingAnnotation = false
+    // Resize handles
+    var resizingHandleIndex: Int? = nil          // 0=TL 1=TR 2=BL 3=BR
+    var resizingStartBounds: CGRect? = nil
+    var resizingStartTransform: CGAffineTransform? = nil
     // Crop mode
     @Published var isCropMode = false
     @Published var cropStart: CGPoint?
@@ -204,6 +223,33 @@ final class CanvasViewModel: ObservableObject {
     let undoManager = UndoManager()
     private var isUndoing = false
     private var dragStartAnnotation: AnyAnnotation? = nil
+
+    func applyCurrentColorToSelection() {
+        guard let id = selectedAnnotationID,
+              var ann = annotations.first(where: { $0.id == id }),
+              ann.hasStrokeRepresentation,
+              ann.color != currentColor else { return }
+        ann.color = currentColor
+        updateAnnotation(ann)
+    }
+
+    func applyCurrentLineWidthToSelection() {
+        guard let id = selectedAnnotationID,
+              var ann = annotations.first(where: { $0.id == id }),
+              ann.hasStrokeRepresentation,
+              ann.lineWidth != currentLineWidth else { return }
+        ann.lineWidth = currentLineWidth
+        updateAnnotation(ann)
+    }
+
+    func applyCurrentFilledToSelection() {
+        guard let id = selectedAnnotationID,
+              var ann = annotations.first(where: { $0.id == id }),
+              (ann.type == .rectangle || ann.type == .ellipse),
+              ann.isFilled != currentFilled else { return }
+        ann.isFilled = currentFilled
+        updateAnnotation(ann)
+    }
     // Cached CoreImage previews for mosaic/blur annotations (view-space bounds → filtered CGImage)
     var filterPreviews: [UUID: CGImage] = [:]
     private let ciPreviewCtx = CIContext(options: [.useSoftwareRenderer: false])
@@ -276,6 +322,9 @@ final class CanvasViewModel: ObservableObject {
                 undoManager.registerUndo(withTarget: self) { target in
                     target.isUndoing = true
                     target.annotations.insert(annotation, at: index)
+                    if !annotation.hasStrokeRepresentation {
+                        target.updateFilterPreview(for: annotation)
+                    }
                     target.isUndoing = false
                 }
             }
@@ -304,20 +353,107 @@ final class CanvasViewModel: ObservableObject {
         }
     }
     
-    func selectAnnotation(at point: CGPoint) {
-        // Check from top to bottom (last added = topmost)
+    func selectAnnotation(at point: CGPoint, pickStyleOnly: Bool = false) {
         for annotation in annotations.reversed() {
             if annotation.hitTest(point, in: CGRect(origin: .zero, size: canvasSize)) {
+                if pickStyleOnly {
+                    if annotation.hasStrokeRepresentation {
+                        currentColor = annotation.color
+                        currentLineWidth = annotation.lineWidth
+                    }
+                    if annotation.type == .text, let fs = annotation.textFontSize {
+                        currentFontSize = fs
+                    }
+                    return
+                }
                 selectedAnnotationID = annotation.id
+                if annotation.hasStrokeRepresentation {
+                    currentColor = annotation.color
+                    currentLineWidth = annotation.lineWidth
+                }
+                if annotation.type == .text, let fs = annotation.textFontSize {
+                    currentFontSize = fs
+                }
+                if annotation.type == .rectangle || annotation.type == .ellipse || annotation.type == .roundedRect {
+                    currentFilled = annotation.isFilled
+                }
                 return
             }
         }
-        selectedAnnotationID = nil    }
+        if !pickStyleOnly { selectedAnnotationID = nil }
+    }
     
     func deleteSelectedAnnotation() {
         if let id = selectedAnnotationID {
             removeAnnotation(id: id)
         }
+    }
+
+    static func isResizable(_ type: AnnotationType) -> Bool {
+        [.rectangle, .ellipse, .mosaic, .blur, .text, .step, .roundedRect].contains(type)
+    }
+
+    func handleCorners(for bounds: CGRect) -> [CGPoint] {
+        [CGPoint(x: bounds.minX, y: bounds.minY),   // 0 TL
+         CGPoint(x: bounds.maxX, y: bounds.minY),   // 1 TR
+         CGPoint(x: bounds.minX, y: bounds.maxY),   // 2 BL
+         CGPoint(x: bounds.maxX, y: bounds.maxY)]   // 3 BR
+    }
+
+    func hitTestHandle(at point: CGPoint, corners: [CGPoint]) -> Int? {
+        let r: CGFloat = 8
+        for (i, c) in corners.enumerated() {
+            if abs(point.x - c.x) <= r && abs(point.y - c.y) <= r { return i }
+        }
+        return nil
+    }
+
+    func clearAllAnnotations() {
+        guard !annotations.isEmpty else { return }
+        let snapshot = annotations
+        undoManager.registerUndo(withTarget: self) { target in
+            target.isUndoing = true
+            target.annotations = snapshot
+            target.isUndoing = false
+            target.recomputeAllFilterPreviews()
+            target.updateUndoRedoState()
+        }
+        annotations.removeAll()
+        filterPreviews.removeAll()
+        selectedAnnotationID = nil
+        updateUndoRedoState()
+        objectWillChange.send()
+    }
+
+    func duplicateSelectedAnnotation() {
+        guard let id = selectedAnnotationID,
+              let annotation = annotations.first(where: { $0.id == id }),
+              let data = try? JSONEncoder().encode(annotation),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        json["id"] = UUID().uuidString
+        guard let newData = try? JSONSerialization.data(withJSONObject: json),
+              var newAnnotation = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) else { return }
+        newAnnotation.applyTransform(CGAffineTransform(translationX: 10, y: 10))
+        addAnnotation(newAnnotation)
+        selectedAnnotationID = newAnnotation.id
+    }
+
+    func bringSelectedToFront() {
+        guard let id = selectedAnnotationID,
+              let i = annotations.firstIndex(where: { $0.id == id }),
+              i < annotations.count - 1 else { return }
+        let a = annotations.remove(at: i)
+        annotations.append(a)
+        objectWillChange.send()
+    }
+
+    func sendSelectedToBack() {
+        guard let id = selectedAnnotationID,
+              let i = annotations.firstIndex(where: { $0.id == id }),
+              i > 0 else { return }
+        let a = annotations.remove(at: i)
+        annotations.insert(a, at: 0)
+        objectWillChange.send()
     }
 
     
@@ -335,6 +471,26 @@ final class CanvasViewModel: ObservableObject {
 
         switch currentTool {
         case .select:
+            // Check resize handles first
+            if let id = selectedAnnotationID,
+               let ann = annotations.first(where: { $0.id == id }),
+               Self.isResizable(ann.type) {
+                let bounds = ann.bounds(in: CGRect(origin: .zero, size: canvasSize))
+                let corners = handleCorners(for: bounds)
+                if let h = hitTestHandle(at: localPoint, corners: corners) {
+                    dragState.start(at: localPoint)
+                    resizingHandleIndex = h
+                    resizingStartBounds = bounds
+                    resizingStartTransform = ann.transform
+                    dragStartAnnotation = ann
+                    return
+                }
+            }
+
+            if NSEvent.modifierFlags.contains(.option) {
+                selectAnnotation(at: localPoint, pickStyleOnly: true)
+                return
+            }
             dragState.start(at: localPoint)
             selectAnnotation(at: localPoint)
             if let id = selectedAnnotationID,
@@ -346,7 +502,7 @@ final class CanvasViewModel: ObservableObject {
             }
         case .text:
             dragState.start(at: localPoint)
-            let textW: CGFloat = 240, textH: CGFloat = 40
+            let textW: CGFloat = 240, textH: CGFloat = currentFontSize * 2.2
             let tx = min(max(localPoint.x, 0), max(canvasSize.width - textW, 0))
             let ty = min(max(localPoint.y, 0), max(canvasSize.height - textH, 0))
             textInputRect = CGRect(x: tx, y: ty, width: textW, height: textH)
@@ -357,8 +513,36 @@ final class CanvasViewModel: ObservableObject {
         }
     }
     
+    private func shiftConstrainedPoint(_ end: CGPoint, from start: CGPoint) -> CGPoint {
+        let dx = end.x - start.x, dy = end.y - start.y
+        let angle = atan2(abs(dy), abs(dx))
+        if angle < .pi / 8 {
+            return CGPoint(x: end.x, y: start.y)
+        } else if angle < 3 * .pi / 8 {
+            let side = min(abs(dx), abs(dy))
+            return CGPoint(x: start.x + (dx < 0 ? -side : side), y: start.y + (dy < 0 ? -side : side))
+        } else {
+            return CGPoint(x: start.x, y: end.y)
+        }
+    }
+
     func handleDragUpdate(at point: CGPoint, in canvasRect: CGRect) {
-        let localPoint = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
+        var localPoint = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
+
+        if NSEvent.modifierFlags.contains(.shift), let start = dragState.startPoint {
+            switch currentTool {
+            case .line, .arrow:
+                localPoint = shiftConstrainedPoint(localPoint, from: start)
+            case .rectangle, .ellipse, .redact, .roundedRect:
+                // Lock to square/circle by using the smaller dimension
+                let dx = localPoint.x - start.x, dy = localPoint.y - start.y
+                let side = min(abs(dx), abs(dy))
+                localPoint = CGPoint(x: start.x + (dx < 0 ? -side : side),
+                                     y: start.y + (dy < 0 ? -side : side))
+            default: break
+            }
+        }
+
         dragState.update(to: localPoint)
 
         if isCropMode {
@@ -367,16 +551,49 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
-        if currentTool == .select, let id = selectedAnnotationID,
-           var annotation = annotations.first(where: { $0.id == id }) {
-            isDraggingAnnotation = true
-            let newCenter = CGPoint(x: localPoint.x - dragState.dragOffset.width, y: localPoint.y - dragState.dragOffset.height)
-            let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
-            let deltaX = newCenter.x - bounds.midX
-            let deltaY = newCenter.y - bounds.midY
-            annotation.applyTransform(CGAffineTransform(translationX: deltaX, y: deltaY))
-            if let index = annotations.firstIndex(where: { $0.id == id }) {
-                annotations[index] = annotation
+        if currentTool == .select {
+            // Resize mode
+            if let handleIdx = resizingHandleIndex,
+               let id = selectedAnnotationID,
+               let startBounds = resizingStartBounds,
+               let startTransform = resizingStartTransform,
+               var annotation = annotations.first(where: { $0.id == id }) {
+                // Compute fixed corner and new bounds
+                let fixedCorners: [CGPoint] = [
+                    CGPoint(x: startBounds.maxX, y: startBounds.maxY), // 0-TL dragging → BR is fixed
+                    CGPoint(x: startBounds.minX, y: startBounds.maxY), // 1-TR → BL is fixed
+                    CGPoint(x: startBounds.maxX, y: startBounds.minY), // 2-BL → TR is fixed
+                    CGPoint(x: startBounds.minX, y: startBounds.minY), // 3-BR → TL is fixed
+                ]
+                let fx = fixedCorners[handleIdx]
+                let nx = min(localPoint.x, fx.x), ny = min(localPoint.y, fx.y)
+                let nw = max(abs(localPoint.x - fx.x), 4), nh = max(abs(localPoint.y - fx.y), 4)
+                let newBounds = CGRect(x: nx, y: ny, width: nw, height: nh)
+                let sx = newBounds.width / max(startBounds.width, 1)
+                let sy = newBounds.height / max(startBounds.height, 1)
+                let tx = newBounds.minX - startBounds.minX * sx
+                let ty = newBounds.minY - startBounds.minY * sy
+                let mapT = CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: tx, ty: ty)
+                annotation.transform = startTransform.concatenating(mapT)
+                if let index = annotations.firstIndex(where: { $0.id == id }) {
+                    annotations[index] = annotation
+                }
+                objectWillChange.send()
+                return
+            }
+
+            // Move mode
+            if let id = selectedAnnotationID,
+               var annotation = annotations.first(where: { $0.id == id }) {
+                isDraggingAnnotation = true
+                let newCenter = CGPoint(x: localPoint.x - dragState.dragOffset.width, y: localPoint.y - dragState.dragOffset.height)
+                let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
+                let deltaX = newCenter.x - bounds.midX
+                let deltaY = newCenter.y - bounds.midY
+                annotation.applyTransform(CGAffineTransform(translationX: deltaX, y: deltaY))
+                if let index = annotations.firstIndex(where: { $0.id == id }) {
+                    annotations[index] = annotation
+                }
             }
         }
         objectWillChange.send()
@@ -394,6 +611,10 @@ final class CanvasViewModel: ObservableObject {
         switch currentTool {
         case .select:
             isDraggingAnnotation = false
+            let wasResizing = resizingHandleIndex != nil
+            resizingHandleIndex = nil
+            resizingStartBounds = nil
+            resizingStartTransform = nil
             if let original = dragStartAnnotation,
                let index = annotations.firstIndex(where: { $0.id == original.id }) {
                 let orig = original
@@ -409,13 +630,27 @@ final class CanvasViewModel: ObservableObject {
                 }
             }
             dragStartAnnotation = nil
+            _ = wasResizing
         case .text:
             break
         case .redact:
-            createAnnotation(type: currentRedactMode.annotationType, from: start, to: end)
+            let w = abs(end.x - start.x), h = abs(end.y - start.y)
+            if w > 4 || h > 4 {
+                createAnnotation(type: currentRedactMode.annotationType, from: start, to: end)
+            }
+        case .step:
+            createAnnotation(type: .step, from: start, to: end)
+        case .roundedRect:
+            let w = abs(end.x - start.x), h = abs(end.y - start.y)
+            if w > 4 || h > 4 {
+                createAnnotation(type: .roundedRect, from: start, to: end)
+            }
         default:
             if let type = currentTool.annotationType {
-                createAnnotation(type: type, from: start, to: end)
+                let dist = hypot(end.x - start.x, end.y - start.y)
+                if dist > 4 {
+                    createAnnotation(type: type, from: start, to: end)
+                }
             }
         }
         objectWillChange.send()
@@ -423,6 +658,9 @@ final class CanvasViewModel: ObservableObject {
     
     func handleDragCancel() {
         isDraggingAnnotation = false
+        resizingHandleIndex = nil
+        resizingStartBounds = nil
+        resizingStartTransform = nil
         dragState.cancel()
         if isCropMode { cropStart = nil; cropEnd = nil }
         objectWillChange.send()
@@ -448,7 +686,8 @@ final class CanvasViewModel: ObservableObject {
                 width: abs(end.x - start.x),
                 height: abs(end.y - start.y)
             )
-            let a = RectangleAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            var a = RectangleAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            a.isFilled = currentFilled
             annotation = AnyAnnotation(a)
         case .ellipse:
             let rect = CGRect(
@@ -457,7 +696,8 @@ final class CanvasViewModel: ObservableObject {
                 width: abs(end.x - start.x),
                 height: abs(end.y - start.y)
             )
-            let a = EllipseAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            var a = EllipseAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            a.isFilled = currentFilled
             annotation = AnyAnnotation(a)
         case .mosaic:
             let rect = CGRect(
@@ -466,7 +706,8 @@ final class CanvasViewModel: ObservableObject {
                 width: max(abs(end.x - start.x), 20),
                 height: max(abs(end.y - start.y), 20)
             )
-            let a = MosaicAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            var a = MosaicAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            a.intensity = currentMosaicScale
             annotation = AnyAnnotation(a)
         case .blur:
             let rect = CGRect(
@@ -475,31 +716,82 @@ final class CanvasViewModel: ObservableObject {
                 width: max(abs(end.x - start.x), 20),
                 height: max(abs(end.y - start.y), 20)
             )
-            let a = BlurAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            var a = BlurAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            a.intensity = currentBlurRadius
+            annotation = AnyAnnotation(a)
+        case .roundedRect:
+            let rect = CGRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: abs(end.x - start.x),
+                height: abs(end.y - start.y)
+            )
+            var a = RoundedRectAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            a.isFilled = currentFilled
+            annotation = AnyAnnotation(a)
+        case .step:
+            let size: CGFloat
+            switch lineWidth {
+            case .thin:   size = 28
+            case .medium: size = 36
+            case .thick:  size = 48
+            }
+            let stepNum = annotations.filter { $0.type == .step }.count + 1
+            let rect = CGRect(x: start.x - size / 2, y: start.y - size / 2, width: size, height: size)
+            let a = StepAnnotation(color: color, lineWidth: lineWidth, rect: rect, stepNumber: stepNum)
             annotation = AnyAnnotation(a)
         case .text:
             return
         }
-        
+
         addAnnotation(annotation)
+        selectedAnnotationID = annotation.id
     }
     
+    func beginEditingSelectedText() {
+        guard let id = selectedAnnotationID,
+              let annotation = annotations.first(where: { $0.id == id }),
+              annotation.type == .text,
+              let text = annotation.textContent else { return }
+        let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
+        editingAnnotationID = id
+        textInputRect = bounds
+        textInputString = text
+        if let fs = annotation.textFontSize { currentFontSize = fs }
+        showTextInput = true
+    }
+
     func confirmTextInput() {
-        guard !textInputString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let trimmed = textInputString.trimmingCharacters(in: .whitespacesAndNewlines)
+        defer {
             showTextInput = false
-            return
+            textInputString = ""
+            editingAnnotationID = nil
         }
-        let rect = textInputRect
-        let a = TextAnnotation(color: currentColor, lineWidth: currentLineWidth, rect: rect, text: textInputString)
-        let annotation = AnyAnnotation(a)
-        addAnnotation(annotation)
-        showTextInput = false
-        textInputString = ""
+        guard !trimmed.isEmpty else { return }
+
+        if let editID = editingAnnotationID,
+           let existing = annotations.first(where: { $0.id == editID }) {
+            let bounds = existing.bounds(in: CGRect(origin: .zero, size: canvasSize))
+            removeAnnotation(id: editID)
+            var a = TextAnnotation(color: existing.color, lineWidth: existing.lineWidth,
+                                   rect: bounds, text: trimmed)
+            a.fontSize = existing.textFontSize ?? currentFontSize
+            let newAnnotation = AnyAnnotation(a)
+            addAnnotation(newAnnotation)
+            selectedAnnotationID = newAnnotation.id
+        } else {
+            var a = TextAnnotation(color: currentColor, lineWidth: currentLineWidth,
+                                   rect: textInputRect, text: trimmed)
+            a.fontSize = currentFontSize
+            addAnnotation(AnyAnnotation(a))
+        }
     }
-    
+
     func cancelTextInput() {
         showTextInput = false
         textInputString = ""
+        editingAnnotationID = nil
     }
 
     // MARK: - Crop
@@ -631,10 +923,36 @@ final class CanvasViewModel: ObservableObject {
         for annotation in annotations {
             guard annotation.hasStrokeRepresentation else { continue }
             cgCtx.saveGState()
-            if annotation.type == .text, let text = annotation.textContent {
+            if annotation.type == .step, let n = annotation.stepNumber {
                 let rect = annotation.bounds(in: viewRect).applying(toImage)
+                let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
+                cgCtx.addPath(cgPath)
+                cgCtx.setFillColor(annotation.color.cgColor)
+                cgCtx.fillPath()
+                let textColor: NSColor = (annotation.color == .yellow || annotation.color == .white)
+                    ? .black : .white
+                let fs = min(rect.width, rect.height) * 0.5
                 let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: max(rect.height * 0.6, 14 * scaleY), weight: .semibold),
+                    .font: NSFont.boldSystemFont(ofSize: max(fs, 10)),
+                    .foregroundColor: textColor
+                ]
+                let str = NSAttributedString(string: "\(n)", attributes: attrs)
+                let strSize = str.size()
+                let strRect = CGRect(
+                    x: rect.midX - strSize.width / 2,
+                    y: rect.midY - strSize.height / 2,
+                    width: strSize.width,
+                    height: strSize.height
+                )
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: false)
+                str.draw(in: strRect)
+                NSGraphicsContext.restoreGraphicsState()
+            } else if annotation.type == .text, let text = annotation.textContent {
+                let rect = annotation.bounds(in: viewRect).applying(toImage)
+                let fs = annotation.textFontSize ?? max(rect.height * 0.6, 14)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: fs * strokeScale, weight: .semibold),
                     .foregroundColor: NSColor(cgColor: annotation.color.cgColor) ?? .labelColor
                 ]
                 NSGraphicsContext.saveGraphicsState()
@@ -643,11 +961,14 @@ final class CanvasViewModel: ObservableObject {
                 NSGraphicsContext.restoreGraphicsState()
             } else {
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
-                if annotation.type == .arrow {
+                if annotation.isFilled {
+                    cgCtx.addPath(cgPath)
+                    cgCtx.setFillColor(annotation.color.cgColor.copy(alpha: 0.35) ?? annotation.color.cgColor)
+                    cgCtx.fillPath()
+                } else if annotation.type == .arrow {
                     cgCtx.addPath(cgPath)
                     cgCtx.setFillColor(annotation.color.cgColor)
                     cgCtx.fillPath()
-                    cgCtx.addPath(cgPath)
                 }
                 cgCtx.addPath(cgPath)
                 cgCtx.setStrokeColor(annotation.color.cgColor)

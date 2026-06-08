@@ -6,6 +6,7 @@ import CoreGraphics
 import AppKit
 import OSLog
 import UserNotifications
+import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
 
@@ -72,6 +73,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     @Published var history: [VaultItem] = []
     @Published var searchQuery = ""
     @Published var isRegionCapturing = false
+    @Published var selectedHistoryID: UUID? = nil
+    @Published var searchFocusTrigger: Bool = false
 
     var canvas = CanvasViewModel()
     private let vault: PersistentVault
@@ -132,6 +135,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         canvas.backgroundImage = image
         canvas.annotations.removeAll()
         currentVaultID = nil
+        selectedHistoryID = nil
         copyImageToClipboard(image)
         showStatus("撮影 → クリップボードにコピーしました")
         sendNotification(title: "撮影完了", body: "クリップボードにコピーしました")
@@ -158,6 +162,28 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             return
         }
         acceptCapture(cgImage)
+    }
+
+    func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                guard let data, let nsImage = NSImage(data: data),
+                      let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+                Task { @MainActor in self.acceptCapture(cgImage) }
+            }
+            return true
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil),
+                      let nsImage = NSImage(contentsOf: url),
+                      let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+                Task { @MainActor in self.acceptCapture(cgImage) }
+            }
+            return true
+        }
+        return false
     }
 
     func copyToClipboard() {
@@ -193,6 +219,17 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func exportHistoryItem(_ item: VaultItem) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmmss"
+        panel.nameFieldStringValue = "SnapLocal-\(df.string(from: item.createdAt)).png"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? item.imageData.write(to: url, options: .atomic)
+        }
+    }
+
     private func sendNotification(title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -220,8 +257,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     func loadHistoryItem(_ item: VaultItem) {
         guard let cgImage = cgImage(from: item.imageData) else { return }
+        // Save current annotations before switching
+        if let id = currentVaultID, !canvas.annotations.isEmpty {
+            Task { await vault.updateAnnotations(id: id, annotations: canvas.annotations) }
+        }
         canvas.resetAndLoad(image: cgImage, annotations: item.annotations)
         currentVaultID = item.id
+        selectedHistoryID = item.id
         showStatus("履歴を読み込みました")
     }
 
@@ -238,7 +280,6 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             return
         }
 
-        // Save-back annotations to vault if this is an existing vault item
         if let id = currentVaultID {
             Task { await vault.updateAnnotations(id: id, annotations: canvas.annotations) }
         }
@@ -254,6 +295,27 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             refreshHistory()
         } catch {
             showStatus("保存失敗: \(error.localizedDescription)")
+        }
+    }
+
+    func saveAnnotatedImageAs() {
+        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
+              let data = pngData(from: image) else {
+            showStatus("保存できる画像がありません")
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd-HHmmss"
+        panel.nameFieldStringValue = "SnapLocal-\(formatter.string(from: Date())).png"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try data.write(to: url, options: .atomic)
+                self.showStatus("保存しました: \(url.lastPathComponent)")
+            } catch {
+                self.showStatus("保存失敗: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -283,8 +345,10 @@ struct CompactToolbar: View {
     let onCapture: () -> Void
     let onCaptureRegion: () -> Void
     let onSave: () -> Void
+    let onSaveAs: () -> Void
     let onCopy: () -> Void
     let onPaste: () -> Void
+    @State private var showHelp = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -360,6 +424,13 @@ struct CompactToolbar: View {
             .disabled(canvas.backgroundImage == nil)
             .keyboardShortcut("s", modifiers: .command)
 
+            Button(action: onSaveAs) {
+                Image(systemName: "square.and.arrow.down.on.square")
+            }
+            .help("別名で保存… (⌘⇧S)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+
             Divider().frame(height: 18)
 
             Picker("", selection: $canvas.currentTool) {
@@ -368,7 +439,7 @@ struct CompactToolbar: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 240)
+            .frame(width: 320)
 
             if canvas.currentTool == .redact {
                 Picker("", selection: $canvas.currentRedactMode) {
@@ -379,12 +450,44 @@ struct CompactToolbar: View {
                 .pickerStyle(.segmented)
                 .frame(width: 60)
                 .help("モザイク / ぼかし")
+
+                if canvas.currentRedactMode == .mosaic {
+                    Slider(value: $canvas.currentMosaicScale, in: 4...30)
+                        .frame(width: 60)
+                        .help("モザイクの粗さ")
+                } else {
+                    Slider(value: $canvas.currentBlurRadius, in: 4...40)
+                        .frame(width: 60)
+                        .help("ぼかしの強さ")
+                }
+            }
+
+            if canvas.currentTool == .rectangle || canvas.currentTool == .ellipse || canvas.currentTool == .roundedRect {
+                Toggle(isOn: $canvas.currentFilled) {
+                    Image(systemName: canvas.currentFilled ? "square.fill" : "square")
+                }
+                .toggleStyle(.button)
+                .help(canvas.currentFilled ? "塗りつぶし（クリックでアウトラインへ）" : "アウトライン（クリックで塗りつぶしへ）")
+                .controlSize(.small)
+                .onChange(of: canvas.currentFilled) { _, _ in canvas.applyCurrentFilledToSelection() }
+            }
+
+            if canvas.currentTool == .text {
+                Picker("", selection: $canvas.currentFontSize) {
+                    Text("S").tag(CGFloat(14))
+                    Text("M").tag(CGFloat(18))
+                    Text("L").tag(CGFloat(24))
+                    Text("XL").tag(CGFloat(32))
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 90)
+                .help("テキストサイズ")
             }
 
             Divider().frame(height: 18)
 
             ForEach(AnnotationColor.allCases, id: \.self) { color in
-                Button(action: { canvas.currentColor = color }) {
+                Button(action: { canvas.currentColor = color; canvas.applyCurrentColorToSelection() }) {
                     ZStack {
                         Circle()
                             .fill(color.color)
@@ -417,6 +520,9 @@ struct CompactToolbar: View {
             .frame(width: 76)
             .disabled(!canvas.currentTool.usesLineWidth)
             .opacity(canvas.currentTool.usesLineWidth ? 1.0 : 0.5)
+            .onChange(of: canvas.currentLineWidth) { _, _ in
+                canvas.applyCurrentLineWidthToSelection()
+            }
 
             Spacer()
 
@@ -440,6 +546,22 @@ struct CompactToolbar: View {
             .disabled(canvas.selectedAnnotationID == nil)
             .help("削除 (⌫)")
             .keyboardShortcut(.delete, modifiers: [])
+
+            if !canvas.annotations.isEmpty {
+                Text("\(canvas.annotations.count)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .help("\(canvas.annotations.count)個のアノテーション (⌘⇧⌫で全削除)")
+            }
+
+            Button(action: { showHelp.toggle() }) {
+                Image(systemName: "questionmark.circle")
+            }
+            .help("ショートカットキー一覧")
+            .popover(isPresented: $showHelp, arrowEdge: .bottom) {
+                HelpPopoverContent()
+            }
         }
     }
 }
@@ -449,14 +571,35 @@ struct CompactToolbar: View {
 struct HistoryRail: View {
     let history: [VaultItem]
     @Binding var searchQuery: String
+    @Binding var focusTrigger: Bool
+    let selectedID: UUID?
     let onSelect: (VaultItem) -> Void
     let onDelete: (VaultItem) -> Void
     let onRefresh: () -> Void
     let onSearch: () -> Void
+    let onExport: (VaultItem) -> Void
+
+    @FocusState private var searchFocused: Bool
+    @State private var thumbCache: [UUID: NSImage] = [:]
+
+    private let thumbW: CGFloat = 68
+    private let thumbH: CGFloat = 46
+
+    private func historyItemLabel(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) {
+            let f = DateFormatter(); f.dateFormat = "HH:mm"
+            return f.string(from: date)
+        } else if Calendar.current.isDateInYesterday(date) {
+            let f = DateFormatter(); f.dateFormat = "HH:mm"
+            return "昨日 " + f.string(from: date)
+        } else {
+            let f = DateFormatter(); f.dateFormat = "M/d"
+            return f.string(from: date)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search bar
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass")
                     .font(.caption2)
@@ -464,7 +607,9 @@ struct HistoryRail: View {
                 TextField("検索", text: $searchQuery)
                     .font(.caption2)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
                     .onChange(of: searchQuery) { _, _ in onSearch() }
+                    .onChange(of: focusTrigger) { _, _ in searchFocused = true }
                 if !searchQuery.isEmpty {
                     Button(action: { searchQuery = ""; onSearch() }) {
                         Image(systemName: "xmark.circle.fill")
@@ -481,40 +626,58 @@ struct HistoryRail: View {
             Divider()
 
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 4) {
+                VStack(spacing: 6) {
                     ForEach(history) { item in
+                        let isSelected = item.id == selectedID
                         Button(action: { onSelect(item) }) {
-                            VStack(spacing: 2) {
+                            VStack(spacing: 3) {
                                 Group {
-                                    if let nsImage = NSImage(data: item.thumbnailData) {
+                                    if let nsImage = thumbCache[item.id]
+                                        ?? NSImage(data: item.thumbnailData) {
                                         Image(nsImage: nsImage)
                                             .resizable()
                                             .scaledToFill()
+                                            .onAppear {
+                                                if thumbCache[item.id] == nil {
+                                                    thumbCache[item.id] = nsImage
+                                                }
+                                            }
                                     } else {
-                                        Image(systemName: item.level.systemImage)
+                                        Image(systemName: "photo")
                                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                                             .foregroundStyle(.secondary)
                                     }
                                 }
-                                .frame(width: 58, height: 38)
+                                .frame(width: thumbW, height: thumbH)
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                )
+
+                                Text(historyItemLabel(item.createdAt))
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                    .lineLimit(1)
 
                                 if !item.ocrText.isEmpty && !searchQuery.isEmpty {
                                     Text(item.ocrText)
                                         .font(.system(size: 7))
                                         .lineLimit(2)
                                         .foregroundStyle(.secondary)
-                                        .frame(width: 58, alignment: .leading)
+                                        .frame(width: thumbW, alignment: .leading)
                                 }
                             }
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            Button("開く") { onSelect(item) }
+                            Button("ファイルに保存…") { onExport(item) }
+                            Divider()
                             Button("削除", role: .destructive) { onDelete(item) }
-                            Button("クリップボードにコピー") { onSelect(item) }
                         }
-                        .help(item.createdAt.formatted(date: .abbreviated, time: .shortened)
-                              + (item.ocrText.isEmpty ? "" : "\n" + String(item.ocrText.prefix(60))))
+                        .help(item.createdAt.formatted(date: .complete, time: .shortened)
+                              + (item.ocrText.isEmpty ? "" : "\n" + String(item.ocrText.prefix(80))))
                     }
                 }
                 .padding(.horizontal, 6)
@@ -522,15 +685,115 @@ struct HistoryRail: View {
             }
 
             Divider()
-            Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.caption2)
+            HStack(spacing: 0) {
+                Text("\(history.count)件")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 6)
+                Spacer()
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .padding(.trailing, 4)
             }
-            .buttonStyle(.borderless)
             .padding(.vertical, 4)
         }
-        .frame(width: 80)
+        .frame(width: 88)
         .background(.regularMaterial)
+    }
+}
+
+// MARK: - Hint Row
+
+struct HintRow: View {
+    let key: String
+    let label: String
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(key)
+                .monospacedDigit()
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+            Text(label)
+        }
+    }
+}
+
+// MARK: - Help Popover
+
+struct HelpPopoverContent: View {
+    private let sections: [(String, [(String, String)])] = [
+        ("キャプチャ", [
+            ("⌘⇧2", "全画面撮影"),
+            ("⌘⇧4", "範囲選択撮影"),
+            ("⌘V", "クリップボードから貼り付け"),
+        ]),
+        ("ツール", [
+            ("V", "選択ツール"),
+            ("L", "直線"),
+            ("A", "矢印"),
+            ("R", "長方形"),
+            ("E", "楕円"),
+            ("T", "テキスト"),
+            ("N", "ステップ番号"),
+            ("U", "角丸長方形"),
+            ("X / M", "モザイク/ぼかし"),
+            ("Tab", "次のツール"),
+        ]),
+        ("描画", [
+            ("Shift+ドラッグ", "直線/矢印: 45°制約、\n長方形/楕円: 正方形/正円"),
+            ("[  /  ]", "線幅 細/太"),
+        ]),
+        ("編集", [
+            ("⌘Z / ⌘⇧Z", "元に戻す / やり直し"),
+            ("⌫", "選択削除"),
+            ("⌘D", "アノテーション複製"),
+            ("矢印キー", "1px移動（Shift=10px）"),
+            ("⌘] / ⌘[", "前面へ / 背面へ"),
+            ("1〜8", "色を選択"),
+            ("Enter", "テキスト再編集"),
+            ("ダブルクリック", "テキスト再編集"),
+            ("Esc", "選択解除 / モード終了"),
+        ]),
+        ("その他", [
+            ("⌘K", "切り取りモード"),
+            ("⌘C", "クリップボードにコピー"),
+            ("⌘S", "ファイルに保存"),
+        ]),
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(sections, id: \.0) { section, rows in
+                    Text(section)
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(rows, id: \.0) { key, desc in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(key)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                                    .frame(minWidth: 80, alignment: .leading)
+                                Text(desc)
+                                    .font(.caption)
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                    }
+                    Divider()
+                }
+            }
+            .padding(12)
+        }
+        .frame(width: 280, height: 380)
     }
 }
 
@@ -558,6 +821,14 @@ struct StatusChip: View {
 
 struct ContentView: View {
     @StateObject private var state = SnapLocalState()
+    @State private var isDropTargeted = false
+
+    var windowTitle: String {
+        if let img = state.canvas.backgroundImage {
+            return "SnapLocal — \(img.width) × \(img.height)"
+        }
+        return "SnapLocal"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -566,32 +837,66 @@ struct ContentView: View {
                 onCapture: state.captureNow,
                 onCaptureRegion: state.captureRegion,
                 onSave: state.saveAnnotatedImage,
+                onSaveAs: state.saveAnnotatedImageAs,
                 onCopy: state.copyToClipboard,
                 onPaste: state.pasteFromClipboard
             )
+            .navigationTitle(windowTitle)
             Divider()
             HStack(spacing: 0) {
                 AnnotationCanvasView(
                     viewModel: state.canvas,
                     onCapture: state.captureNow,
-                    onOpenPermissions: state.openScreenRecordingSettings
+                    onOpenPermissions: state.openScreenRecordingSettings,
+                    onFocusSearch: { state.searchFocusTrigger.toggle() }
                 )
                     .frame(minWidth: 600, minHeight: 400)
                     .background(Color(nsColor: .windowBackgroundColor))
+                    .onDrop(of: [UTType.image, UTType.fileURL], isTargeted: $isDropTargeted) { providers in
+                        state.handleDroppedProviders(providers)
+                    }
+                    .overlay {
+                        if isDropTargeted {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
+                                .padding(4)
+                                .overlay(
+                                    Text("画像をドロップ")
+                                        .font(.title2)
+                                        .foregroundStyle(Color.accentColor)
+                                        .padding(12)
+                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                )
+                        }
+                    }
                     .overlay(alignment: .bottom) {
                         StatusChip(message: state.statusMessage, visible: state.statusVisible)
                             .padding(.bottom, 14)
                             .animation(.easeInOut(duration: 0.2), value: state.statusVisible)
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if let img = state.canvas.backgroundImage {
+                            Text("\(img.width) × \(img.height)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                                .padding([.bottom, .trailing], 8)
+                        }
                     }
 
                 Divider()
                 HistoryRail(
                     history: state.history,
                     searchQuery: $state.searchQuery,
+                    focusTrigger: $state.searchFocusTrigger,
+                    selectedID: state.selectedHistoryID,
                     onSelect: state.loadHistoryItem,
                     onDelete: state.deleteHistoryItem,
                     onRefresh: state.refreshHistory,
-                    onSearch: state.applySearch
+                    onSearch: state.applySearch,
+                    onExport: state.exportHistoryItem
                 )
             }
         }
@@ -604,9 +909,19 @@ struct AnnotationCanvasView: View {
     @ObservedObject var viewModel: CanvasViewModel
     var onCapture: (() -> Void)? = nil
     var onOpenPermissions: (() -> Void)? = nil
+    var onFocusSearch: (() -> Void)? = nil
 
     @FocusState private var textFieldFocused: Bool
     @FocusState private var canvasFocused: Bool
+    @State private var isHovering = false
+
+    private func updateCursor() {
+        guard isHovering else { return }
+        switch viewModel.currentTool {
+        case .select: NSCursor.arrow.set()
+        default:      NSCursor.crosshair.set()
+        }
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -619,14 +934,19 @@ struct AnnotationCanvasView: View {
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 56))
-                            .foregroundStyle(.secondary)
-                        Text("撮影するとここに編集キャンバスが表示されます")
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 48))
+                            .foregroundStyle(.tertiary)
                         if let onCapture = onCapture {
                             Button("撮影する", action: onCapture)
                                 .buttonStyle(.borderedProminent)
                         }
+                        VStack(spacing: 4) {
+                            HintRow(key: "⌘⇧2", label: "全画面撮影")
+                            HintRow(key: "⌘⇧4", label: "範囲選択撮影")
+                            HintRow(key: "⌘V",  label: "クリップボードから貼り付け")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                         if let onOpenPermissions = onOpenPermissions {
                             Button("画面録画の設定を開く", action: onOpenPermissions)
                                 .buttonStyle(.link)
@@ -638,6 +958,36 @@ struct AnnotationCanvasView: View {
             }
             .contentShape(Rectangle())
             .gesture(dragGesture(in: proxy.frame(in: .local)))
+            .contextMenu {
+                if let id = viewModel.selectedAnnotationID {
+                    if let ann = viewModel.annotations.first(where: { $0.id == id }),
+                       ann.type == .text {
+                        Button("テキストを編集") { viewModel.beginEditingSelectedText() }
+                        Divider()
+                    }
+                    Button("複製 (⌘D)") { viewModel.duplicateSelectedAnnotation() }
+                    Button("前面へ (⌘])") { viewModel.bringSelectedToFront() }
+                    Button("背面へ (⌘[)") { viewModel.sendSelectedToBack() }
+                    Divider()
+                    Button("削除", role: .destructive) { viewModel.deleteSelectedAnnotation() }
+                    Divider()
+                }
+                Button("選択ツール (V)") { viewModel.currentTool = .select }
+                Button("矢印ツール (A)") { viewModel.currentTool = .arrow }
+                Button("長方形ツール (R)") { viewModel.currentTool = .rectangle }
+                Button("テキストツール (T)") { viewModel.currentTool = .text }
+                Button("ステップツール (N)") { viewModel.currentTool = .step }
+                Button("角丸ツール (U)") { viewModel.currentTool = .roundedRect }
+                if viewModel.backgroundImage != nil {
+                    Divider()
+                    Button("切り取りモード (⌘K)") { viewModel.enterCropMode() }
+                    if !viewModel.annotations.isEmpty {
+                        Button("全アノテーション削除", role: .destructive) {
+                            viewModel.clearAllAnnotations()
+                        }
+                    }
+                }
+            }
             .onAppear { viewModel.canvasSize = proxy.size }
             .onChange(of: proxy.size) { _, newSize in viewModel.canvasSize = newSize }
             .overlay(textInputOverlay)
@@ -651,19 +1001,94 @@ struct AnnotationCanvasView: View {
             .onKeyPress("e") { if !viewModel.showTextInput { viewModel.currentTool = .ellipse }; return .handled }
             .onKeyPress("t") { if !viewModel.showTextInput { viewModel.currentTool = .text }; return .handled }
             .onKeyPress("x") { if !viewModel.showTextInput { viewModel.currentTool = .redact }; return .handled }
-            .onKeyPress("[") {
-                if !viewModel.showTextInput {
-                    let all = LineWidth.allCases
-                    if let i = all.firstIndex(of: viewModel.currentLineWidth), i > 0 { viewModel.currentLineWidth = all[i - 1] }
+            .onKeyPress("m") { if !viewModel.showTextInput { viewModel.currentTool = .redact }; return .handled }
+            .onKeyPress("n") { if !viewModel.showTextInput { viewModel.currentTool = .step }; return .handled }
+            .onKeyPress("u") { if !viewModel.showTextInput { viewModel.currentTool = .roundedRect }; return .handled }
+            // Number keys 1-8 → color selection
+            .onKeyPress(characters: .init(charactersIn: "12345678"), phases: .down) { press in
+                guard !viewModel.showTextInput else { return .ignored }
+                let colors = AnnotationColor.allCases
+                if let digit = press.key.character.wholeNumberValue, digit >= 1, digit <= colors.count {
+                    viewModel.currentColor = colors[digit - 1]
+                    viewModel.applyCurrentColorToSelection()
                 }
                 return .handled
             }
-            .onKeyPress("]") {
-                if !viewModel.showTextInput {
-                    let all = LineWidth.allCases
-                    if let i = all.firstIndex(of: viewModel.currentLineWidth), i < all.count - 1 { viewModel.currentLineWidth = all[i + 1] }
+            .onKeyPress(.tab) {
+                guard !viewModel.showTextInput else { return .ignored }
+                let tools = DrawingTool.allCases
+                if let i = tools.firstIndex(of: viewModel.currentTool) {
+                    viewModel.currentTool = tools[(i + 1) % tools.count]
                 }
                 return .handled
+            }
+            .onKeyPress("d", phases: .down) { press in
+                guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
+                viewModel.duplicateSelectedAnnotation()
+                return .handled
+            }
+            .onKeyPress("f", phases: .down) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                onFocusSearch?()
+                return .handled
+            }
+            .onKeyPress(.delete, phases: .down) { press in
+                guard !viewModel.showTextInput,
+                      press.modifiers.contains(.command) && press.modifiers.contains(.shift) else { return .ignored }
+                viewModel.clearAllAnnotations()
+                return .handled
+            }
+            // Arrow key nudge for selected annotation
+            .onKeyPress(characters: .init(charactersIn: "\u{F700}\u{F701}\u{F702}\u{F703}"),
+                        phases: [.down, .repeat]) { press in
+                guard !viewModel.showTextInput,
+                      let id = viewModel.selectedAnnotationID,
+                      var annotation = viewModel.annotations.first(where: { $0.id == id }) else { return .ignored }
+                let step: CGFloat = press.modifiers.contains(.shift) ? 10 : 1
+                let dx: CGFloat
+                let dy: CGFloat
+                switch press.key {
+                case .upArrow:    dx = 0;     dy = -step
+                case .downArrow:  dx = 0;     dy = step
+                case .leftArrow:  dx = -step; dy = 0
+                case .rightArrow: dx = step;  dy = 0
+                default: return .ignored
+                }
+                annotation.applyTransform(CGAffineTransform(translationX: dx, y: dy))
+                viewModel.updateAnnotation(annotation)
+                viewModel.updateUndoRedoState()
+                if !annotation.hasStrokeRepresentation {
+                    viewModel.updateFilterPreview(for: annotation)
+                }
+                return .handled
+            }
+            .onKeyPress(characters: .init(charactersIn: "[]"), phases: .down) { press in
+                guard !viewModel.showTextInput else { return .ignored }
+                if press.modifiers.contains(.command) {
+                    if press.key.character == "[" { viewModel.sendSelectedToBack() }
+                    else { viewModel.bringSelectedToFront() }
+                } else {
+                    let all = LineWidth.allCases
+                    if press.key.character == "[" {
+                        if let i = all.firstIndex(of: viewModel.currentLineWidth), i > 0 { viewModel.currentLineWidth = all[i - 1] }
+                    } else {
+                        if let i = all.firstIndex(of: viewModel.currentLineWidth), i < all.count - 1 { viewModel.currentLineWidth = all[i + 1] }
+                    }
+                }
+                return .handled
+            }
+            .onKeyPress(.return) {
+                guard !viewModel.showTextInput else { return .ignored }
+                if viewModel.isCropMode && viewModel.cropStart != nil {
+                    viewModel.confirmCrop(); return .handled
+                }
+                if viewModel.currentTool == .select,
+                   let id = viewModel.selectedAnnotationID,
+                   let ann = viewModel.annotations.first(where: { $0.id == id }),
+                   ann.type == .text {
+                    viewModel.beginEditingSelectedText(); return .handled
+                }
+                return .ignored
             }
             .onKeyPress(.escape) {
                 if viewModel.isCropMode { viewModel.cancelCrop(); return .handled }
@@ -673,8 +1098,36 @@ struct AnnotationCanvasView: View {
                     viewModel.objectWillChange.send()
                     return .handled
                 }
+                if viewModel.currentTool != .select {
+                    viewModel.currentTool = .select
+                    return .handled
+                }
                 return .ignored
             }
+            .gesture(
+                SpatialTapGesture(count: 2)
+                    .onEnded { value in
+                        guard viewModel.backgroundImage != nil,
+                              viewModel.currentTool == .select else { return }
+                        let localPt = CGPoint(x: value.location.x, y: value.location.y)
+                        for ann in viewModel.annotations.reversed() {
+                            if ann.type == .text && ann.hitTest(localPt, in: CGRect(origin: .zero, size: viewModel.canvasSize)) {
+                                viewModel.selectedAnnotationID = ann.id
+                                viewModel.beginEditingSelectedText()
+                                return
+                            }
+                        }
+                    }
+            )
+            .onHover { inside in
+                isHovering = inside
+                if inside {
+                    updateCursor()
+                } else {
+                    NSCursor.arrow.set()
+                }
+            }
+            .onChange(of: viewModel.currentTool) { _, _ in updateCursor() }
         }
     }
 
@@ -721,12 +1174,32 @@ struct AnnotationCanvasView: View {
             }
 
             // Normal annotation rendering
-            let beingDragged = viewModel.isDraggingAnnotation ? viewModel.selectedAnnotationID : nil
+            let beingDragged = (viewModel.isDraggingAnnotation || viewModel.resizingHandleIndex != nil)
+                ? viewModel.selectedAnnotationID : nil
 
             for annotation in viewModel.annotations {
-                if annotation.type == .text, let text = annotation.textContent {
+                if annotation.type == .step, let n = annotation.stepNumber {
                     let bounds = annotation.bounds(in: canvasRect)
-                    let fontSize = max(bounds.height * 0.7, 14)
+                    let circlePath = annotation.path(in: canvasRect)
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        context.fill(circlePath, with: .color(.white.opacity(0.5)))
+                    }
+                    context.fill(circlePath, with: .color(annotation.color.color))
+                    let textColor: Color = annotation.color == .yellow || annotation.color == .white ? .black : .white
+                    let fs = min(bounds.width, bounds.height) * 0.5
+                    context.draw(
+                        Text("\(n)")
+                            .font(.system(size: max(fs, 10), weight: .bold))
+                            .foregroundColor(textColor),
+                        in: bounds
+                    )
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        context.stroke(circlePath, with: .color(.accentColor),
+                                       style: StrokeStyle(lineWidth: 2.5, dash: [5, 3]))
+                    }
+                } else if annotation.type == .text, let text = annotation.textContent {
+                    let bounds = annotation.bounds(in: canvasRect)
+                    let fontSize = annotation.textFontSize ?? max(bounds.height * 0.7, 14)
                     context.draw(
                         Text(text)
                             .font(.system(size: fontSize, weight: .semibold))
@@ -766,15 +1239,33 @@ struct AnnotationCanvasView: View {
                             context.fill(path, with: .color(.white))
                         }
                     }
-                    context.stroke(path, with: .color(annotation.color.color), style: strokeStyle)
-                    if annotation.type == .arrow {
-                        context.fill(path, with: .color(annotation.color.color))
+                    if annotation.isFilled {
+                        context.fill(path, with: .color(annotation.color.color.opacity(0.35)))
+                        context.stroke(path, with: .color(annotation.color.color), style: strokeStyle)
+                    } else {
+                        context.stroke(path, with: .color(annotation.color.color), style: strokeStyle)
+                        if annotation.type == .arrow {
+                            context.fill(path, with: .color(annotation.color.color))
+                        }
                     }
                     if annotation.id == viewModel.selectedAnnotationID {
                         let bounds = annotation.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
                         context.stroke(Path(bounds), with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
                     }
+                }
+            }
+
+            // Resize handles for selected resizable annotation
+            if viewModel.currentTool == .select,
+               let id = viewModel.selectedAnnotationID,
+               let ann = viewModel.annotations.first(where: { $0.id == id }),
+               CanvasViewModel.isResizable(ann.type) {
+                let bounds = ann.bounds(in: canvasRect)
+                for corner in viewModel.handleCorners(for: bounds) {
+                    let r = CGRect(x: corner.x - 5, y: corner.y - 5, width: 10, height: 10)
+                    context.fill(Path(ellipseIn: r), with: .color(.white))
+                    context.stroke(Path(ellipseIn: r), with: .color(.accentColor), lineWidth: 1.5)
                 }
             }
 
@@ -816,14 +1307,28 @@ struct AnnotationCanvasView: View {
                     case .rectangle, .redact:
                         preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                              width: abs(end.x - start.x), height: abs(end.y - start.y)))
+                    case .roundedRect:
+                        let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                                       width: abs(end.x - start.x), height: abs(end.y - start.y))
+                        preview = Path(roundedRect: r, cornerRadius: min(r.width, r.height) * 0.15)
                     case .ellipse:
                         preview = Path(ellipseIn: CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                                          width: abs(end.x - start.x), height: abs(end.y - start.y)))
+                    case .step:
+                        let stepSize: CGFloat = viewModel.currentLineWidth == .thick ? 48 : viewModel.currentLineWidth == .medium ? 36 : 28
+                        let rect = CGRect(x: start.x - stepSize/2, y: start.y - stepSize/2, width: stepSize, height: stepSize)
+                        preview = Path(ellipseIn: rect)
                     default: break
                     }
                     if !preview.isEmpty {
-                        context.stroke(preview, with: .color(previewColor),
-                                       style: StrokeStyle(lineWidth: lw, dash: [4, 2]))
+                        let isFillTool = (viewModel.currentTool == .rectangle || viewModel.currentTool == .ellipse || viewModel.currentTool == .roundedRect) && viewModel.currentFilled
+                        if isFillTool || viewModel.currentTool == .step {
+                            context.fill(preview, with: .color(previewColor.opacity(viewModel.currentTool == .step ? 0.7 : 0.35)))
+                        }
+                        if viewModel.currentTool != .step {
+                            context.stroke(preview, with: .color(previewColor),
+                                           style: StrokeStyle(lineWidth: lw, dash: [4, 2]))
+                        }
                     }
                 }
             }
@@ -850,7 +1355,7 @@ struct AnnotationCanvasView: View {
         if viewModel.showTextInput {
             TextField("テキスト", text: $viewModel.textInputString)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: viewModel.currentFontSize, weight: .semibold))
                 .frame(width: viewModel.textInputRect.width)
                 .position(x: viewModel.textInputRect.midX, y: viewModel.textInputRect.midY)
                 .focused($textFieldFocused)

@@ -7,7 +7,7 @@ import CoreGraphics
 // MARK: - Line Annotation
 
 struct LineAnnotation: AnnotationElement {
-    let id = UUID()
+    var id = UUID()
     let type: AnnotationType = .line
     var color: AnnotationColor
     var lineWidth: LineWidth
@@ -26,8 +26,8 @@ struct LineAnnotation: AnnotationElement {
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
         let path = self.path(in: rect)
-        let strokeStyle = StrokeStyle(lineWidth: lineWidth.rawValue, lineCap: .round, lineJoin: .round)
-        return path.strokedPath(strokeStyle).contains(point)
+        let tolerance = max(lineWidth.rawValue + 8, 12)
+        return path.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect {
@@ -43,7 +43,7 @@ struct LineAnnotation: AnnotationElement {
 // MARK: - Arrow Annotation
 
 struct ArrowAnnotation: AnnotationElement {
-    let id = UUID()
+    var id = UUID()
     let type: AnnotationType = .arrow
     var color: AnnotationColor
     var lineWidth: LineWidth
@@ -84,8 +84,8 @@ struct ArrowAnnotation: AnnotationElement {
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
         let p = self.path(in: rect)
         if p.contains(point) { return true }
-        let strokeStyle = StrokeStyle(lineWidth: max(lineWidth.rawValue, 10), lineCap: .round, lineJoin: .round)
-        return p.strokedPath(strokeStyle).contains(point)
+        let tolerance = max(lineWidth.rawValue + 8, 12)
+        return p.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect {
@@ -100,12 +100,13 @@ struct ArrowAnnotation: AnnotationElement {
 // MARK: - Rectangle Annotation
 
 struct RectangleAnnotation: AnnotationElement {
-    let id = UUID()
+    var id = UUID()
     let type: AnnotationType = .rectangle
     var color: AnnotationColor
     var lineWidth: LineWidth
     var transform: CGAffineTransform = .identity
     var rect: CGRect
+    var isFilled: Bool = false
 
     func path(in rect: CGRect) -> Path {
         let r = self.rect.applying(transform)
@@ -114,8 +115,9 @@ struct RectangleAnnotation: AnnotationElement {
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
         let path = self.path(in: rect)
-        let strokeStyle = StrokeStyle(lineWidth: lineWidth.rawValue, lineCap: .round, lineJoin: .round)
-        return path.strokedPath(strokeStyle).contains(point)
+        if isFilled && path.contains(point) { return true }
+        let tolerance = max(lineWidth.rawValue + 8, 12)
+        return path.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect {
@@ -131,12 +133,13 @@ struct RectangleAnnotation: AnnotationElement {
 // MARK: - Ellipse Annotation
 
 struct EllipseAnnotation: AnnotationElement {
-    let id = UUID()
+    var id = UUID()
     let type: AnnotationType = .ellipse
     var color: AnnotationColor
     var lineWidth: LineWidth
     var transform: CGAffineTransform = .identity
     var rect: CGRect
+    var isFilled: Bool = false
 
     func path(in rect: CGRect) -> Path {
         let r = self.rect.applying(transform)
@@ -145,8 +148,9 @@ struct EllipseAnnotation: AnnotationElement {
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
         let path = self.path(in: rect)
-        let strokeStyle = StrokeStyle(lineWidth: lineWidth.rawValue, lineCap: .round, lineJoin: .round)
-        return path.strokedPath(strokeStyle).contains(point)
+        if isFilled && path.contains(point) { return true }
+        let tolerance = max(lineWidth.rawValue + 8, 12)
+        return path.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect {
@@ -162,14 +166,14 @@ struct EllipseAnnotation: AnnotationElement {
 // MARK: - Text Annotation
 
 struct TextAnnotation: AnnotationElement {
-    let id = UUID()
+    var id = UUID()
     let type: AnnotationType = .text
     var color: AnnotationColor
     var lineWidth: LineWidth = .thin
     var transform: CGAffineTransform = .identity
     var rect: CGRect
     var text: String
-    var fontSize: CGFloat = 16
+    var fontSize: CGFloat = 18
 
     func path(in rect: CGRect) -> Path {
         let r = self.rect.applying(transform)
@@ -184,6 +188,69 @@ struct TextAnnotation: AnnotationElement {
     func bounds(in rect: CGRect) -> CGRect {
         let r = self.rect.applying(transform)
         return r
+    }
+
+    mutating func applyTransform(_ transform: CGAffineTransform) {
+        self.transform = transform.concatenating(self.transform)
+    }
+}
+
+// MARK: - Rounded Rectangle Annotation
+
+struct RoundedRectAnnotation: AnnotationElement {
+    var id = UUID()
+    let type: AnnotationType = .roundedRect
+    var color: AnnotationColor
+    var lineWidth: LineWidth
+    var transform: CGAffineTransform = .identity
+    var rect: CGRect
+    var isFilled: Bool = false
+
+    func path(in rect: CGRect) -> Path {
+        let r = self.rect.applying(transform)
+        let radius = min(r.width, r.height) * 0.15
+        return Path(roundedRect: r, cornerRadius: radius)
+    }
+
+    func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
+        let path = self.path(in: rect)
+        if isFilled && path.contains(point) { return true }
+        let tolerance = max(lineWidth.rawValue + 8, 12)
+        return path.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
+    }
+
+    func bounds(in rect: CGRect) -> CGRect {
+        self.rect.applying(transform)
+    }
+
+    mutating func applyTransform(_ transform: CGAffineTransform) {
+        self.transform = transform.concatenating(self.transform)
+    }
+}
+
+// MARK: - Step Annotation (numbered circle for tutorials)
+
+struct StepAnnotation: AnnotationElement {
+    var id = UUID()
+    let type: AnnotationType = .step
+    var color: AnnotationColor
+    var lineWidth: LineWidth = .medium
+    var transform: CGAffineTransform = .identity
+    var rect: CGRect
+    var stepNumber: Int
+
+    func path(in rect: CGRect) -> Path {
+        let r = self.rect.applying(transform)
+        return Path(ellipseIn: r)
+    }
+
+    func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
+        let path = self.path(in: rect)
+        return path.contains(point)
+    }
+
+    func bounds(in rect: CGRect) -> CGRect {
+        self.rect.applying(transform)
     }
 
     mutating func applyTransform(_ transform: CGAffineTransform) {

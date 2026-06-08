@@ -15,6 +15,9 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var lineWidth: LineWidth
     var transform: CGAffineTransform
     var textContent: String?
+    var textFontSize: CGFloat?
+    var isFilled: Bool
+    var stepNumber: Int?
     var hasStrokeRepresentation: Bool
 
     // Captures base path with .identity transform; AnyAnnotation.transform applied on top in path(in:)
@@ -30,6 +33,11 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.lineWidth = annotation.lineWidth
         self.transform = annotation.transform
         self.textContent = (annotation as? TextAnnotation)?.text
+        self.textFontSize = (annotation as? TextAnnotation)?.fontSize
+        self.isFilled = (annotation as? RectangleAnnotation)?.isFilled
+            ?? (annotation as? EllipseAnnotation)?.isFilled
+            ?? (annotation as? RoundedRectAnnotation)?.isFilled ?? false
+        self.stepNumber = (annotation as? StepAnnotation)?.stepNumber
         self.hasStrokeRepresentation = annotation.hasStrokeRepresentation
 
         var base = annotation
@@ -53,9 +61,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         if !hasStrokeRepresentation || type == .text {
             return p.boundingRect.contains(point)
         }
-        // Check fill area first (catches arrowhead triangle, etc.)
         if p.contains(point) { return true }
-        let tolerance = max(lineWidth.rawValue, 10)
+        let tolerance = max(lineWidth.rawValue + 8, 12)
         return p.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 
@@ -97,6 +104,10 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
             wrapped = AnyAnnotation(try MosaicAnnotation(from: decoder))
         case .blur:
             wrapped = AnyAnnotation(try BlurAnnotation(from: decoder))
+        case .step:
+            wrapped = AnyAnnotation(try StepAnnotation(from: decoder))
+        case .roundedRect:
+            wrapped = AnyAnnotation(try RoundedRectAnnotation(from: decoder))
         }
 
         self.id = decodedID
@@ -105,6 +116,9 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.lineWidth = decodedLineWidth
         self.transform = decodedTransform
         self.textContent = wrapped.textContent
+        self.textFontSize = wrapped.textFontSize
+        self.isFilled = wrapped.isFilled
+        self.stepNumber = wrapped.stepNumber
         self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation
         self._basePath = wrapped._basePath
         self._applyFilter = wrapped._applyFilter

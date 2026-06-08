@@ -9,7 +9,7 @@ import CoreImage.CIFilterBuiltins
 // MARK: - Mosaic Annotation
 
 struct MosaicAnnotation: AnnotationElement {
-    let id = UUID()
+    var id = UUID()
     let type: AnnotationType = .mosaic
     var color: AnnotationColor = .red
     var lineWidth: LineWidth = .thin
@@ -41,10 +41,10 @@ struct MosaicAnnotation: AnnotationElement {
     func applyFilter(to image: CIImage) -> CIImage? {
         let r = self.rect.applying(transform)
         let filter = CIFilter.pixellate()
-        filter.inputImage = image
+        filter.inputImage = image  // full image — prevents edge artifact from cropped input
         filter.scale = intensity
+        filter.center = CGPoint(x: r.midX, y: r.midY)
 
-        // White = show filtered, Black = show original
         let blackBackground = CIImage(color: .black).cropped(to: image.extent)
         let whiteRect = CIImage(color: .white).cropped(to: r)
         let maskImage = whiteRect.composited(over: blackBackground)
@@ -58,7 +58,7 @@ struct MosaicAnnotation: AnnotationElement {
 // MARK: - Blur Annotation
 
 struct BlurAnnotation: AnnotationElement {
-    let id = UUID()
+    var id = UUID()
     let type: AnnotationType = .blur
     var color: AnnotationColor = .red
     var lineWidth: LineWidth = .thin
