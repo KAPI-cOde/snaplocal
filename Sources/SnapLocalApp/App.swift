@@ -683,6 +683,12 @@ struct HistoryRail: View {
                         .contextMenu {
                             Button("開く") { onSelect(item) }
                             Button("ファイルに保存…") { onExport(item) }
+                            if !item.ocrText.isEmpty {
+                                Button("OCRテキストをコピー") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(item.ocrText, forType: .string)
+                                }
+                            }
                             Divider()
                             Button("削除", role: .destructive) { onDelete(item) }
                         }

@@ -669,9 +669,27 @@ final class CanvasViewModel: ObservableObject {
                 let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
                 let deltaX = newCenter.x - bounds.midX
                 let deltaY = newCenter.y - bounds.midY
-                annotation.applyTransform(CGAffineTransform(translationX: deltaX, y: deltaY))
-                if let index = annotations.firstIndex(where: { $0.id == id }) {
-                    annotations[index] = annotation
+                let moveT = CGAffineTransform(translationX: deltaX, y: deltaY)
+
+                if !multiDragStartPositions.isEmpty {
+                    // Multi-move: apply same delta to all selected annotations from their start positions
+                    guard let dragStartAnn = dragStartAnnotation else { return }
+                    let startBounds = dragStartAnn.bounds(in: CGRect(origin: .zero, size: canvasSize))
+                    let totalDeltaX = localPoint.x - dragState.dragOffset.width - startBounds.midX
+                    let totalDeltaY = localPoint.y - dragState.dragOffset.height - startBounds.midY
+                    let totalMoveT = CGAffineTransform(translationX: totalDeltaX, y: totalDeltaY)
+                    for (annId, startTransform) in multiDragStartPositions {
+                        if var ann = annotations.first(where: { $0.id == annId }),
+                           let idx = annotations.firstIndex(where: { $0.id == annId }) {
+                            ann.transform = startTransform.concatenating(totalMoveT)
+                            annotations[idx] = ann
+                        }
+                    }
+                } else {
+                    annotation.applyTransform(moveT)
+                    if let index = annotations.firstIndex(where: { $0.id == id }) {
+                        annotations[index] = annotation
+                    }
                 }
             }
         }
@@ -707,7 +725,26 @@ final class CanvasViewModel: ObservableObject {
             resizingHandleIndex = nil
             resizingStartBounds = nil
             resizingStartTransform = nil
-            if let original = dragStartAnnotation,
+            // Multi-move undo: snapshot all moved annotations
+            if !multiDragStartPositions.isEmpty {
+                let startPositions = multiDragStartPositions
+                let currentSnapshot = annotations.filter { startPositions[$0.id] != nil }
+                undoManager.registerUndo(withTarget: self) { target in
+                    target.isUndoing = true
+                    for (id, startT) in startPositions {
+                        if let idx = target.annotations.firstIndex(where: { $0.id == id }) {
+                            target.annotations[idx].transform = startT
+                        }
+                    }
+                    target.objectWillChange.send()
+                    target.isUndoing = false
+                }
+                updateUndoRedoState()
+                for ann in currentSnapshot where !ann.hasStrokeRepresentation {
+                    updateFilterPreview(for: ann)
+                }
+                multiDragStartPositions = [:]
+            } else if let original = dragStartAnnotation,
                let index = annotations.firstIndex(where: { $0.id == original.id }) {
                 let orig = original
                 undoManager.registerUndo(withTarget: self) { target in
