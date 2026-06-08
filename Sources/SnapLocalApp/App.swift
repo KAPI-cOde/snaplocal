@@ -1025,9 +1025,16 @@ struct AnnotationCanvasView: View {
     @State private var isHovering = false
     @State private var zoom: CGFloat = 1.0
     @State private var baseZoom: CGFloat = 1.0
+    @State private var panOffset: CGSize = .zero
+    @State private var basePan: CGSize = .zero
+    @State private var isPanning = false
 
     private func updateCursor() {
         guard isHovering else { return }
+        if isPanning {
+            NSCursor.openHand.set()
+            return
+        }
         switch viewModel.currentTool {
         case .select: NSCursor.arrow.set()
         default:      NSCursor.crosshair.set()
@@ -1073,8 +1080,10 @@ struct AnnotationCanvasView: View {
                 }
             }
             .scaleEffect(zoom, anchor: .center)
+            .offset(panOffset)
             .contentShape(Rectangle())
-            .gesture(dragGesture(in: proxy.frame(in: .local), size: proxy.size))
+            .gesture(isPanning ? panGesture() : nil)
+            .gesture(isPanning ? nil : dragGesture(in: proxy.frame(in: .local), size: proxy.size))
             .gesture(MagnificationGesture()
                 .onChanged { value in
                     zoom = max(0.25, min(8.0, baseZoom * value))
@@ -1126,7 +1135,7 @@ struct AnnotationCanvasView: View {
                         .padding(.vertical, 2)
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
                         .padding(8)
-                        .onTapGesture { zoom = 1.0; baseZoom = 1.0 }
+                        .onTapGesture { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
                 }
             }
             .focusable()
@@ -1159,7 +1168,16 @@ struct AnnotationCanvasView: View {
             }
             .onKeyPress("0", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
-                zoom = 1.0; baseZoom = 1.0; return .handled
+                zoom = 1.0; baseZoom = 1.0
+                panOffset = .zero; basePan = .zero
+                return .handled
+            }
+            .onKeyPress(.space, phases: .down) { _ in
+                guard !viewModel.showTextInput else { return .ignored }
+                isPanning = true; updateCursor(); return .handled
+            }
+            .onKeyPress(.space, phases: .up) { _ in
+                isPanning = false; updateCursor(); return .handled
             }
             // Number keys 1-8 → color selection
             .onKeyPress(characters: .init(charactersIn: "12345678"), phases: .down) { press in
@@ -1507,6 +1525,19 @@ struct AnnotationCanvasView: View {
                 }
             }
         }
+    }
+
+    private func panGesture() -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                panOffset = CGSize(
+                    width: basePan.width + value.translation.width,
+                    height: basePan.height + value.translation.height
+                )
+            }
+            .onEnded { value in
+                basePan = panOffset
+            }
     }
 
     private func dragGesture(in rect: CGRect, size: CGSize) -> some Gesture {
