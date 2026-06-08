@@ -93,19 +93,50 @@ final class CaptureEngine: @unchecked Sendable {
         logger.debug("captureScreen() called")
         Task {
             do {
-                logger.debug("Checking screen capture access...")
                 guard CGPreflightScreenCaptureAccess() else {
-                    logger.debug("No screen capture access, requesting...")
                     _ = CGRequestScreenCaptureAccess()
                     throw CaptureError.permissionDenied
                 }
-                logger.debug("Screen capture access granted, capturing...")
                 let image = try await captureWithScreenCaptureKit()
-                logger.debug("Capture succeeded, calling completion")
                 await MainActor.run { self.completion(.success(image)) }
             } catch {
                 let errorDesc = String(describing: error)
                 logger.error("Capture failed: \(errorDesc, privacy: .public)")
+                await MainActor.run { self.completion(.failure(error)) }
+            }
+        }
+    }
+
+    /// Capture a specific region (in screen-space logical points, origin at top-left).
+    nonisolated func captureRegion(_ regionInPoints: CGRect) {
+        Task {
+            do {
+                guard CGPreflightScreenCaptureAccess() else {
+                    _ = CGRequestScreenCaptureAccess()
+                    throw CaptureError.permissionDenied
+                }
+                let fullImage = try await captureWithScreenCaptureKit()
+                // fullImage is in physical pixels; convert region (logical points, top-left origin) to pixels
+                let mainScreen = NSScreen.screens.first(where: {
+                    ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == CGMainDisplayID()
+                }) ?? NSScreen.main
+                let scale = mainScreen?.backingScaleFactor ?? 2.0
+                let screenH = mainScreen?.frame.height ?? CGFloat(fullImage.height) / scale
+
+                // regionInPoints has origin at top-left (NSScreen is bottom-left, so flip Y)
+                // regionInPoints is already in top-left space (from our overlay)
+                let pixelRect = CGRect(
+                    x: regionInPoints.minX * scale,
+                    y: regionInPoints.minY * scale,
+                    width: regionInPoints.width * scale,
+                    height: regionInPoints.height * scale
+                )
+                _ = screenH // suppress warning
+                guard let cropped = fullImage.cropping(to: pixelRect) else {
+                    throw CaptureError.noImageBuffer
+                }
+                await MainActor.run { self.completion(.success(cropped)) }
+            } catch {
                 await MainActor.run { self.completion(.failure(error)) }
             }
         }

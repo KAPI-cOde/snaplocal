@@ -5,6 +5,7 @@ import SwiftUI
 import CoreGraphics
 import AppKit
 import OSLog
+import UserNotifications
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
 
@@ -24,6 +25,7 @@ struct SnapLocalApp: App {
             }
         }
     }
+
 }
 
 // AppDelegate to ensure window is properly configured and in foreground
@@ -34,25 +36,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.debug("applicationDidFinishLaunching called")
-        // Make sure the app is in the foreground
         NSApp.activate(ignoringOtherApps: true)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         
         // Ensure main window appears on screen with proper level
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             if let mainWindow = NSApplication.shared.mainWindow {
-                mainWindow.level = .floating
+                mainWindow.level = .normal
                 mainWindow.makeKeyAndOrderFront(nil)
                 mainWindow.orderFrontRegardless()
-                logger.debug("Main window configured: \\(mainWindow)")
+                logger.debug("Main window configured: \(mainWindow)")
             } else {
                 logger.warning("Main window not yet available")
                 // Try again in next run loop
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     if let mainWindow = NSApplication.shared.mainWindow {
-                        mainWindow.level = .floating
+                        mainWindow.level = .normal
                         mainWindow.makeKeyAndOrderFront(nil)
                         mainWindow.orderFrontRegardless()
-                        logger.debug("Main window configured (retry): \\(mainWindow)")
+                        logger.debug("Main window configured (retry): \(mainWindow)")
                     }
                 }
             }
@@ -68,13 +70,18 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     @Published var statusMessage = ""
     @Published var statusVisible = false
     @Published var history: [VaultItem] = []
+    @Published var searchQuery = ""
+    @Published var isRegionCapturing = false
 
     var canvas = CanvasViewModel()
-    private let vault = TempVault()
+    private let vault: PersistentVault
     private var captureEngine: CaptureEngine?
     private var statusTask: Task<Void, Never>?
+    // ID of the VaultItem currently shown on canvas (for annotation save-back)
+    private var currentVaultID: UUID?
 
     init() {
+        vault = PersistentVault(directory: SettingsManager.shared.saveDirectoryURL)
         let hotkey = SettingsManager.shared.hotkeyConfig
         captureEngine = CaptureEngine(hotkey: hotkey) { [weak self] result in
             Task { @MainActor in
@@ -84,6 +91,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         captureEngine?.registerHotkey()
         refreshHistory()
     }
+
+    // MARK: - Status
 
     func showStatus(_ message: String) {
         statusTask?.cancel()
@@ -97,21 +106,67 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    // MARK: - Capture
+
     func captureNow() {
         showStatus("撮影中…")
         captureEngine?.captureScreen()
     }
 
-    func acceptCapture(_ image: CGImage) {
-        canvas.backgroundImage = image
-        canvas.canvasSize = CGSize(width: image.width, height: image.height)
-        canvas.annotations.removeAll()
-        showStatus("撮影しました")
-        Task {
-            _ = await vault.saveToMemory(image: image)
-            await loadHistory()
+    func captureRegion() {
+        isRegionCapturing = true
+        showStatus("範囲を選択 — ドラッグして選択")
+        RegionCapture.start { [weak self] rect in
+            guard let self else { return }
+            self.isRegionCapturing = false
+            guard let rect else {
+                self.showStatus("キャンセルしました")
+                return
+            }
+            self.showStatus("撮影中…")
+            self.captureEngine?.captureRegion(rect)
         }
     }
+
+    func acceptCapture(_ image: CGImage) {
+        canvas.backgroundImage = image
+        canvas.annotations.removeAll()
+        currentVaultID = nil
+        copyImageToClipboard(image)
+        showStatus("撮影 → クリップボードにコピーしました")
+        sendNotification(title: "撮影完了", body: "クリップボードにコピーしました")
+        Task {
+            guard let item = await vault.save(image: image) else { return }
+            currentVaultID = item.id
+            await loadHistory()
+            // Run OCR in background, update when done
+            let ocrText = await OCRService.recognizeText(in: image)
+            if !ocrText.isEmpty {
+                await vault.updateOCR(id: item.id, text: ocrText)
+                await loadHistory()
+                showStatus("OCR完了 — 検索可能になりました")
+            }
+        }
+    }
+
+    // MARK: - Clipboard
+
+    func copyToClipboard() {
+        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage else {
+            showStatus("コピーする画像がありません")
+            return
+        }
+        copyImageToClipboard(image)
+        showStatus("クリップボードにコピーしました")
+    }
+
+    private func copyImageToClipboard(_ image: CGImage) {
+        let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([nsImage])
+    }
+
+    // MARK: - Capture result
 
     func handleCaptureResult(_ result: Result<CGImage, Error>) {
         switch result {
@@ -120,6 +175,22 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         case .failure(let error):
             showStatus(Self.captureFailureMessage(for: error))
         }
+    }
+
+    func deleteHistoryItem(_ item: VaultItem) {
+        Task {
+            await vault.delete(id: item.id)
+            await loadHistory()
+        }
+    }
+
+    private func sendNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
     }
 
     func openScreenRecordingSettings() {
@@ -136,18 +207,31 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         return "撮影失敗: \(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
     }
 
+    // MARK: - History
+
     func loadHistoryItem(_ item: VaultItem) {
-        guard let nsImage = NSImage(data: item.imageData),
-              let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        guard let cgImage = cgImage(from: item.imageData) else { return }
         canvas.resetAndLoad(image: cgImage, annotations: item.annotations)
+        currentVaultID = item.id
         showStatus("履歴を読み込みました")
     }
 
+    private func cgImage(from data: Data) -> CGImage? {
+        NSImage(data: data)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }
+
+    // MARK: - Save
+
     func saveAnnotatedImage() {
-        guard let image = canvas.renderAnnotations(),
+        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
               let data = pngData(from: image) else {
             showStatus("保存できる画像がありません")
             return
+        }
+
+        // Save-back annotations to vault if this is an existing vault item
+        if let id = currentVaultID {
+            Task { await vault.updateAnnotations(id: id, annotations: canvas.annotations) }
         }
 
         do {
@@ -157,13 +241,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             formatter.dateFormat = "yyyyMMdd-HHmmss"
             let url = directory.appendingPathComponent("SnapLocal-\(formatter.string(from: Date())).png")
             try data.write(to: url, options: .atomic)
-            showStatus("保存しました")
-            Task {
-                if let rendered = NSImage(data: data)?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    _ = await vault.saveToMemory(image: rendered, annotations: canvas.annotations)
-                    await loadHistory()
-                }
-            }
+            showStatus("保存しました: \(url.lastPathComponent)")
+            refreshHistory()
         } catch {
             showStatus("保存失敗: \(error.localizedDescription)")
         }
@@ -174,8 +253,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     private func loadHistory() async {
-        let items = await vault.allItems()
+        let q = searchQuery
+        let items = q.isEmpty ? await vault.allItems() : await vault.search(query: q)
         history = items
+    }
+
+    func applySearch() {
+        Task { await loadHistory() }
     }
 
     private func pngData(from image: CGImage) -> Data? {
@@ -188,21 +272,37 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 struct CompactToolbar: View {
     @ObservedObject var canvas: CanvasViewModel
     let onCapture: () -> Void
+    let onCaptureRegion: () -> Void
     let onSave: () -> Void
+    let onCopy: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
             Button(action: onCapture) {
                 Image(systemName: "camera.viewfinder")
             }
-            .help("撮影 (⌘⇧2)")
+            .help("全画面撮影 (⌘⇧2)")
             .keyboardShortcut("2", modifiers: [.command, .shift])
+
+            Button(action: onCaptureRegion) {
+                Image(systemName: "crop")
+            }
+            .help("範囲選択撮影 (⌘⇧4)")
+            .keyboardShortcut("4", modifiers: [.command, .shift])
+
+            Button(action: onCopy) {
+                Image(systemName: "doc.on.clipboard")
+            }
+            .help("クリップボードにコピー (⌘C)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("c", modifiers: .command)
 
             Button(action: onSave) {
                 Image(systemName: "square.and.arrow.down")
             }
-            .help("保存")
+            .help("保存 (⌘S)")
             .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("s", modifiers: .command)
 
             Divider().frame(height: 18)
 
@@ -235,13 +335,15 @@ struct CompactToolbar: View {
             }
 
             Divider().frame(height: 18)
-
+            
             Picker("", selection: $canvas.currentLineWidth) {
                 Text("S").tag(LineWidth.thin)
                 Text("L").tag(LineWidth.thick)
             }
             .pickerStyle(.segmented)
             .frame(width: 52)
+            .disabled(!canvas.currentTool.usesLineWidth)
+            .opacity(canvas.currentTool.usesLineWidth ? 1.0 : 0.5)
 
             Spacer()
 
@@ -277,45 +379,88 @@ struct CompactToolbar: View {
 
 struct HistoryRail: View {
     let history: [VaultItem]
+    @Binding var searchQuery: String
     let onSelect: (VaultItem) -> Void
+    let onDelete: (VaultItem) -> Void
     let onRefresh: () -> Void
+    let onSearch: () -> Void
 
     var body: some View {
-        VStack(spacing: 4) {
-            Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
+        VStack(spacing: 0) {
+            // Search bar
+            HStack(spacing: 4) {
+                Image(systemName: "magnifyingglass")
                     .font(.caption2)
+                    .foregroundStyle(.secondary)
+                TextField("検索", text: $searchQuery)
+                    .font(.caption2)
+                    .textFieldStyle(.plain)
+                    .onChange(of: searchQuery) { _, _ in onSearch() }
+                if !searchQuery.isEmpty {
+                    Button(action: { searchQuery = ""; onSearch() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.borderless)
-            .padding(.top, 6)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .background(.ultraThinMaterial)
+
+            Divider()
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 4) {
                     ForEach(history) { item in
                         Button(action: { onSelect(item) }) {
-                            Group {
-                                if let nsImage = NSImage(data: item.thumbnailData) {
-                                    Image(nsImage: nsImage)
-                                        .resizable()
-                                        .scaledToFill()
-                                } else {
-                                    Image(systemName: item.level.systemImage)
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            VStack(spacing: 2) {
+                                Group {
+                                    if let nsImage = NSImage(data: item.thumbnailData) {
+                                        Image(nsImage: nsImage)
+                                            .resizable()
+                                            .scaledToFill()
+                                    } else {
+                                        Image(systemName: item.level.systemImage)
+                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(width: 58, height: 38)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                                if !item.ocrText.isEmpty && !searchQuery.isEmpty {
+                                    Text(item.ocrText)
+                                        .font(.system(size: 7))
+                                        .lineLimit(2)
                                         .foregroundStyle(.secondary)
+                                        .frame(width: 58, alignment: .leading)
                                 }
                             }
-                            .frame(width: 58, height: 38)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
                         .buttonStyle(.plain)
-                        .help(item.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .contextMenu {
+                            Button("削除", role: .destructive) { onDelete(item) }
+                            Button("クリップボードにコピー") { onSelect(item) }
+                        }
+                        .help(item.createdAt.formatted(date: .abbreviated, time: .shortened)
+                              + (item.ocrText.isEmpty ? "" : "\n" + String(item.ocrText.prefix(60))))
                     }
                 }
                 .padding(.horizontal, 6)
-                .padding(.bottom, 6)
+                .padding(.vertical, 6)
             }
+
+            Divider()
+            Button(action: onRefresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption2)
+            }
+            .buttonStyle(.borderless)
+            .padding(.vertical, 4)
         }
-        .frame(width: 74)
+        .frame(width: 80)
         .background(.regularMaterial)
     }
 }
@@ -350,7 +495,9 @@ struct ContentView: View {
             CompactToolbar(
                 canvas: state.canvas,
                 onCapture: state.captureNow,
-                onSave: state.saveAnnotatedImage
+                onCaptureRegion: state.captureRegion,
+                onSave: state.saveAnnotatedImage,
+                onCopy: state.copyToClipboard
             )
             Divider()
             HStack(spacing: 0) {
@@ -367,14 +514,15 @@ struct ContentView: View {
                             .animation(.easeInOut(duration: 0.2), value: state.statusVisible)
                     }
 
-                if !state.history.isEmpty {
-                    Divider()
-                    HistoryRail(
-                        history: state.history,
-                        onSelect: state.loadHistoryItem,
-                        onRefresh: state.refreshHistory
-                    )
-                }
+                Divider()
+                HistoryRail(
+                    history: state.history,
+                    searchQuery: $state.searchQuery,
+                    onSelect: state.loadHistoryItem,
+                    onDelete: state.deleteHistoryItem,
+                    onRefresh: state.refreshHistory,
+                    onSearch: state.applySearch
+                )
             }
         }
     }
@@ -427,17 +575,41 @@ struct AnnotationCanvasView: View {
         Canvas { context, _ in
             let canvasRect = CGRect(origin: .zero, size: size)
             for annotation in viewModel.annotations {
-                let path = annotation.path(in: canvasRect)
-                if annotation.id == viewModel.selectedAnnotationID {
-                    context.stroke(path, with: .color(.white), lineWidth: annotation.lineWidth.rawValue + 4)
+                if annotation.type == .text, let text = annotation.textContent {
+                    let bounds = annotation.bounds(in: canvasRect)
+                    let fontSize = max(bounds.height * 0.7, 14)
+                    context.draw(
+                        Text(text)
+                            .font(.system(size: fontSize, weight: .semibold))
+                            .foregroundColor(annotation.color.color),
+                        in: bounds
+                    )
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        context.stroke(Path(bounds), with: .color(.accentColor),
+                                       style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                    }
+                } else if !annotation.hasStrokeRepresentation {
+                    // Mosaic/blur: show a semi-transparent overlay as preview
+                    let bounds = annotation.bounds(in: canvasRect)
+                    context.fill(Path(bounds), with: .color(.gray.opacity(0.35)))
+                    context.stroke(Path(bounds), with: .color(.white.opacity(0.6)),
+                                   style: StrokeStyle(lineWidth: 1, dash: [4, 2]))
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        context.stroke(Path(bounds.insetBy(dx: -3, dy: -3)), with: .color(.accentColor),
+                                       style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                    }
+                } else {
+                    let path = annotation.path(in: canvasRect)
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        context.stroke(path, with: .color(.white), lineWidth: annotation.lineWidth.rawValue + 4)
+                    }
+                    context.stroke(path, with: .color(annotation.color.color), lineWidth: annotation.lineWidth.rawValue)
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        let bounds = annotation.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
+                        context.stroke(Path(bounds), with: .color(.accentColor),
+                                       style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                    }
                 }
-                context.stroke(path, with: .color(annotation.color.color), lineWidth: annotation.lineWidth.rawValue)
-            }
-            if let selectedID = viewModel.selectedAnnotationID,
-               let sel = viewModel.annotations.first(where: { $0.id == selectedID }) {
-                let bounds = sel.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
-                context.stroke(Path(bounds), with: .color(.accentColor),
-                               style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
             }
             if viewModel.dragState.isDrawing,
                let start = viewModel.dragState.startPoint,

@@ -13,14 +13,14 @@ RESOURCES_DIR="$SCRIPT_DIR/Sources/SnapLocalApp/Resources"
 INFO_PLIST="$SCRIPT_DIR/Sources/SnapLocalApp/Info.plist"
 
 echo "Building Swift package..."
-swift build -c debug
+swift build -c debug --product SnapLocal
 
 echo "Creating .app bundle structure..."
 mkdir -p "$APP_PATH/Contents/MacOS"
 mkdir -p "$APP_PATH/Contents/Resources"
 
 echo "Copying binary..."
-cp "$BINARY_PATH" "$APP_PATH/Contents/MacOS/SnapLocal"
+cp "$BUILD_DIR/SnapLocal" "$APP_PATH/Contents/MacOS/SnapLocal"
 chmod +x "$APP_PATH/Contents/MacOS/SnapLocal"
 
 echo "Copying Info.plist..."

@@ -4,6 +4,7 @@
 import Foundation
 import CoreGraphics
 import SwiftUI
+import CoreImage
 
 // MARK: - Type-Erased Annotation
 
@@ -14,11 +15,12 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var lineWidth: LineWidth
     var transform: CGAffineTransform
     var textContent: String?
+    var hasStrokeRepresentation: Bool
 
-    private let _path: (CGRect) -> Path
-    private let _hitTest: (CGPoint, CGRect) -> Bool
-    private let _bounds: (CGRect) -> CGRect
-    private let _applyTransform: (inout CGAffineTransform) -> Void
+    // Captures base path with .identity transform; AnyAnnotation.transform applied on top in path(in:)
+    private let _basePath: (CGRect) -> Path
+    // Filter closure receives current transform so dragged mosaic/blur tracks correctly
+    private let _applyFilter: (CIImage, CGAffineTransform) -> CIImage?
     private let _encode: (Encoder) throws -> Void
 
     init<T: AnnotationElement>(_ annotation: T) {
@@ -28,20 +30,45 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.lineWidth = annotation.lineWidth
         self.transform = annotation.transform
         self.textContent = (annotation as? TextAnnotation)?.text
-        self._path = annotation.path
-        self._hitTest = annotation.hitTest
-        self._bounds = annotation.bounds
-        self._applyTransform = { transform in
-            var mutable = annotation
-            mutable.applyTransform(transform)
+        self.hasStrokeRepresentation = annotation.hasStrokeRepresentation
+
+        var base = annotation
+        base.transform = .identity
+        self._basePath = base.path
+
+        self._applyFilter = { image, currentTransform in
+            var a = annotation
+            a.transform = currentTransform
+            return a.applyFilter(to: image)
         }
         self._encode = { try annotation.encode(to: $0) }
     }
 
-    func path(in rect: CGRect) -> Path { _path(rect) }
-    func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool { _hitTest(point, rect) }
-    func bounds(in rect: CGRect) -> CGRect { _bounds(rect) }
-    mutating func applyTransform(_ transform: CGAffineTransform) { _applyTransform(&self.transform) }
+    func path(in rect: CGRect) -> Path {
+        _basePath(rect).applying(transform)
+    }
+
+    func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
+        let p = path(in: rect)
+        if !hasStrokeRepresentation || type == .text {
+            return p.boundingRect.contains(point)
+        }
+        let tolerance = max(lineWidth.rawValue, 10)
+        return p.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
+    }
+
+    func bounds(in rect: CGRect) -> CGRect {
+        path(in: rect).boundingRect
+    }
+
+    mutating func applyTransform(_ transform: CGAffineTransform) {
+        self.transform = transform.concatenating(self.transform)
+    }
+
+    func applyFilter(to image: CIImage) -> CIImage? {
+        _applyFilter(image, transform)
+    }
+
     func encode(to encoder: Encoder) throws { try _encode(encoder) }
 
     init(from decoder: Decoder) throws {
@@ -52,42 +79,34 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         let decodedLineWidth = try container.decode(LineWidth.self, forKey: .lineWidth)
         let decodedTransform = try container.decode(CGAffineTransform.self, forKey: .transform)
 
-        let annotation: AnyAnnotation
+        let wrapped: AnyAnnotation
         switch type {
         case .line:
-            let a = try LineAnnotation(from: decoder)
-            annotation = AnyAnnotation(a)
+            wrapped = AnyAnnotation(try LineAnnotation(from: decoder))
         case .arrow:
-            let a = try ArrowAnnotation(from: decoder)
-            annotation = AnyAnnotation(a)
+            wrapped = AnyAnnotation(try ArrowAnnotation(from: decoder))
         case .rectangle:
-            let a = try RectangleAnnotation(from: decoder)
-            annotation = AnyAnnotation(a)
+            wrapped = AnyAnnotation(try RectangleAnnotation(from: decoder))
         case .ellipse:
-            let a = try EllipseAnnotation(from: decoder)
-            annotation = AnyAnnotation(a)
+            wrapped = AnyAnnotation(try EllipseAnnotation(from: decoder))
         case .text:
-            let a = try TextAnnotation(from: decoder)
-            annotation = AnyAnnotation(a)
+            wrapped = AnyAnnotation(try TextAnnotation(from: decoder))
         case .mosaic:
-            let a = try MosaicAnnotation(from: decoder)
-            annotation = AnyAnnotation(a)
+            wrapped = AnyAnnotation(try MosaicAnnotation(from: decoder))
         case .blur:
-            let a = try BlurAnnotation(from: decoder)
-            annotation = AnyAnnotation(a)
+            wrapped = AnyAnnotation(try BlurAnnotation(from: decoder))
         }
 
         self.id = decodedID
-        self.type = annotation.type
+        self.type = wrapped.type
         self.color = decodedColor
         self.lineWidth = decodedLineWidth
         self.transform = decodedTransform
-        self.textContent = annotation.textContent
-        self._path = annotation._path
-        self._hitTest = annotation._hitTest
-        self._bounds = annotation._bounds
-        self._applyTransform = annotation._applyTransform
-        self._encode = annotation._encode
+        self.textContent = wrapped.textContent
+        self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation
+        self._basePath = wrapped._basePath
+        self._applyFilter = wrapped._applyFilter
+        self._encode = wrapped._encode
     }
 
     private enum CodingKeys: String, CodingKey {

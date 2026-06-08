@@ -18,7 +18,7 @@ let package = Package(
             name: "SnapLocal",
             targets: ["SnapLocalApp"]),
         .executable(
-            name: "snaplocal",
+            name: "snaplocal-cli",
             targets: ["SnapLocalCLI"]),
     ],
     dependencies: [

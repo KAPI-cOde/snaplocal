@@ -15,10 +15,24 @@ protocol AnnotationElement: Identifiable, Codable {
     var color: AnnotationColor { get set }
     var lineWidth: LineWidth { get set }
     var transform: CGAffineTransform { get set }
+    
+    // Whether this annotation should be drawn as a stroke (line/rect/ellipse/arrow/text)
+    // false for mosaic/blur which use Core Image filters
+    var hasStrokeRepresentation: Bool { get }
+    
     func path(in rect: CGRect) -> Path
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool
     func bounds(in rect: CGRect) -> CGRect
     mutating func applyTransform(_ transform: CGAffineTransform)
+    
+    // Apply filter to image (for mosaic/blur)
+    func applyFilter(to image: CIImage) -> CIImage?
+}
+
+// Default implementations
+extension AnnotationElement {
+    var hasStrokeRepresentation: Bool { true }
+    func applyFilter(to image: CIImage) -> CIImage? { nil }
 }
 
 enum AnnotationType: String, Codable, CaseIterable {
@@ -108,6 +122,16 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .blur: return .blur
         }
     }
+    
+    // Whether this tool uses line width (stroke-based tools)
+    var usesLineWidth: Bool {
+        switch self {
+        case .line, .arrow, .rectangle, .ellipse, .text:
+            return true
+        case .select, .mosaic, .blur:
+            return false
+        }
+    }
 }
 
 // MARK: - Drag State for Drawing
@@ -159,9 +183,10 @@ final class CanvasViewModel: ObservableObject {
     @Published var textInputRect: CGRect = .zero
     @Published var textInputString = ""
     @Published var selectedAnnotationID: UUID?
-    
+
     let undoManager = UndoManager()
     private var isUndoing = false
+    private var dragStartAnnotation: AnyAnnotation? = nil
     
     // MARK: - Annotation Management
     
@@ -240,6 +265,7 @@ final class CanvasViewModel: ObservableObject {
             if let id = selectedAnnotationID,
                let index = annotations.firstIndex(where: { $0.id == id }) {
                 let annotation = annotations[index]
+                dragStartAnnotation = annotation
                 let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
                 dragState.dragOffset = CGSize(width: localPoint.x - bounds.midX, height: localPoint.y - bounds.midY)
             }
@@ -259,24 +285,37 @@ final class CanvasViewModel: ObservableObject {
         
         if currentTool == .select, let id = selectedAnnotationID,
            var annotation = annotations.first(where: { $0.id == id }) {
-            var newTransform = annotation.transform
             let newCenter = CGPoint(x: localPoint.x - dragState.dragOffset.width, y: localPoint.y - dragState.dragOffset.height)
             let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
             let deltaX = newCenter.x - bounds.midX
             let deltaY = newCenter.y - bounds.midY
-            newTransform = newTransform.translatedBy(x: deltaX, y: deltaY)
             annotation.applyTransform(CGAffineTransform(translationX: deltaX, y: deltaY))
-            updateAnnotation(annotation)
+            // 直接更新 — undoはdragEnd時に1回だけ登録
+            if let index = annotations.firstIndex(where: { $0.id == id }) {
+                annotations[index] = annotation
+            }
         }
         objectWillChange.send()
     }
 
     func handleDragEnd(at point: CGPoint, in canvasRect: CGRect) {
         guard let (start, end) = dragState.end() else { return }
-        
+
         switch currentTool {
         case .select:
-            break
+            // ドラッグ全体を1回のundoとして登録
+            if let original = dragStartAnnotation,
+               let index = annotations.firstIndex(where: { $0.id == original.id }) {
+                let orig = original
+                undoManager.registerUndo(withTarget: self) { target in
+                    target.isUndoing = true
+                    target.annotations[index] = orig
+                    target.objectWillChange.send()
+                    target.isUndoing = false
+                }
+                updateUndoRedoState()
+            }
+            dragStartAnnotation = nil
         case .text:
             break
         default:
@@ -388,7 +427,7 @@ final class CanvasViewModel: ObservableObject {
 
     func resetAndLoad(image: CGImage, annotations: [AnyAnnotation]) {
         backgroundImage = image
-        canvasSize = CGSize(width: image.width, height: image.height)
+        // canvasSize は View の onAppear/onChange が管理する — ここで上書きしない
         self.annotations = annotations
         selectedAnnotationID = nil
         undoManager.removeAllActions()
@@ -396,48 +435,107 @@ final class CanvasViewModel: ObservableObject {
     }
     
     // MARK: - Export
-    
+
     func renderAnnotations() -> CGImage? {
         guard let bgImage = backgroundImage else { return nil }
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let context = CGContext(
+
+        let imageW = CGFloat(bgImage.width)
+        let imageH = CGFloat(bgImage.height)
+        // アノテーションはview座標 → 物理ピクセルへのスケール係数
+        let scaleX = canvasSize.width  > 0 ? imageW / canvasSize.width  : 1
+        let scaleY = canvasSize.height > 0 ? imageH / canvasSize.height : 1
+
+        // STEP 1: CI フィルタ（モザイク・ぼかし）をフル解像度で適用
+        let ciImage = CIImage(cgImage: bgImage)
+        var resultCI = ciImage
+        let ciCtx = CIContext(options: [.useSoftwareRenderer: false])
+
+        for annotation in annotations where !annotation.hasStrokeRepresentation {
+            // view空間 → CI空間変換（スケール + Y軸反転）
+            let vr = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
+            let ciRect = CGRect(
+                x: vr.minX * scaleX,
+                y: imageH - vr.maxY * scaleY,
+                width: vr.width  * scaleX,
+                height: vr.height * scaleY
+            )
+            if let filtered = applyFilter(type: annotation.type, to: resultCI, in: ciRect) {
+                resultCI = filtered
+            }
+        }
+
+        let filteredCGImage = resultCI !== ciImage
+            ? ciCtx.createCGImage(resultCI, from: resultCI.extent)
+            : nil
+
+        // STEP 2: 物理ピクセルサイズのコンテキストにストローク系アノテーションを描画
+        guard let cgCtx = CGContext(
             data: nil,
-            width: Int(canvasSize.width),
-            height: Int(canvasSize.height),
+            width: bgImage.width,
+            height: bgImage.height,
             bitsPerComponent: 8,
             bytesPerRow: 0,
-            space: colorSpace,
+            space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        
-        context.draw(bgImage, in: CGRect(origin: .zero, size: canvasSize))
-        
+        ) else { return filteredCGImage ?? bgImage }
+
+        let fullRect = CGRect(x: 0, y: 0, width: imageW, height: imageH)
+        cgCtx.draw(filteredCGImage ?? bgImage, in: fullRect)
+
+        let viewRect = CGRect(origin: .zero, size: canvasSize)
+        let toImage = CGAffineTransform(scaleX: scaleX, y: scaleY)
+        let strokeScale = min(scaleX, scaleY)
+
         for annotation in annotations {
-            context.saveGState()
+            guard annotation.hasStrokeRepresentation else { continue }
+            cgCtx.saveGState()
             if annotation.type == .text, let text = annotation.textContent {
-                let rect = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: max(rect.height * 0.6, 14), weight: .semibold),
+                let rect = annotation.bounds(in: viewRect).applying(toImage)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: max(rect.height * 0.6, 14 * scaleY), weight: .semibold),
                     .foregroundColor: NSColor(cgColor: annotation.color.cgColor) ?? .labelColor
                 ]
-                let attributed = NSAttributedString(string: text, attributes: attributes)
                 NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-                attributed.draw(in: rect)
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: false)
+                NSAttributedString(string: text, attributes: attrs).draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
-                context.restoreGState()
-                continue
+            } else {
+                let path = annotation.path(in: viewRect).applying(toImage).cgPath
+                cgCtx.addPath(path)
+                cgCtx.setStrokeColor(annotation.color.cgColor)
+                cgCtx.setLineWidth(annotation.lineWidth.rawValue * strokeScale)
+                cgCtx.setLineCap(.round)
+                cgCtx.setLineJoin(.round)
+                cgCtx.strokePath()
             }
-            let path = annotation.path(in: CGRect(origin: .zero, size: canvasSize)).cgPath
-            context.addPath(path)
-            context.setStrokeColor(annotation.color.cgColor)
-            context.setLineWidth(annotation.lineWidth.rawValue)
-            context.setLineCap(.round)
-            context.setLineJoin(.round)
-            context.strokePath()
-            context.restoreGState()
+            cgCtx.restoreGState()
         }
-        
-        return context.makeImage()
+
+        return cgCtx.makeImage() ?? filteredCGImage ?? bgImage
+    }
+
+    private func applyFilter(type: AnnotationType, to image: CIImage, in ciRect: CGRect) -> CIImage? {
+        let black = CIImage(color: .black).cropped(to: image.extent)
+        let white = CIImage(color: .white).cropped(to: ciRect)
+        let mask  = white.composited(over: black)
+
+        switch type {
+        case .mosaic:
+            let f = CIFilter.pixellate()
+            f.inputImage = image
+            f.scale = 12.0
+            guard let out = f.outputImage else { return nil }
+            return out.applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: mask])
+                .composited(over: image)
+        case .blur:
+            let f = CIFilter.gaussianBlur()
+            f.inputImage = image
+            f.radius = 20.0
+            guard let out = f.outputImage else { return nil }
+            return out.applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: mask])
+                .composited(over: image)
+        default:
+            return nil
+        }
     }
 }
