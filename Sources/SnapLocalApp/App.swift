@@ -549,11 +549,14 @@ struct CompactToolbar: View {
             .keyboardShortcut(.delete, modifiers: [])
 
             if !canvas.annotations.isEmpty {
-                Text("\(canvas.annotations.count)")
+                let selCount = canvas.selectedAnnotationIDs.count
+                Text(selCount > 1 ? "\(selCount)/\(canvas.annotations.count)" : "\(canvas.annotations.count)")
                     .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(selCount > 1 ? Color.accentColor : Color.secondary)
                     .monospacedDigit()
-                    .help("\(canvas.annotations.count)個のアノテーション (⌘⇧⌫で全削除)")
+                    .help(selCount > 1
+                          ? "\(selCount)個選択中 / \(canvas.annotations.count)個 (⌘Aで全選択、⌫で選択削除)"
+                          : "\(canvas.annotations.count)個のアノテーション (⌘Aで全選択、⌘⇧⌫で全削除)")
             }
 
             Button(action: { showHelp.toggle() }) {
@@ -766,6 +769,7 @@ struct HelpPopoverContent: View {
         ("編集", [
             ("⌘Z / ⌘⇧Z", "元に戻す / やり直し"),
             ("⌫", "選択削除"),
+            ("⌘A", "全アノテーション選択"),
             ("⌘D", "アノテーション複製"),
             ("矢印キー", "1px移動（Shift=10px）"),
             ("⌘] / ⌘[", "前面へ / 背面へ"),
@@ -1104,6 +1108,13 @@ struct AnnotationCanvasView: View {
             .onKeyPress("m") { if !viewModel.showTextInput { viewModel.currentTool = .redact }; return .handled }
             .onKeyPress("n") { if !viewModel.showTextInput { viewModel.currentTool = .step }; return .handled }
             .onKeyPress("u") { if !viewModel.showTextInput { viewModel.currentTool = .roundedRect }; return .handled }
+            .onKeyPress("a", phases: .down) { press in
+                guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
+                viewModel.selectedAnnotationIDs = Set(viewModel.annotations.map { $0.id })
+                viewModel.selectedAnnotationID = viewModel.annotations.last?.id
+                viewModel.objectWillChange.send()
+                return .handled
+            }
             // Number keys 1-8 → color selection
             .onKeyPress(characters: .init(charactersIn: "12345678"), phases: .down) { press in
                 guard !viewModel.showTextInput else { return .ignored }
