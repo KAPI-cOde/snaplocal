@@ -778,6 +778,11 @@ struct HelpPopoverContent: View {
             ("ダブルクリック", "テキスト再編集"),
             ("Esc", "選択解除 / モード終了"),
         ]),
+        ("ズーム", [
+            ("ピンチ", "ズームイン/アウト"),
+            ("⌘+ / ⌘-", "ズームイン/アウト"),
+            ("⌘0", "ズームリセット (100%)"),
+        ]),
         ("その他", [
             ("⌘K", "切り取りモード"),
             ("⌘C", "クリップボードにコピー"),
@@ -1018,6 +1023,8 @@ struct AnnotationCanvasView: View {
     @FocusState private var textFieldFocused: Bool
     @FocusState private var canvasFocused: Bool
     @State private var isHovering = false
+    @State private var zoom: CGFloat = 1.0
+    @State private var baseZoom: CGFloat = 1.0
 
     private func updateCursor() {
         guard isHovering else { return }
@@ -1025,6 +1032,11 @@ struct AnnotationCanvasView: View {
         case .select: NSCursor.arrow.set()
         default:      NSCursor.crosshair.set()
         }
+    }
+
+    private func toCanvas(_ point: CGPoint, size: CGSize) -> CGPoint {
+        let cx = size.width / 2, cy = size.height / 2
+        return CGPoint(x: (point.x - cx) / zoom + cx, y: (point.y - cy) / zoom + cy)
     }
 
     var body: some View {
@@ -1060,8 +1072,18 @@ struct AnnotationCanvasView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .scaleEffect(zoom, anchor: .center)
             .contentShape(Rectangle())
-            .gesture(dragGesture(in: proxy.frame(in: .local)))
+            .gesture(dragGesture(in: proxy.frame(in: .local), size: proxy.size))
+            .gesture(MagnificationGesture()
+                .onChanged { value in
+                    zoom = max(0.25, min(8.0, baseZoom * value))
+                }
+                .onEnded { value in
+                    baseZoom = max(0.25, min(8.0, baseZoom * value))
+                    zoom = baseZoom
+                }
+            )
             .contextMenu {
                 if let id = viewModel.selectedAnnotationID {
                     if let ann = viewModel.annotations.first(where: { $0.id == id }),
@@ -1095,6 +1117,18 @@ struct AnnotationCanvasView: View {
             .onAppear { viewModel.canvasSize = proxy.size }
             .onChange(of: proxy.size) { _, newSize in viewModel.canvasSize = newSize }
             .overlay(textInputOverlay)
+            .overlay(alignment: .topTrailing) {
+                if abs(zoom - 1.0) > 0.01 {
+                    Text("\(Int(zoom * 100))%")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                        .padding(8)
+                        .onTapGesture { zoom = 1.0; baseZoom = 1.0 }
+                }
+            }
             .focusable()
             .focused($canvasFocused)
             // Tool shortcut keys (only when text field not focused)
@@ -1114,6 +1148,18 @@ struct AnnotationCanvasView: View {
                 viewModel.selectedAnnotationID = viewModel.annotations.last?.id
                 viewModel.objectWillChange.send()
                 return .handled
+            }
+            .onKeyPress("=", phases: .down) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                zoom = min(8.0, zoom * 1.25); baseZoom = zoom; return .handled
+            }
+            .onKeyPress("-", phases: .down) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                zoom = max(0.25, zoom / 1.25); baseZoom = zoom; return .handled
+            }
+            .onKeyPress("0", phases: .down) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                zoom = 1.0; baseZoom = 1.0; return .handled
             }
             // Number keys 1-8 → color selection
             .onKeyPress(characters: .init(charactersIn: "12345678"), phases: .down) { press in
@@ -1220,7 +1266,7 @@ struct AnnotationCanvasView: View {
                     .onEnded { value in
                         guard viewModel.backgroundImage != nil,
                               viewModel.currentTool == .select else { return }
-                        let localPt = CGPoint(x: value.location.x, y: value.location.y)
+                        let localPt = toCanvas(CGPoint(x: value.location.x, y: value.location.y), size: proxy.size)
                         for ann in viewModel.annotations.reversed() {
                             if ann.type == .text && ann.hitTest(localPt, in: CGRect(origin: .zero, size: viewModel.canvasSize)) {
                                 viewModel.selectedAnnotationID = ann.id
@@ -1463,18 +1509,20 @@ struct AnnotationCanvasView: View {
         }
     }
 
-    private func dragGesture(in rect: CGRect) -> some Gesture {
+    private func dragGesture(in rect: CGRect, size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
+                let loc = toCanvas(value.location, size: size)
                 if viewModel.dragState.isDrawing {
-                    viewModel.handleDragUpdate(at: value.location, in: rect)
+                    viewModel.handleDragUpdate(at: loc, in: rect)
                 } else {
                     canvasFocused = true
-                    viewModel.handleDragStart(at: value.location, in: rect)
+                    viewModel.handleDragStart(at: loc, in: rect)
                 }
             }
             .onEnded { value in
-                viewModel.handleDragEnd(at: value.location, in: rect)
+                let loc = toCanvas(value.location, size: size)
+                viewModel.handleDragEnd(at: loc, in: rect)
             }
     }
 
