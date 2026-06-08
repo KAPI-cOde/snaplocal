@@ -5,6 +5,8 @@
 
 import SwiftUI
 import CoreGraphics
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import AppKit
 
 // MARK: - Annotation Protocol
@@ -46,23 +48,31 @@ enum AnnotationType: String, Codable, CaseIterable {
 }
 
 enum AnnotationColor: String, Codable, CaseIterable {
-    case red = "red"
-    case blue = "blue"
-    case yellow = "yellow"
+    case red, orange, yellow, green, blue, purple, black, white
 
     var color: Color {
         switch self {
-        case .red: return .red
-        case .blue: return .blue
-        case .yellow: return .yellow
+        case .red:    return Color(red: 1,    green: 0.18, blue: 0.18)
+        case .orange: return Color(red: 1,    green: 0.5,  blue: 0)
+        case .yellow: return Color(red: 1,    green: 0.8,  blue: 0)
+        case .green:  return Color(red: 0.1,  green: 0.78, blue: 0.18)
+        case .blue:   return Color(red: 0.1,  green: 0.35, blue: 0.9)
+        case .purple: return Color(red: 0.55, green: 0.1,  blue: 0.85)
+        case .black:  return .black
+        case .white:  return .white
         }
     }
 
     var cgColor: CGColor {
         switch self {
-        case .red: return CGColor(red: 1, green: 0, blue: 0, alpha: 1)
-        case .blue: return CGColor(red: 0, green: 0, blue: 1, alpha: 1)
-        case .yellow: return CGColor(red: 1, green: 1, blue: 0, alpha: 1)
+        case .red:    return CGColor(red: 1,    green: 0.18, blue: 0.18, alpha: 1)
+        case .orange: return CGColor(red: 1,    green: 0.5,  blue: 0,    alpha: 1)
+        case .yellow: return CGColor(red: 1,    green: 0.8,  blue: 0,    alpha: 1)
+        case .green:  return CGColor(red: 0.1,  green: 0.78, blue: 0.18, alpha: 1)
+        case .blue:   return CGColor(red: 0.1,  green: 0.35, blue: 0.9,  alpha: 1)
+        case .purple: return CGColor(red: 0.55, green: 0.1,  blue: 0.85, alpha: 1)
+        case .black:  return CGColor(red: 0,    green: 0,    blue: 0,    alpha: 1)
+        case .white:  return CGColor(red: 1,    green: 1,    blue: 1,    alpha: 1)
         }
     }
 }
@@ -88,7 +98,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         switch self {
         case .select: return "arrow.up.left.and.arrow.down.right"
         case .line: return "line.diagonal"
-        case .arrow: return "arrowshape.turn.up.right"
+        case .arrow: return "arrow.up.right"
         case .rectangle: return "rectangle"
         case .ellipse: return "circle"
         case .text: return "textformat"
@@ -187,9 +197,55 @@ final class CanvasViewModel: ObservableObject {
     let undoManager = UndoManager()
     private var isUndoing = false
     private var dragStartAnnotation: AnyAnnotation? = nil
+    // Cached CoreImage previews for mosaic/blur annotations (view-space bounds → filtered CGImage)
+    var filterPreviews: [UUID: CGImage] = [:]
+    private let ciPreviewCtx = CIContext(options: [.useSoftwareRenderer: false])
     
+    // MARK: - Filter Previews
+
+    func updateFilterPreview(for annotation: AnyAnnotation) {
+        guard !annotation.hasStrokeRepresentation,
+              let bgImage = backgroundImage,
+              canvasSize.width > 0, canvasSize.height > 0 else { return }
+        let imgW = CGFloat(bgImage.width), imgH = CGFloat(bgImage.height)
+        let scaleX = imgW / canvasSize.width, scaleY = imgH / canvasSize.height
+        let vr = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
+        let ciRect = CGRect(
+            x: vr.minX * scaleX,
+            y: imgH - vr.maxY * scaleY,
+            width: max(vr.width * scaleX, 2),
+            height: max(vr.height * scaleY, 2)
+        ).intersection(CGRect(x: 0, y: 0, width: imgW, height: imgH))
+        guard !ciRect.isNull, ciRect.width > 0, ciRect.height > 0 else { return }
+        let ciSource = CIImage(cgImage: bgImage)
+        var filtered: CIImage?
+        switch annotation.type {
+        case .blur:
+            let f = CIFilter.gaussianBlur()
+            f.inputImage = ciSource.cropped(to: ciRect)
+            f.radius = 20
+            filtered = f.outputImage?.cropped(to: ciRect)
+        case .mosaic:
+            let f = CIFilter.pixellate()
+            f.inputImage = ciSource.cropped(to: ciRect)
+            f.scale = 12
+            filtered = f.outputImage?.cropped(to: ciRect)
+        default: return
+        }
+        if let out = filtered, let cg = ciPreviewCtx.createCGImage(out, from: ciRect) {
+            filterPreviews[annotation.id] = cg
+        }
+    }
+
+    func recomputeAllFilterPreviews() {
+        filterPreviews.removeAll()
+        for ann in annotations where !ann.hasStrokeRepresentation {
+            updateFilterPreview(for: ann)
+        }
+    }
+
     // MARK: - Annotation Management
-    
+
     func addAnnotation(_ annotation: AnyAnnotation) {
         if !isUndoing {
             undoManager.registerUndo(withTarget: self) { target in
@@ -199,6 +255,9 @@ final class CanvasViewModel: ObservableObject {
             }
         }
         annotations.append(annotation)
+        if !annotation.hasStrokeRepresentation {
+            updateFilterPreview(for: annotation)
+        }
         objectWillChange.send()
         updateUndoRedoState()
     }
@@ -214,6 +273,7 @@ final class CanvasViewModel: ObservableObject {
                 }
             }
             annotations.remove(at: index)
+            filterPreviews.removeValue(forKey: id)
             if selectedAnnotationID == id {
                 selectedAnnotationID = nil
             }
@@ -271,7 +331,10 @@ final class CanvasViewModel: ObservableObject {
             }
         case .text:
             dragState.start(at: localPoint)
-            textInputRect = CGRect(x: localPoint.x, y: localPoint.y, width: 200, height: 40)
+            let textW: CGFloat = 240, textH: CGFloat = 40
+            let tx = min(max(localPoint.x, 0), max(canvasSize.width - textW, 0))
+            let ty = min(max(localPoint.y, 0), max(canvasSize.height - textH, 0))
+            textInputRect = CGRect(x: tx, y: ty, width: textW, height: textH)
             textInputString = ""
             showTextInput = true
         default:
@@ -314,6 +377,9 @@ final class CanvasViewModel: ObservableObject {
                     target.isUndoing = false
                 }
                 updateUndoRedoState()
+                if !annotations[index].hasStrokeRepresentation {
+                    updateFilterPreview(for: annotations[index])
+                }
             }
             dragStartAnnotation = nil
         case .text:
@@ -432,6 +498,7 @@ final class CanvasViewModel: ObservableObject {
         selectedAnnotationID = nil
         undoManager.removeAllActions()
         updateUndoRedoState()
+        recomputeAllFilterPreviews()
     }
     
     // MARK: - Export
@@ -500,8 +567,14 @@ final class CanvasViewModel: ObservableObject {
                 NSAttributedString(string: text, attributes: attrs).draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
             } else {
-                let path = annotation.path(in: viewRect).applying(toImage).cgPath
-                cgCtx.addPath(path)
+                let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
+                if annotation.type == .arrow {
+                    cgCtx.addPath(cgPath)
+                    cgCtx.setFillColor(annotation.color.cgColor)
+                    cgCtx.fillPath()
+                    cgCtx.addPath(cgPath)
+                }
+                cgCtx.addPath(cgPath)
                 cgCtx.setStrokeColor(annotation.color.cgColor)
                 cgCtx.setLineWidth(annotation.lineWidth.rawValue * strokeScale)
                 cgCtx.setLineCap(.round)

@@ -52,43 +52,44 @@ struct ArrowAnnotation: AnnotationElement {
     var endPoint: CGPoint
 
     func path(in rect: CGRect) -> Path {
-        var path = Path()
         let start = startPoint.applying(transform)
         let end = endPoint.applying(transform)
+        let dx = end.x - start.x, dy = end.y - start.y
+        let length = hypot(dx, dy)
+        guard length > 1 else { return Path() }
+
+        let angle = atan2(dy, dx)
+        let headLength: CGFloat = lineWidth.rawValue * 4 + 12
+        let headAngle: CGFloat = .pi / 5.5
+
+        var path = Path()
+        // Shaft ends at arrowhead base so it doesn't poke through the filled head
+        let shaftEnd = length > headLength
+            ? CGPoint(x: end.x - headLength * cos(angle), y: end.y - headLength * sin(angle))
+            : start
         path.move(to: start)
-        path.addLine(to: end)
+        path.addLine(to: shaftEnd)
 
-        // Arrowhead
-        let angle = atan2(end.y - start.y, end.x - start.x)
-        let headLength: CGFloat = 15
-        let headAngle: CGFloat = .pi / 6
-
-        let leftPoint = CGPoint(
-            x: end.x - headLength * cos(angle - headAngle),
-            y: end.y - headLength * sin(angle - headAngle)
-        )
-        let rightPoint = CGPoint(
-            x: end.x - headLength * cos(angle + headAngle),
-            y: end.y - headLength * sin(angle + headAngle)
-        )
-
+        // Closed triangle arrowhead — filled in canvas draw
         path.move(to: end)
-        path.addLine(to: leftPoint)
-        path.move(to: end)
-        path.addLine(to: rightPoint)
+        path.addLine(to: CGPoint(x: end.x - headLength * cos(angle - headAngle),
+                                  y: end.y - headLength * sin(angle - headAngle)))
+        path.addLine(to: CGPoint(x: end.x - headLength * cos(angle + headAngle),
+                                  y: end.y - headLength * sin(angle + headAngle)))
+        path.closeSubpath()
 
         return path
     }
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
-        let path = self.path(in: rect)
-        let strokeStyle = StrokeStyle(lineWidth: lineWidth.rawValue, lineCap: .round, lineJoin: .round)
-        return path.strokedPath(strokeStyle).contains(point)
+        let p = self.path(in: rect)
+        if p.contains(point) { return true }
+        let strokeStyle = StrokeStyle(lineWidth: max(lineWidth.rawValue, 10), lineCap: .round, lineJoin: .round)
+        return p.strokedPath(strokeStyle).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect {
-        let path = self.path(in: rect)
-        return path.boundingRect
+        self.path(in: rect).boundingRect
     }
 
     mutating func applyTransform(_ transform: CGAffineTransform) {

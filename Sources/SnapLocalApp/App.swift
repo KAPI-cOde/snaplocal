@@ -321,16 +321,21 @@ struct CompactToolbar: View {
                     ZStack {
                         Circle()
                             .fill(color.color)
-                            .frame(width: 14, height: 14)
+                            .frame(width: 12, height: 12)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.primary.opacity(color == .white ? 0.3 : 0), lineWidth: 0.5)
+                                    .frame(width: 12, height: 12)
+                            )
                         if canvas.currentColor == color {
                             Circle()
-                                .stroke(Color.primary.opacity(0.75), lineWidth: 2)
-                                .frame(width: 19, height: 19)
+                                .stroke(Color.primary.opacity(0.8), lineWidth: 2)
+                                .frame(width: 17, height: 17)
                         }
                     }
                 }
                 .buttonStyle(.plain)
-                .frame(width: 22, height: 22)
+                .frame(width: 18, height: 18)
                 .help(color.rawValue)
             }
 
@@ -535,6 +540,8 @@ struct AnnotationCanvasView: View {
     var onCapture: (() -> Void)? = nil
     var onOpenPermissions: (() -> Void)? = nil
 
+    @FocusState private var textFieldFocused: Bool
+
     var body: some View {
         GeometryReader { proxy in
             ZStack {
@@ -589,11 +596,15 @@ struct AnnotationCanvasView: View {
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
                     }
                 } else if !annotation.hasStrokeRepresentation {
-                    // Mosaic/blur: show a semi-transparent overlay as preview
                     let bounds = annotation.bounds(in: canvasRect)
-                    context.fill(Path(bounds), with: .color(.gray.opacity(0.35)))
-                    context.stroke(Path(bounds), with: .color(.white.opacity(0.6)),
-                                   style: StrokeStyle(lineWidth: 1, dash: [4, 2]))
+                    if let preview = viewModel.filterPreviews[annotation.id] {
+                        // Render actual blurred/pixelated preview cropped to annotation bounds
+                        context.draw(Image(decorative: preview, scale: 1.0, orientation: .up), in: bounds)
+                    } else {
+                        context.fill(Path(bounds), with: .color(.gray.opacity(0.35)))
+                        context.stroke(Path(bounds), with: .color(.white.opacity(0.6)),
+                                       style: StrokeStyle(lineWidth: 1, dash: [4, 2]))
+                    }
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.stroke(Path(bounds.insetBy(dx: -3, dy: -3)), with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
@@ -602,8 +613,14 @@ struct AnnotationCanvasView: View {
                     let path = annotation.path(in: canvasRect)
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.stroke(path, with: .color(.white), lineWidth: annotation.lineWidth.rawValue + 4)
+                        if annotation.type == .arrow {
+                            context.fill(path, with: .color(.white))
+                        }
                     }
                     context.stroke(path, with: .color(annotation.color.color), lineWidth: annotation.lineWidth.rawValue)
+                    if annotation.type == .arrow {
+                        context.fill(path, with: .color(annotation.color.color))
+                    }
                     if annotation.id == viewModel.selectedAnnotationID {
                         let bounds = annotation.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
                         context.stroke(Path(bounds), with: .color(.accentColor),
@@ -614,22 +631,49 @@ struct AnnotationCanvasView: View {
             if viewModel.dragState.isDrawing,
                let start = viewModel.dragState.startPoint,
                let end = viewModel.dragState.currentPoint {
-                var preview = Path()
-                switch viewModel.currentTool {
-                case .line, .arrow:
-                    preview.move(to: start)
-                    preview.addLine(to: end)
-                case .rectangle, .mosaic, .blur:
-                    preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
-                                         width: abs(end.x - start.x), height: abs(end.y - start.y)))
-                case .ellipse:
-                    preview = Path(ellipseIn: CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
-                                                     width: abs(end.x - start.x), height: abs(end.y - start.y)))
-                default:
-                    break
+                let previewColor = viewModel.currentColor.color.opacity(0.75)
+                let lw = viewModel.currentLineWidth.rawValue
+                if viewModel.currentTool == .arrow {
+                    let dx = end.x - start.x, dy = end.y - start.y
+                    let length = hypot(dx, dy)
+                    if length > 1 {
+                        let angle = atan2(dy, dx)
+                        let headLen: CGFloat = lw * 4 + 12
+                        let headAngle: CGFloat = .pi / 5.5
+                        let shaftEnd = length > headLen
+                            ? CGPoint(x: end.x - headLen * cos(angle), y: end.y - headLen * sin(angle))
+                            : start
+                        var p = Path()
+                        p.move(to: start)
+                        p.addLine(to: shaftEnd)
+                        p.move(to: end)
+                        p.addLine(to: CGPoint(x: end.x - headLen * cos(angle - headAngle),
+                                              y: end.y - headLen * sin(angle - headAngle)))
+                        p.addLine(to: CGPoint(x: end.x - headLen * cos(angle + headAngle),
+                                              y: end.y - headLen * sin(angle + headAngle)))
+                        p.closeSubpath()
+                        context.stroke(p, with: .color(previewColor), lineWidth: lw)
+                        context.fill(p, with: .color(previewColor))
+                    }
+                } else {
+                    var preview = Path()
+                    switch viewModel.currentTool {
+                    case .line:
+                        preview.move(to: start)
+                        preview.addLine(to: end)
+                    case .rectangle, .mosaic, .blur:
+                        preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                                             width: abs(end.x - start.x), height: abs(end.y - start.y)))
+                    case .ellipse:
+                        preview = Path(ellipseIn: CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                                                         width: abs(end.x - start.x), height: abs(end.y - start.y)))
+                    default: break
+                    }
+                    if !preview.isEmpty {
+                        context.stroke(preview, with: .color(previewColor),
+                                       style: StrokeStyle(lineWidth: lw, dash: [4, 2]))
+                    }
                 }
-                context.stroke(preview, with: .color(viewModel.currentColor.color.opacity(0.6)),
-                               style: StrokeStyle(lineWidth: viewModel.currentLineWidth.rawValue, dash: [4, 2]))
             }
         }
     }
@@ -653,8 +697,15 @@ struct AnnotationCanvasView: View {
         if viewModel.showTextInput {
             TextField("テキスト", text: $viewModel.textInputString)
                 .textFieldStyle(.roundedBorder)
+                .font(.system(size: 14, weight: .medium))
                 .frame(width: viewModel.textInputRect.width)
                 .position(x: viewModel.textInputRect.midX, y: viewModel.textInputRect.midY)
+                .focused($textFieldFocused)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        textFieldFocused = true
+                    }
+                }
                 .onSubmit { viewModel.confirmTextInput() }
                 .onExitCommand { viewModel.cancelTextInput() }
         }

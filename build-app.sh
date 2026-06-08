@@ -50,7 +50,17 @@ cat > "$BUILD_DIR/entitlements.plist" << 'ENTEOF'
 ENTEOF
 
 echo "Code signing with entitlements..."
-codesign --force --deep --sign - --entitlements "$BUILD_DIR/entitlements.plist" --options runtime "$APP_PATH" 2>/dev/null || codesign --force --deep --sign - --entitlements "$BUILD_DIR/entitlements.plist" "$APP_PATH"
+codesign --force --deep --sign - \
+    --entitlements "$BUILD_DIR/entitlements.plist" \
+    "$APP_PATH" 2>/dev/null || \
+codesign --force --deep --sign - \
+    --entitlements "$BUILD_DIR/entitlements.plist" \
+    "$APP_PATH"
+
+# Ad-hoc signing changes the binary hash each build, so macOS TCC revokes screen recording
+# permission silently (System Settings still shows the checkmark but it's stale).
+# Resetting the entry here forces a clean permission prompt on next launch.
+tccutil reset ScreenCapture com.snaplocal.app 2>/dev/null || true
 
 echo "Build complete: $APP_PATH"
 echo ""

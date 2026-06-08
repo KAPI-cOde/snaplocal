@@ -53,6 +53,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         if !hasStrokeRepresentation || type == .text {
             return p.boundingRect.contains(point)
         }
+        // Check fill area first (catches arrowhead triangle, etc.)
+        if p.contains(point) { return true }
         let tolerance = max(lineWidth.rawValue, 10)
         return p.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
