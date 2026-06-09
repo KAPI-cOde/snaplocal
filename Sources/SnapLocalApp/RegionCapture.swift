@@ -10,8 +10,10 @@ import ScreenCaptureKit
 // MARK: - Public entry point
 
 enum RegionCapture {
+    /// completion receives the selection rect (CG top-left coords) and, when a frozen
+    /// screenshot is available, the pre-cropped CGImage so callers can skip re-capture.
     @MainActor
-    static func start(completion: @escaping @MainActor (CGRect?) -> Void) {
+    static func start(completion: @escaping @MainActor (CGRect?, CGImage?) -> Void) {
         let overlay = RegionOverlayWindow(completion: completion)
         overlay.show()
     }
@@ -134,7 +136,7 @@ private enum ResizeHandle {
 private final class RegionOverlayWindow: NSObject {
     private var panels: [NSPanel] = []
     private var trackingViews: [RegionView] = []
-    private let completion: @MainActor (CGRect?) -> Void
+    private let completion: @MainActor (CGRect?, CGImage?) -> Void
 
     // State
     private var captureState: CaptureState = .idle
@@ -169,7 +171,7 @@ private final class RegionOverlayWindow: NSObject {
     private var windowSnapRect: CGRect?
     private var ourPanelNumbers: Set<CGWindowID> = []
 
-    init(completion: @escaping @MainActor (CGRect?) -> Void) {
+    init(completion: @escaping @MainActor (CGRect?, CGImage?) -> Void) {
         self.completion = completion
         super.init()
     }
@@ -494,16 +496,44 @@ private final class RegionOverlayWindow: NSObject {
             width: selectionRect.width,
             height: selectionRect.height
         )
+        // Pre-crop from frozen screenshot so caller can skip re-capture
+        let preCroppedImage = cropFrozenSnapshot(selectionNSCoords: selectionRect)
+
         // Camera shutter sound
         AudioServicesPlaySystemSound(1108)
         // Brief selection flash before dismissing
         flashSelection { [weak self] in
             self?.dismiss()
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                self?.completion(topLeftRect)
+                // Short pause so the overlay fully fades before editor opens;
+                // reduced from 120ms since frozen-image path is near-instant.
+                try? await Task.sleep(nanoseconds: preCroppedImage != nil ? 60_000_000 : 120_000_000)
+                self?.completion(topLeftRect, preCroppedImage)
             }
         }
+    }
+
+    /// Crop the frozen screenshot for the selection, returning a Retina-resolution CGImage.
+    private func cropFrozenSnapshot(selectionNSCoords sel: CGRect) -> CGImage? {
+        // Find the screen whose frame contains the selection center
+        let center = NSPoint(x: sel.midX, y: sel.midY)
+        guard let screen = NSScreen.screens.first(where: { NSPointInRect(center, $0.frame) }),
+              let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+              let snapshot = screenSnapshots[displayID] else { return nil }
+
+        let scale = screen.backingScaleFactor
+        // Convert selection from NSScreen coords (bottom-left) to display-local logical coords
+        let localX = sel.minX - screen.frame.minX
+        let localY = screen.frame.maxY - sel.maxY   // flip to top-left origin
+        // Scale to physical pixels
+        let pixelRect = CGRect(
+            x: localX * scale, y: localY * scale,
+            width: sel.width * scale, height: sel.height * scale
+        )
+        let snapshotBounds = CGRect(origin: .zero, size: CGSize(width: snapshot.width, height: snapshot.height))
+        let clipped = pixelRect.intersection(snapshotBounds)
+        guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return nil }
+        return snapshot.cropping(to: clipped)
     }
 
     private func flashSelection(completion: @escaping () -> Void) {
@@ -538,7 +568,7 @@ private final class RegionOverlayWindow: NSObject {
 
     func cancel() {
         dismiss()
-        completion(nil)
+        completion(nil, nil)
     }
 
     private func dismiss() {
@@ -599,7 +629,7 @@ private final class RegionOverlayWindow: NSObject {
         dismiss()
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 120_000_000)
-            completion(topLeftRect)
+            completion(topLeftRect, nil)   // window snap always re-captures via SCKit
         }
     }
 
