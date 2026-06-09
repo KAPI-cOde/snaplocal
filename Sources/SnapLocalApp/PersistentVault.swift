@@ -19,6 +19,7 @@ struct VaultManifestEntry: Codable, Sendable {
     var height: Int
     var title: String?
     var notes: String?
+    var isStarred: Bool = false
 }
 
 // MARK: - VaultItem (in-memory representation for UI)
@@ -35,6 +36,7 @@ struct VaultItem: Identifiable, Sendable {
     var notes: String?
     var width: Int = 0
     var height: Int = 0
+    var isStarred: Bool = false
 
     var dimensionLabel: String {
         guard width > 0, height > 0 else { return "" }
@@ -159,6 +161,13 @@ actor PersistentVault {
         saveManifest()
     }
 
+    /// Toggle star (favorite) status for an item
+    func toggleStar(id: UUID) {
+        guard manifest[id] != nil else { return }
+        manifest[id]!.isStarred.toggle()
+        saveManifest()
+    }
+
     /// Update annotations for an item
     func updateAnnotations(id: UUID, annotations: [AnyAnnotation]) {
         guard manifest[id] != nil else { return }
@@ -236,7 +245,8 @@ actor PersistentVault {
                 title: entry.title,
                 notes: entry.notes,
                 width: entry.width,
-                height: entry.height
+                height: entry.height,
+                isStarred: entry.isStarred
             )
         }
     }

@@ -789,6 +789,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func toggleStar(for item: VaultItem) {
+        Task {
+            await vault.toggleStar(id: item.id)
+            await loadHistory()
+        }
+    }
+
     func duplicateHistoryItem(_ item: VaultItem) {
         Task {
             _ = await vault.duplicate(id: item.id)
@@ -1738,6 +1745,7 @@ struct HistoryRail: View {
     var onExportZip: (() -> Void)? = nil
     var onExportPDF: (() -> Void)? = nil
     var onUpdateNotes: ((VaultItem, String?) -> Void)? = nil
+    var onToggleStar: ((VaultItem) -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
@@ -1745,6 +1753,7 @@ struct HistoryRail: View {
     @State private var renamingItemID: UUID? = nil
     @State private var renameText: String = ""
     @State private var showDeleteAllConfirm = false
+    @State private var showOnlyStarred = false
 
     private let thumbW: CGFloat = 68
     private let thumbH: CGFloat = 46
@@ -1777,9 +1786,13 @@ struct HistoryRail: View {
         return .older
     }
 
+    private var displayedHistory: [VaultItem] {
+        showOnlyStarred ? history.filter { $0.isStarred } : history
+    }
+
     private var groupedHistory: [(DateGroup, [VaultItem])] {
         let order: [DateGroup] = [.today, .yesterday, .thisWeek, .older]
-        let grouped = Dictionary(grouping: history, by: { dateGroup(for: $0.createdAt) })
+        let grouped = Dictionary(grouping: displayedHistory, by: { dateGroup(for: $0.createdAt) })
         return order.compactMap { g in
             guard let items = grouped[g], !items.isEmpty else { return nil }
             return (g, items)
@@ -1873,6 +1886,20 @@ struct HistoryRail: View {
                                             .padding(2)
                                     }
                                 }
+                                .overlay(alignment: .topLeading) {
+                                    if item.isStarred || hoveredItemID == item.id {
+                                        Button(action: { onToggleStar?(item) }) {
+                                            Image(systemName: item.isStarred ? "star.fill" : "star")
+                                                .font(.system(size: 8))
+                                                .foregroundStyle(item.isStarred ? Color.yellow : Color.white.opacity(0.8))
+                                                .padding(2)
+                                                .background(Color.black.opacity(0.45))
+                                                .clipShape(Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .padding(2)
+                                    }
+                                }
                                 .overlay(alignment: .topTrailing) {
                                     if item.notes != nil {
                                         Image(systemName: "note.text")
@@ -1935,6 +1962,8 @@ struct HistoryRail: View {
                             HistoryItemPopover(item: item, onUpdateNotes: onUpdateNotes)
                         }
                         .contextMenu {
+                            Button(item.isStarred ? "スターを外す" : "スターを付ける") { onToggleStar?(item) }
+                            Divider()
                             Button("開く") { onSelect(item) }
                             Button("複製") { onDuplicate?(item) }
                             Button("名前を変更…") {
@@ -2009,11 +2038,18 @@ struct HistoryRail: View {
 
             Divider()
             HStack(spacing: 0) {
-                Text("\(history.count)件")
+                Text("\(displayedHistory.count)件")
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 6)
                 Spacer()
+                Button(action: { showOnlyStarred.toggle() }) {
+                    Image(systemName: showOnlyStarred ? "star.fill" : "star")
+                        .font(.caption2)
+                        .foregroundStyle(showOnlyStarred ? Color.yellow : Color.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(showOnlyStarred ? "全件表示" : "スター付きのみ表示")
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
                         .font(.caption2)
@@ -2697,7 +2733,8 @@ struct ContentView: View {
                         onDeleteAll: state.deleteAllHistory,
                         onExportZip: state.exportHistoryAsZip,
                         onExportPDF: state.exportHistoryAsPDF,
-                        onUpdateNotes: state.updateNotesForItem
+                        onUpdateNotes: state.updateNotesForItem,
+                        onToggleStar: state.toggleStar
                     )
                     .transition(.move(edge: .trailing))
                 }
