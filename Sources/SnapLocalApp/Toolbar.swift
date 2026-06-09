@@ -27,7 +27,6 @@ struct CompactToolbar: View {
     var onCaptureRegionToClipboard: (() -> Void)? = nil
     var currentOCRText: String = ""
     @State private var showOCRPanel = false
-    @State private var showHelp = false
     @State private var showSettings = false
     @State private var showAdjustments = false
     @State private var showDecoration = false
@@ -76,6 +75,13 @@ struct CompactToolbar: View {
                 Button(action: onPin) { EmptyView() }
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                     .disabled(canvas.backgroundImage == nil)
+                // T3.2-A: undo/redo はツールバー非表示化、ショートカットのみ維持
+                Button { canvas.undo() } label: { EmptyView() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(!canvas.canUndo)
+                Button { canvas.redo() } label: { EmptyView() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(!canvas.canRedo)
             }
             .frame(width: 0, height: 0).opacity(0)
         }
@@ -409,50 +415,6 @@ struct CompactToolbar: View {
             decorationPopover
         }
 
-        Menu {
-            Section("回転・反転") {
-                Button("90°左に回転 (⌘⌥←)") { canvas.rotateImage(clockwise: false) }
-                Button("90°右に回転 (⌘⌥→)") { canvas.rotateImage(clockwise: true) }
-                Button("左右反転") { canvas.flipImage(horizontal: true) }
-                Button("上下反転") { canvas.flipImage(horizontal: false) }
-            }
-            Divider()
-            Section("リサイズ (\(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—"))") {
-                Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
-                Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
-                Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
-                Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
-                Divider()
-                Button("1920×1080 (FHD)") { canvas.resizeToFit(width: 1920, height: 1080) }
-                Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
-                Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
-                Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
-            }
-            Divider()
-            Button("余白を追加…") { showExtendCanvas = true }
-            Button("余白を自動トリミング") { canvas.trimWhitespace() }
-            Divider()
-            Button("クリップボードの画像を下に結合") {
-                if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
-                   let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    canvas.stitch(with: cg, vertical: true)
-                }
-            }
-            Button("クリップボードの画像を右に結合") {
-                if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
-                   let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    canvas.stitch(with: cg, vertical: false)
-                }
-            }
-        } label: {
-            Image(systemName: "photo")
-        }
-        .menuStyle(.borderlessButton)
-        .frame(width: 22)
-        .help("回転・反転・リサイズ・結合")
-        .sheet(isPresented: $showExtendCanvas) {
-            extendCanvasSheet
-        }
     }
 
     @ViewBuilder
@@ -498,29 +460,15 @@ struct CompactToolbar: View {
 
         Divider().frame(height: 18)
 
-        Button(action: { canvas.undo() }) {
-            Image(systemName: "arrow.uturn.backward")
+        // T3.2-B: 削除は選択中のみ表示(⌫は選択時に有効)
+        if canvas.selectedAnnotationID != nil {
+            Button(action: { canvas.deleteSelectedAnnotation() }) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(DSToolButtonStyle())
+            .help("削除 (⌫)")
+            .keyboardShortcut(.delete, modifiers: [])
         }
-        .buttonStyle(DSToolButtonStyle())
-        .disabled(!canvas.canUndo)
-        .help("元に戻す (⌘Z)")
-        .keyboardShortcut("z", modifiers: .command)
-
-        Button(action: { canvas.redo() }) {
-            Image(systemName: "arrow.uturn.forward")
-        }
-        .buttonStyle(DSToolButtonStyle())
-        .disabled(!canvas.canRedo)
-        .help("やり直し (⌘⇧Z)")
-        .keyboardShortcut("z", modifiers: [.command, .shift])
-
-        Button(action: { canvas.deleteSelectedAnnotation() }) {
-            Image(systemName: "trash")
-        }
-        .buttonStyle(DSToolButtonStyle())
-        .disabled(canvas.selectedAnnotationID == nil)
-        .help("削除 (⌫)")
-        .keyboardShortcut(.delete, modifiers: [])
 
         if !canvas.annotations.isEmpty {
             Toggle(isOn: $canvas.annotationsHidden) {
@@ -531,7 +479,9 @@ struct CompactToolbar: View {
             .keyboardShortcut("'", modifiers: .command)
         }
 
-        if !canvas.annotations.isEmpty {
+        // T3.2-F: 件数バッジは選択中のみ表示
+        if !canvas.annotations.isEmpty &&
+            (canvas.selectedAnnotationID != nil || canvas.selectedAnnotationIDs.count > 1) {
             let selCount = canvas.selectedAnnotationIDs.count
             Text(selCount > 1 ? "\(selCount)/\(canvas.annotations.count)" : "\(canvas.annotations.count)")
                 .font(.system(size: DS.FontSize.caption2, design: .monospaced))
@@ -562,37 +512,75 @@ struct CompactToolbar: View {
             }
         }
 
+        // T3.2-C/D: 低頻度機能(テンプレート・回転・リサイズ・結合)のオーバーフローメニュー
         Menu {
-            if !canvas.annotations.isEmpty {
-                Button("現在のアノテーションをテンプレートとして保存…") {
-                    templateNameInput = ""
-                    showSaveTemplate = true
-                }
-                if !settings.annotationTemplates.isEmpty { Divider() }
+            Section("回転・反転") {
+                Button("90°左に回転 (⌘⌥←)") { canvas.rotateImage(clockwise: false) }
+                Button("90°右に回転 (⌘⌥→)") { canvas.rotateImage(clockwise: true) }
+                Button("左右反転") { canvas.flipImage(horizontal: true) }
+                Button("上下反転") { canvas.flipImage(horizontal: false) }
             }
-            if settings.annotationTemplates.isEmpty {
-                Text("テンプレートなし").foregroundStyle(.secondary)
-            } else {
-                ForEach(settings.annotationTemplates) { t in
-                    Menu(t.name) {
-                        Button("適用（追加）") {
-                            for var ann in t.annotations {
-                                ann.id = UUID()
-                                canvas.addAnnotation(ann)
+            Section("リサイズ (\(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—"))") {
+                Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
+                Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
+                Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
+                Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
+                Divider()
+                Button("1920×1080 (FHD)") { canvas.resizeToFit(width: 1920, height: 1080) }
+                Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
+                Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
+                Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
+            }
+            Section("余白・結合") {
+                Button("余白を追加…") { showExtendCanvas = true }
+                Button("余白を自動トリミング") { canvas.trimWhitespace() }
+                Button("クリップボードの画像を下に結合") {
+                    if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                       let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        canvas.stitch(with: cg, vertical: true)
+                    }
+                }
+                Button("クリップボードの画像を右に結合") {
+                    if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                       let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        canvas.stitch(with: cg, vertical: false)
+                    }
+                }
+            }
+            Section("テンプレート") {
+                if !canvas.annotations.isEmpty {
+                    Button("現在のアノテーションをテンプレートとして保存…") {
+                        templateNameInput = ""
+                        showSaveTemplate = true
+                    }
+                }
+                if settings.annotationTemplates.isEmpty {
+                    Text("テンプレートなし").foregroundStyle(.secondary)
+                } else {
+                    ForEach(settings.annotationTemplates) { t in
+                        Menu(t.name) {
+                            Button("適用（追加）") {
+                                for var ann in t.annotations {
+                                    ann.id = UUID()
+                                    canvas.addAnnotation(ann)
+                                }
                             }
-                        }
-                        Button("削除", role: .destructive) {
-                            settings.deleteTemplate(id: t.id)
+                            Button("削除", role: .destructive) {
+                                settings.deleteTemplate(id: t.id)
+                            }
                         }
                     }
                 }
             }
         } label: {
-            Image(systemName: "square.on.square.dashed")
+            Image(systemName: "ellipsis")
         }
         .menuStyle(.borderlessButton)
         .frame(width: 22)
-        .help("アノテーションテンプレート")
+        .help("その他（回転・リサイズ・結合・テンプレート）")
+        .sheet(isPresented: $showExtendCanvas) {
+            extendCanvasSheet
+        }
         .alert("テンプレート名を入力", isPresented: $showSaveTemplate) {
             TextField("テンプレート名", text: $templateNameInput)
             Button("保存") {
@@ -712,15 +700,7 @@ struct CompactToolbar: View {
 
         if canvas.backgroundImage != nil { imageOnlyExportControls }
 
-        Button(action: { showHelp.toggle() }) {
-            Image(systemName: "questionmark.circle")
-        }
-        .buttonStyle(DSToolButtonStyle(isActive: showHelp))
-        .help("ショートカットキー一覧")
-        .popover(isPresented: $showHelp, arrowEdge: .bottom) {
-            HelpPopoverContent()
-        }
-
+        // T3.2-E: ヘルプは設定シート内へ移動
         Button(action: { showSettings.toggle() }) {
             Image(systemName: "gearshape")
         }

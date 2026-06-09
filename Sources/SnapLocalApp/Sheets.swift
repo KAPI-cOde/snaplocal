@@ -142,6 +142,7 @@ struct SettingsSheet: View {
     @StateObject private var settings = SettingsManager.shared
     @State private var saveDirectoryPath: String = ""
     @State private var filenameTemplate: String = ""
+    @State private var showHelp = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -268,6 +269,13 @@ struct SettingsSheet: View {
                             set: { settings.launchAtLogin = $0 }
                         ))
                     }
+                }
+
+                Section("ヘルプ") {
+                    Button("ショートカットキー一覧…") { showHelp = true }
+                        .popover(isPresented: $showHelp, arrowEdge: .trailing) {
+                            HelpPopoverContent()
+                        }
                 }
             }
             .formStyle(.grouped)
