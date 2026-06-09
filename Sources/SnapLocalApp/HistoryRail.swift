@@ -419,6 +419,9 @@ private struct HistoryItemRow: View {
             }
         }
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.small).stroke(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+        .scaleEffect(isHovered && !isSelected ? 1.04 : 1)
+        .animation(DS.Anim.base, value: isSelected)
+        .animation(DS.Anim.fast, value: isHovered)
     }
 
     @ViewBuilder private var labelView: some View {
