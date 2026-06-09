@@ -674,6 +674,22 @@ struct CompactToolbar: View {
             .disabled(canvas.backgroundImage == nil)
             .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
 
+            Menu {
+                Text("現在: \(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—")")
+                    .font(.caption)
+                Divider()
+                Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
+                Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
+                Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
+                Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
+            } label: {
+                Image(systemName: "aspectratio")
+            }
+            .help("キャンバスをリサイズ")
+            .disabled(canvas.backgroundImage == nil)
+            .menuStyle(.borderlessButton)
+            .frame(width: 22)
+
             Button(action: onCopy) {
                 Image(systemName: "doc.on.clipboard")
             }

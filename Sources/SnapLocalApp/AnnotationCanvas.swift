@@ -726,48 +726,17 @@ final class CanvasViewModel: ObservableObject {
     
     // MARK: - Drawing Actions
     
-    func samplePixelColor(at canvasPoint: CGPoint) {
-        guard let img = backgroundImage else { return }
-        let sx = CGFloat(img.width) / canvasSize.width
-        let sy = CGFloat(img.height) / canvasSize.height
-        let px = Int(canvasPoint.x * sx)
-        let py = Int((canvasSize.height - canvasPoint.y) * sy)  // flip Y (CGImage is top-left)
-        guard px >= 0, py >= 0, px < img.width, py < img.height else { return }
-        guard let data = img.dataProvider?.data,
-              let bytes = CFDataGetBytePtr(data) else { return }
-        let bpp = img.bitsPerPixel / 8
-        let bpr = img.bytesPerRow
-        let offset = py * bpr + px * bpp
-        let r = CGFloat(bytes[offset]) / 255
-        let g = CGFloat(bytes[offset + 1]) / 255
-        let b = CGFloat(bytes[offset + 2]) / 255
-        // Find nearest preset color
-        let presets: [(AnnotationColor, (CGFloat, CGFloat, CGFloat))] = [
-            (.red,    (1, 0.18, 0.18)),
-            (.orange, (1, 0.5, 0)),
-            (.yellow, (1, 0.8, 0)),
-            (.green,  (0.1, 0.78, 0.18)),
-            (.blue,   (0.1, 0.35, 0.9)),
-            (.purple, (0.55, 0.1, 0.85)),
-            (.black,  (0, 0, 0)),
-            (.white,  (1, 1, 1)),
-        ]
-        let nearest = presets.min { a, b2 in
-            let da = pow(r - a.1.0, 2) + pow(g - a.1.1, 2) + pow(b - a.1.2, 2)
-            let db = pow(r - b2.1.0, 2) + pow(g - b2.1.1, 2) + pow(b - b2.1.2, 2)
-            return da < db
-        }!
-        currentColor = nearest.0
-        applyCurrentColorToSelection()
-    }
-
     func handleDragStart(at point: CGPoint, in canvasRect: CGRect) {
         let localPoint = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
 
-        // Option+click in non-select tool: eyedropper — sample pixel color
-        if currentTool != .select && currentTool != .step,
+        // Option+click: eyedropper — sample exact pixel color
+        if currentTool != .colorPicker,
            NSEvent.modifierFlags.contains(.option) {
-            samplePixelColor(at: localPoint)
+            if let hex = sampleColor(at: localPoint) {
+                currentCustomColorHex = hex
+                applyCustomColorToSelection(hex: hex)
+                SettingsManager.shared.addRecentCustomColor(hex)
+            }
             return
         }
 
@@ -1490,6 +1459,37 @@ final class CanvasViewModel: ObservableObject {
         undoManager.removeAllActions()
         updateUndoRedoState()
         recomputeAllFilterPreviews()
+        objectWillChange.send()
+    }
+
+    // MARK: - Resize
+
+    func resizeCanvas(scale: CGFloat) {
+        guard let src = backgroundImage, scale > 0, scale != 1.0 else { return }
+        let newW = max(1, Int(CGFloat(src.width) * scale))
+        let newH = max(1, Int(CGFloat(src.height) * scale))
+        guard let ctx = CGContext(
+            data: nil, width: newW, height: newH,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        ctx.interpolationQuality = scale < 1.0 ? .high : .medium
+        ctx.draw(src, in: CGRect(x: 0, y: 0, width: newW, height: newH))
+        guard let resized = ctx.makeImage() else { return }
+
+        // Scale all annotation transforms
+        let scaleT = CGAffineTransform(scaleX: scale, y: scale)
+        for i in 0..<annotations.count {
+            annotations[i].transform = annotations[i].transform.concatenating(scaleT)
+        }
+
+        backgroundImage = resized
+        canvasSize = CGSize(width: CGFloat(newW), height: CGFloat(newH))
+        undoManager.removeAllActions()
+        updateUndoRedoState()
+        recomputeAllFilterPreviews()
+        loadToken = UUID()
         objectWillChange.send()
     }
 
