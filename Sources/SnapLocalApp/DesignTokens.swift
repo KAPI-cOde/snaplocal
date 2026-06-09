@@ -123,6 +123,7 @@ struct DSToolButtonStyle: ButtonStyle {
                 .scaleEffect(configuration.isPressed ? 0.96 : 1)
                 .animation(DS.Anim.fast, value: configuration.isPressed)
                 .animation(DS.Anim.fast, value: hovering)
+                .animation(DS.Anim.base, value: isActive)
                 .onHover { hovering = $0 }
         }
     }

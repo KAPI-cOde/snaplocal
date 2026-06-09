@@ -165,6 +165,7 @@ struct CompactToolbar: View {
 
             normalControlsExport
         }
+        .animation(DS.Anim.base, value: canvas.currentTool)
     }
 
     @ViewBuilder
