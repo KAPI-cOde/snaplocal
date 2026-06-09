@@ -115,6 +115,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     case highlight = "highlight"
     case redact = "redact"   // unified mosaic/blur
     case pencil = "pencil"
+    case stamp = "stamp"
 
     var systemImage: String {
         switch self {
@@ -130,6 +131,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .highlight: return "highlighter"
         case .redact: return "eye.slash"
         case .pencil: return "pencil.tip"
+        case .stamp: return "face.smiling"
         }
     }
 
@@ -147,12 +149,13 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .highlight: return "ハイライト"
         case .redact: return "隠す"
         case .pencil: return "鉛筆"
+        case .stamp: return "スタンプ"
         }
     }
 
     var annotationType: AnnotationType? {
         switch self {
-        case .select, .redact: return nil
+        case .select, .redact, .stamp: return nil
         case .line: return .line
         case .arrow: return .arrow
         case .rectangle: return .rectangle
@@ -169,7 +172,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     var usesLineWidth: Bool {
         switch self {
         case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout, .pencil: return true
-        case .select, .redact, .highlight: return false
+        case .select, .redact, .highlight, .stamp: return false
         }
     }
 }
@@ -244,6 +247,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var snapGuides: [SnapGuide] = []
     @Published var annotationsHidden: Bool = false
     @Published var currentPencilPoints: [CGPoint] = []
+    @Published var currentStamp: String = "✅"
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
@@ -844,6 +848,18 @@ final class CanvasViewModel: ObservableObject {
         case .pencil:
             dragState.start(at: localPoint)
             currentPencilPoints = [localPoint]
+        case .stamp:
+            let stampSize: CGFloat = 48
+            let stampRect = CGRect(
+                x: localPoint.x - stampSize / 2, y: localPoint.y - stampSize / 2,
+                width: stampSize, height: stampSize
+            )
+            var a = TextAnnotation(color: currentColor, lineWidth: .thin, rect: stampRect, text: currentStamp)
+            a.fontSize = 40
+            var annotation = AnyAnnotation(a)
+            annotation.opacity = currentOpacity
+            addAnnotation(annotation)
+            selectedAnnotationID = annotation.id
         default:
             dragState.start(at: localPoint)
         }

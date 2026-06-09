@@ -665,7 +665,7 @@ struct CompactToolbar: View {
                     toolButton(tool, canvas: canvas)
                 }
                 Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
-                ForEach([DrawingTool.text, .step, .callout, .highlight, .pencil, .redact], id: \.self) { tool in
+                ForEach([DrawingTool.text, .step, .callout, .highlight, .pencil, .stamp, .redact], id: \.self) { tool in
                     toolButton(tool, canvas: canvas)
                 }
             }
@@ -689,6 +689,23 @@ struct CompactToolbar: View {
                         .frame(width: 60)
                         .help("ぼかしの強さ")
                 }
+            }
+
+            if canvas.currentTool == .stamp {
+                let stamps = ["✅", "❌", "⚠️", "💡", "🐛", "📌", "❗", "❓", "✨", "🔍"]
+                HStack(spacing: 2) {
+                    ForEach(stamps, id: \.self) { emoji in
+                        Button(action: { canvas.currentStamp = emoji }) {
+                            Text(emoji)
+                                .font(.system(size: 16))
+                                .frame(width: 24, height: 24)
+                                .background(canvas.currentStamp == emoji ? Color.accentColor.opacity(0.25) : Color.clear,
+                                            in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .help("スタンプを選択（クリックで配置）")
             }
 
             if canvas.currentTool == .rectangle || canvas.currentTool == .ellipse || canvas.currentTool == .roundedRect || canvas.currentTool == .callout {
@@ -1242,6 +1259,7 @@ struct HelpPopoverContent: View {
             ("B", "吹き出し"),
             ("H", "ハイライト"),
             ("P", "鉛筆（フリーハンド）"),
+            ("G", "スタンプ（クリックで絵文字配置）"),
             ("X / M", "モザイク/ぼかし"),
             ("Tab", "次のツール"),
         ]),
@@ -1802,6 +1820,7 @@ struct AnnotationCanvasView: View {
             .onKeyPress("b") { if !viewModel.showTextInput { viewModel.currentTool = .callout }; return .handled }
             .onKeyPress("h") { if !viewModel.showTextInput { viewModel.currentTool = .highlight }; return .handled }
             .onKeyPress("p") { if !viewModel.showTextInput { viewModel.currentTool = .pencil }; return .handled }
+            .onKeyPress("g") { if !viewModel.showTextInput { viewModel.currentTool = .stamp }; return .handled }
             .onKeyPress("a", phases: .down) { press in
                 guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
                 viewModel.selectedAnnotationIDs = Set(viewModel.annotations.map { $0.id })
