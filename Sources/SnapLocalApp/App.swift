@@ -817,7 +817,7 @@ struct CompactToolbar: View {
 
             // Tool buttons: two logical groups separated by mini-divider
             HStack(spacing: 2) {
-                ForEach([DrawingTool.select, .colorPicker, .line, .arrow, .rectangle, .ellipse, .roundedRect], id: \.self) { tool in
+                ForEach([DrawingTool.select, .colorPicker, .measure, .line, .arrow, .rectangle, .ellipse, .roundedRect], id: \.self) { tool in
                     toolButton(tool, canvas: canvas)
                 }
                 Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
@@ -2142,6 +2142,7 @@ struct AnnotationCanvasView: View {
             .onKeyPress("p") { if !viewModel.showTextInput { viewModel.currentTool = .pencil }; return .handled }
             .onKeyPress("g") { if !viewModel.showTextInput { viewModel.currentTool = .stamp }; return .handled }
             .onKeyPress("i") { if !viewModel.showTextInput { viewModel.currentTool = .colorPicker }; return .handled }
+            .onKeyPress("q") { if !viewModel.showTextInput { viewModel.currentTool = .measure }; return .handled }
             .onKeyPress("c", phases: .down) { press in
                 guard press.modifiers.contains([.command, .option]) else { return .ignored }
                 onCopyOriginal?(); return .handled
@@ -2664,6 +2665,44 @@ struct AnnotationCanvasView: View {
                                            style: StrokeStyle(lineWidth: lw, dash: [4, 2]))
                         }
                     }
+                }
+            }
+
+            // Measure tool overlay
+            if viewModel.currentTool == .measure,
+               let ms = viewModel.measureStart, let me = viewModel.measureEnd {
+                // Draw dashed measuring line
+                var linePath = Path()
+                linePath.move(to: ms)
+                linePath.addLine(to: me)
+                context.stroke(linePath, with: .color(.yellow),
+                               style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [6, 4]))
+
+                // Endpoint dots
+                for pt in [ms, me] {
+                    context.fill(Path(ellipseIn: CGRect(x: pt.x - 4, y: pt.y - 4, width: 8, height: 8)),
+                                 with: .color(.yellow))
+                    context.stroke(Path(ellipseIn: CGRect(x: pt.x - 4, y: pt.y - 4, width: 8, height: 8)),
+                                   with: .color(.black.opacity(0.5)), lineWidth: 1)
+                }
+
+                // Pixel distance label
+                if let img = viewModel.backgroundImage, viewModel.canvasSize.width > 0, viewModel.canvasSize.height > 0 {
+                    let scaleX = CGFloat(img.width) / viewModel.canvasSize.width
+                    let scaleY = CGFloat(img.height) / viewModel.canvasSize.height
+                    let dxPx = abs(me.x - ms.x) * scaleX
+                    let dyPx = abs(me.y - ms.y) * scaleY
+                    let distPx = hypot(dxPx, dyPx)
+                    let label = String(format: "%.0f × %.0f px  (%.0f px)", dxPx, dyPx, distPx)
+                    let mid = CGPoint(x: (ms.x + me.x) / 2, y: (ms.y + me.y) / 2 - 16)
+                    let text = Text(label).font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Color.primary).bold()
+                    var resolvedText = context.resolve(text)
+                    let textSize = resolvedText.measure(in: CGSize(width: 400, height: 40))
+                    let bg = CGRect(x: mid.x - textSize.width / 2 - 5, y: mid.y - textSize.height / 2 - 3,
+                                   width: textSize.width + 10, height: textSize.height + 6)
+                    context.fill(Path(roundedRect: bg, cornerRadius: 4), with: .color(.black.opacity(0.7)))
+                    context.draw(text, at: mid, anchor: .center)
                 }
             }
         }

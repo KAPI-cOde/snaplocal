@@ -117,6 +117,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     case pencil = "pencil"
     case stamp = "stamp"
     case colorPicker = "colorPicker"
+    case measure = "measure"
 
     var systemImage: String {
         switch self {
@@ -134,6 +135,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .pencil: return "pencil.tip"
         case .stamp: return "face.smiling"
         case .colorPicker: return "eyedropper.halffull"
+        case .measure: return "ruler"
         }
     }
 
@@ -153,12 +155,13 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .pencil: return "鉛筆"
         case .stamp: return "スタンプ"
         case .colorPicker: return "スポイト"
+        case .measure: return "定規"
         }
     }
 
     var annotationType: AnnotationType? {
         switch self {
-        case .select, .redact, .stamp, .colorPicker: return nil
+        case .select, .redact, .stamp, .colorPicker, .measure: return nil
         case .line: return .line
         case .arrow: return .arrow
         case .rectangle: return .rectangle
@@ -175,7 +178,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     var usesLineWidth: Bool {
         switch self {
         case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout, .pencil: return true
-        case .select, .redact, .highlight, .stamp, .colorPicker: return false
+        case .select, .redact, .highlight, .stamp, .colorPicker, .measure: return false
         }
     }
 }
@@ -243,6 +246,9 @@ final class CanvasViewModel: ObservableObject {
             if newValue == .colorPicker && _currentTool != .colorPicker {
                 colorPickerPreviousTool = _currentTool
             }
+            if newValue != .measure && _currentTool == .measure {
+                measureStart = nil; measureEnd = nil
+            }
             _currentTool = newValue
         }
     }
@@ -285,6 +291,10 @@ final class CanvasViewModel: ObservableObject {
     @Published var cropStart: CGPoint?
     @Published var cropEnd: CGPoint?
     @Published var cropAspectRatio: CGFloat? = nil  // nil = free, else width/height
+
+    // Measure tool (transient, not saved)
+    @Published var measureStart: CGPoint?
+    @Published var measureEnd: CGPoint?
 
     let undoManager = UndoManager()
     private var isUndoing = false
@@ -869,6 +879,9 @@ final class CanvasViewModel: ObservableObject {
                 SettingsManager.shared.addRecentCustomColor(hex)
             }
             currentTool = colorPickerPreviousTool
+        case .measure:
+            measureStart = localPoint
+            measureEnd = localPoint
         default:
             dragState.start(at: localPoint)
         }
@@ -925,6 +938,12 @@ final class CanvasViewModel: ObservableObject {
                 }
             }
             cropEnd = cropPt
+            objectWillChange.send()
+            return
+        }
+
+        if currentTool == .measure {
+            measureEnd = localPoint
             objectWillChange.send()
             return
         }
@@ -1067,6 +1086,13 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func handleDragEnd(at point: CGPoint, in canvasRect: CGRect) {
+        if currentTool == .measure {
+            measureEnd = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
+            objectWillChange.send()
+            // Don't call dragState.end() — measure has no dragState
+            return
+        }
+
         guard let (start, end) = dragState.end() else { return }
 
         if isCropMode {
