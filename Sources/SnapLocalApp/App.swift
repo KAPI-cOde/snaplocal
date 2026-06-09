@@ -723,6 +723,7 @@ struct HistoryRail: View {
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
+    @State private var hoveredItemID: UUID? = nil
 
     private let thumbW: CGFloat = 68
     private let thumbH: CGFloat = 46
@@ -812,6 +813,23 @@ struct HistoryRail: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .onHover { hovering in hoveredItemID = hovering ? item.id : nil }
+                        .popover(isPresented: Binding(
+                            get: { hoveredItemID == item.id },
+                            set: { if !$0 { hoveredItemID = nil } }
+                        ), arrowEdge: .leading) {
+                            Group {
+                                if let nsImage = NSImage(data: item.imageData) {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(maxWidth: 360, maxHeight: 280)
+                                } else {
+                                    Color.clear.frame(width: 120, height: 80)
+                                }
+                            }
+                            .padding(4)
+                        }
                         .contextMenu {
                             Button("開く") { onSelect(item) }
                             Button("ファイルに保存…") { onExport(item) }
