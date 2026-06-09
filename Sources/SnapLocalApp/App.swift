@@ -757,6 +757,27 @@ struct CompactToolbar: View {
                     .help(selCount > 1
                           ? "\(selCount)個選択中 / \(canvas.annotations.count)個 (⌘Aで全選択、⌫で選択削除)"
                           : "\(canvas.annotations.count)個のアノテーション (⌘Aで全選択、⌘⇧⌫で全削除)")
+
+                if selCount > 1 {
+                    Divider().frame(height: 14)
+                    HStack(spacing: 1) {
+                        ForEach([
+                            ("align.horizontal.left", CanvasViewModel.AlignEdge.left, "左揃え"),
+                            ("align.horizontal.center", .centerX, "中央揃え（水平）"),
+                            ("align.horizontal.right", .right, "右揃え"),
+                            ("align.vertical.top", .top, "上揃え"),
+                            ("align.vertical.center", .centerY, "中央揃え（垂直）"),
+                            ("align.vertical.bottom", .bottom, "下揃え"),
+                        ], id: \.0) { icon, edge, help in
+                            Button { canvas.alignSelected(edge) } label: {
+                                Image(systemName: icon).font(.system(size: 9))
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: 16, height: 16)
+                            .help(help)
+                        }
+                    }
+                }
             }
 
             Button(action: { showHelp.toggle() }) {

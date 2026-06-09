@@ -489,6 +489,89 @@ final class CanvasViewModel: ObservableObject {
         return nil
     }
 
+    enum AlignEdge { case left, centerX, right, top, centerY, bottom, distributeX, distributeY }
+
+    func alignSelected(_ edge: AlignEdge) {
+        let ids = selectedAnnotationIDs.isEmpty
+            ? (selectedAnnotationID.map { [$0] } ?? [])
+            : Array(selectedAnnotationIDs)
+        guard ids.count > 1 else { return }
+
+        let canvas = CGRect(origin: .zero, size: canvasSize)
+        let targets = annotations.filter { ids.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        let bounds = targets.map { $0.bounds(in: canvas) }
+
+        let snapshot = annotations
+        undoManager.registerUndo(withTarget: self) { target in
+            target.isUndoing = true
+            target.annotations = snapshot
+            target.isUndoing = false
+            target.updateUndoRedoState()
+        }
+
+        switch edge {
+        case .left:
+            let minX = bounds.map { $0.minX }.min()!
+            for (ann, b) in zip(targets, bounds) {
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: minX - b.minX, y: 0))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        case .centerX:
+            let cx = (bounds.map { $0.minX }.min()! + bounds.map { $0.maxX }.max()!) / 2
+            for (ann, b) in zip(targets, bounds) {
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: cx - b.midX, y: 0))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        case .right:
+            let maxX = bounds.map { $0.maxX }.max()!
+            for (ann, b) in zip(targets, bounds) {
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: maxX - b.maxX, y: 0))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        case .top:
+            let minY = bounds.map { $0.minY }.min()!
+            for (ann, b) in zip(targets, bounds) {
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: 0, y: minY - b.minY))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        case .centerY:
+            let cy = (bounds.map { $0.minY }.min()! + bounds.map { $0.maxY }.max()!) / 2
+            for (ann, b) in zip(targets, bounds) {
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: 0, y: cy - b.midY))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        case .bottom:
+            let maxY = bounds.map { $0.maxY }.max()!
+            for (ann, b) in zip(targets, bounds) {
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: 0, y: maxY - b.maxY))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        case .distributeX:
+            let sorted = zip(targets, bounds).sorted { $0.1.midX < $1.1.midX }
+            guard sorted.count >= 2 else { break }
+            let first = sorted.first!.1.midX, last = sorted.last!.1.midX
+            let step = (last - first) / CGFloat(sorted.count - 1)
+            for (idx, (ann, b)) in sorted.enumerated() {
+                let targetX = first + step * CGFloat(idx)
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: targetX - b.midX, y: 0))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        case .distributeY:
+            let sorted = zip(targets, bounds).sorted { $0.1.midY < $1.1.midY }
+            guard sorted.count >= 2 else { break }
+            let first = sorted.first!.1.midY, last = sorted.last!.1.midY
+            let step = (last - first) / CGFloat(sorted.count - 1)
+            for (idx, (ann, b)) in sorted.enumerated() {
+                let targetY = first + step * CGFloat(idx)
+                var a = ann; a.applyTransform(CGAffineTransform(translationX: 0, y: targetY - b.midY))
+                if let i = annotations.firstIndex(where: { $0.id == a.id }) { annotations[i] = a }
+            }
+        }
+        updateUndoRedoState()
+        objectWillChange.send()
+    }
+
     func clearAllAnnotations() {
         guard !annotations.isEmpty else { return }
         let snapshot = annotations
