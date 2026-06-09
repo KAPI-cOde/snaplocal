@@ -312,6 +312,7 @@ private struct HistoryItemRow: View {
     let thumbW: CGFloat
     let thumbH: CGFloat
     @Binding var thumbCache: [UUID: NSImage]
+    @State private var justCopied = false
     let onSelect: () -> Void
     let onToggleStar: () -> Void
     let onDelete: () -> Void
@@ -348,6 +349,16 @@ private struct HistoryItemRow: View {
         }
         .contextMenu { contextMenuContent }
         .help(makeHelp())
+    }
+
+    private func copyImageToClipboard() {
+        guard let nsImage = NSImage(contentsOf: item.imageURL) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([nsImage])
+        withAnimation(DS.Anim.fast) { justCopied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(DS.Anim.fast) { justCopied = false }
+        }
     }
 
     private func makeHelp() -> String {
@@ -408,19 +419,36 @@ private struct HistoryItemRow: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .help(item.isStarred ? "スターを外す" : "スターを付ける")
                 .padding(2)
+                .transition(.opacity.combined(with: .scale(scale: 0.7)))
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if item.notes != nil {
-                Image(systemName: "note.text")
-                    .font(.system(size: 7))
-                    .foregroundStyle(.white)
-                    .padding(2)
-                    .background(Color.black.opacity(0.45))
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                    .padding(2)
+            HStack(spacing: 2) {
+                if item.notes != nil {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 7))
+                        .foregroundStyle(.white)
+                        .padding(2)
+                        .background(Color.black.opacity(0.45))
+                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                }
+                if isHovered {
+                    Button(action: copyImageToClipboard) {
+                        Image(systemName: justCopied ? "checkmark" : "doc.on.clipboard")
+                            .font(.system(size: 10))
+                            .foregroundStyle(justCopied ? Color.green : .white.opacity(0.9))
+                            .padding(2)
+                            .background(Color.black.opacity(0.45))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("クリップボードにコピー")
+                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
+                }
             }
+            .padding(2)
         }
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.small).stroke(isSelected ? Color.accentColor : .clear, lineWidth: 2))
         .scaleEffect(isHovered && !isSelected ? 1.04 : 1)
