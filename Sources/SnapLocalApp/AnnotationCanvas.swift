@@ -898,7 +898,15 @@ final class CanvasViewModel: ObservableObject {
         dragState.update(to: localPoint)
 
         if isCropMode {
-            cropEnd = localPoint
+            var cropPt = localPoint
+            // Shift in crop mode: lock to square
+            if NSEvent.modifierFlags.contains(.shift), let start = cropStart {
+                let dx = cropPt.x - start.x, dy = cropPt.y - start.y
+                let side = min(abs(dx), abs(dy))
+                cropPt = CGPoint(x: start.x + (dx < 0 ? -side : side),
+                                 y: start.y + (dy < 0 ? -side : side))
+            }
+            cropEnd = cropPt
             objectWillChange.send()
             return
         }
