@@ -611,7 +611,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
         let image = canvas.applyDecoration(to: raw)
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg, .pdf]
+        let webpType = UTType("org.webmproject.webp") ?? .png
+        panel.allowedContentTypes = [.png, .jpeg, webpType, .pdf]
         let baseName = SettingsManager.shared.filename(for: Date(), width: image.width, height: image.height, title: nil)
         panel.nameFieldStringValue = "\(baseName).png"
 
@@ -646,26 +647,42 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 targetImage = scaled
             }
             let ext = url.pathExtension.lowercased()
-            let data: Data?
             if ext == "pdf" {
                 let pdfDoc = PDFDocument()
                 let nsImg = NSImage(cgImage: targetImage, size: NSSize(width: targetImage.width, height: targetImage.height))
                 if let pdfPage = PDFPage(image: nsImg) {
                     pdfDoc.insert(pdfPage, at: 0)
-                    data = pdfDoc.dataRepresentation()
-                } else { data = nil }
-            } else if ext == "jpg" || ext == "jpeg" {
-                data = NSBitmapImageRep(cgImage: targetImage).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+                    if let pdfData = pdfDoc.dataRepresentation() {
+                        do {
+                            try pdfData.write(to: url, options: .atomic)
+                            self.showStatus("保存しました: \(url.lastPathComponent)")
+                        } catch { self.showStatus("保存失敗: \(error.localizedDescription)") }
+                    } else { self.showStatus("PDF生成失敗") }
+                } else { self.showStatus("PDF生成失敗") }
+            } else if ext == "webp" {
+                guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "org.webmproject.webp" as CFString, 1, nil) else {
+                    self.showStatus("WebP書き出し失敗"); return
+                }
+                CGImageDestinationAddImage(dest, targetImage, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+                if CGImageDestinationFinalize(dest) {
+                    let px = "\(targetImage.width)×\(targetImage.height)"
+                    self.showStatus("保存しました: \(url.lastPathComponent) (\(px))")
+                } else { self.showStatus("WebP書き出し失敗") }
             } else {
-                data = NSBitmapImageRep(cgImage: targetImage).representation(using: .png, properties: [:])
-            }
-            guard let data else { self.showStatus("エンコード失敗"); return }
-            do {
-                try data.write(to: url, options: .atomic)
-                let px = "\(targetImage.width)×\(targetImage.height)"
-                self.showStatus("保存しました: \(url.lastPathComponent) (\(px))")
-            } catch {
-                self.showStatus("保存失敗: \(error.localizedDescription)")
+                let data: Data?
+                if ext == "jpg" || ext == "jpeg" {
+                    data = NSBitmapImageRep(cgImage: targetImage).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+                } else {
+                    data = NSBitmapImageRep(cgImage: targetImage).representation(using: .png, properties: [:])
+                }
+                guard let data else { self.showStatus("エンコード失敗"); return }
+                do {
+                    try data.write(to: url, options: .atomic)
+                    let px = "\(targetImage.width)×\(targetImage.height)"
+                    self.showStatus("保存しました: \(url.lastPathComponent) (\(px))")
+                } catch {
+                    self.showStatus("保存失敗: \(error.localizedDescription)")
+                }
             }
         }
     }
