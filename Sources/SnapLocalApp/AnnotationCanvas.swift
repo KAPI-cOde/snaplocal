@@ -289,6 +289,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var adjustBrightness: Double = 0.0   // -0.5 … 0.5
     @Published var adjustContrast: Double = 1.0     // 0.5 … 2.0
     @Published var adjustSaturation: Double = 1.0   // 0.0 … 2.0
+    @Published var adjustSharpness: Double = 0.0    // 0.0 … 1.0 (CISharpenLuminance radius)
     @Published var showTextInput = false
     @Published var textInputRect: CGRect = .zero
     @Published var textInputString = ""
@@ -1647,26 +1648,37 @@ final class CanvasViewModel: ObservableObject {
     // MARK: - Image Adjustments
 
     func bakeAdjustments() {
-        guard adjustBrightness != 0 || adjustContrast != 1 || adjustSaturation != 1,
+        guard adjustBrightness != 0 || adjustContrast != 1 || adjustSaturation != 1 || adjustSharpness != 0,
               let src = backgroundImage else { return }
-        let ci = CIImage(cgImage: src)
-        let f = CIFilter.colorControls()
-        f.inputImage = ci
-        f.brightness = Float(adjustBrightness)
-        f.contrast = Float(adjustContrast)
-        f.saturation = Float(adjustSaturation)
-        guard let output = f.outputImage else { return }
+        var ci = CIImage(cgImage: src)
+        // Color controls
+        if adjustBrightness != 0 || adjustContrast != 1 || adjustSaturation != 1 {
+            let f = CIFilter.colorControls()
+            f.inputImage = ci
+            f.brightness = Float(adjustBrightness)
+            f.contrast = Float(adjustContrast)
+            f.saturation = Float(adjustSaturation)
+            if let out = f.outputImage { ci = out }
+        }
+        // Sharpen
+        if adjustSharpness > 0 {
+            let sf = CIFilter.sharpenLuminance()
+            sf.inputImage = ci
+            sf.sharpness = Float(adjustSharpness)
+            sf.radius = 1.69 + Float(adjustSharpness) * 0.5
+            if let out = sf.outputImage { ci = out }
+        }
         let ctx = CIContext()
-        guard let baked = ctx.createCGImage(output, from: output.extent) else { return }
+        guard let baked = ctx.createCGImage(ci, from: ci.extent) else { return }
         let prevImage = src
         let prevAnnotations = annotations
         backgroundImage = baked
-        adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1
+        adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1; adjustSharpness = 0
         registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
     }
 
     func resetAdjustments() {
-        adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1
+        adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1; adjustSharpness = 0
     }
 
     // MARK: - Decoration (beautify / export wrapper)

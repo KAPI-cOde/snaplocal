@@ -1725,6 +1725,13 @@ struct CompactToolbar: View {
                     .font(.system(size: 10, design: .monospaced)).frame(width: 36)
             }
             HStack {
+                Text("シャープ").frame(width: 60, alignment: .trailing)
+                Slider(value: $canvas.adjustSharpness, in: 0.0...1.0)
+                    .frame(width: 140)
+                Text(String(format: "%.2f", canvas.adjustSharpness))
+                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+            }
+            HStack {
                 Button("リセット") { canvas.resetAdjustments() }
                     .controlSize(.small)
                 Spacer()
