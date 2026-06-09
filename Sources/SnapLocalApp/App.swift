@@ -105,6 +105,9 @@ struct SnapLocalApp: App {
                     .keyboardShortcut("0", modifiers: .command)
                 Button("フィット表示") { NotificationCenter.default.post(name: .snapLocalZoomFit, object: nil) }
                     .keyboardShortcut("f", modifiers: .command)
+                Divider()
+                Button("ピン留めウィンドウをすべて閉じる") { PinManager.shared.closeAll() }
+                    .disabled(!PinManager.shared.hasPinnedWindows)
             }
         }
 

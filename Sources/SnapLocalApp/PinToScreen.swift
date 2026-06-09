@@ -21,6 +21,14 @@ final class PinManager {
         win.show()
         windows.append(win)
     }
+
+    var hasPinnedWindows: Bool { !windows.isEmpty }
+
+    func closeAll() {
+        let toClose = windows
+        windows.removeAll()
+        toClose.forEach { $0.close() }
+    }
 }
 
 // MARK: - PinnedImageWindow
@@ -69,6 +77,10 @@ final class PinnedImageWindow: NSObject {
 
     func show() {
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func close() {
+        window?.close()
     }
 }
 
