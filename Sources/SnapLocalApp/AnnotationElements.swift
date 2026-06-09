@@ -315,3 +315,31 @@ struct CalloutAnnotation: AnnotationElement {
         self.transform = transform.concatenating(self.transform)
     }
 }
+
+// MARK: - Highlight Annotation (semi-transparent fill, no stroke)
+
+struct HighlightAnnotation: AnnotationElement {
+    var id = UUID()
+    let type: AnnotationType = .highlight
+    var color: AnnotationColor
+    var lineWidth: LineWidth = .medium
+    var transform: CGAffineTransform = .identity
+    var rect: CGRect
+    var isFilled: Bool { true }
+
+    func path(in rect: CGRect) -> Path {
+        Path(self.rect.applying(transform))
+    }
+
+    func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
+        path(in: rect).contains(point)
+    }
+
+    func bounds(in rect: CGRect) -> CGRect {
+        self.rect.applying(transform)
+    }
+
+    mutating func applyTransform(_ transform: CGAffineTransform) {
+        self.transform = transform.concatenating(self.transform)
+    }
+}

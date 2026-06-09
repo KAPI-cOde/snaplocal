@@ -48,6 +48,7 @@ enum AnnotationType: String, Codable, CaseIterable {
     case step = "step"
     case roundedRect = "roundedRect"
     case callout = "callout"
+    case highlight = "highlight"
 }
 
 enum AnnotationColor: String, Codable, CaseIterable {
@@ -98,6 +99,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     case step = "step"
     case roundedRect = "roundedRect"
     case callout = "callout"
+    case highlight = "highlight"
     case redact = "redact"   // unified mosaic/blur
 
     var systemImage: String {
@@ -111,6 +113,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .step: return "number.circle"
         case .roundedRect: return "rectangle.roundedtop"
         case .callout: return "bubble.left"
+        case .highlight: return "highlighter"
         case .redact: return "eye.slash"
         }
     }
@@ -126,6 +129,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .step: return "ステップ"
         case .roundedRect: return "角丸"
         case .callout: return "吹き出し"
+        case .highlight: return "ハイライト"
         case .redact: return "隠す"
         }
     }
@@ -141,13 +145,14 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .step: return .step
         case .roundedRect: return .roundedRect
         case .callout: return .callout
+        case .highlight: return .highlight
         }
     }
 
     var usesLineWidth: Bool {
         switch self {
         case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout: return true
-        case .select, .redact: return false
+        case .select, .redact, .highlight: return false
         }
     }
 }
@@ -424,7 +429,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     static func isResizable(_ type: AnnotationType) -> Bool {
-        [.rectangle, .ellipse, .mosaic, .blur, .text, .step, .roundedRect, .callout].contains(type)
+        [.rectangle, .ellipse, .mosaic, .blur, .text, .step, .roundedRect, .callout, .highlight].contains(type)
     }
 
     func handleCorners(for bounds: CGRect) -> [CGPoint] {
@@ -784,6 +789,11 @@ final class CanvasViewModel: ObservableObject {
             if w > 8 || h > 8 {
                 createAnnotation(type: .callout, from: start, to: end)
             }
+        case .highlight:
+            let w = abs(end.x - start.x), h = abs(end.y - start.y)
+            if w > 4 || h > 4 {
+                createAnnotation(type: .highlight, from: start, to: end)
+            }
         default:
             if let type = currentTool.annotationType {
                 let dist = hypot(end.x - start.x, end.y - start.y)
@@ -889,6 +899,14 @@ final class CanvasViewModel: ObservableObject {
             var a = CalloutAnnotation(color: color, lineWidth: lineWidth, rect: rect)
             a.isFilled = currentFilled
             annotation = AnyAnnotation(a)
+        case .highlight:
+            let rect = CGRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: abs(end.x - start.x),
+                height: abs(end.y - start.y)
+            )
+            annotation = AnyAnnotation(HighlightAnnotation(color: color, rect: rect))
         case .text:
             return
         }
@@ -1108,6 +1126,11 @@ final class CanvasViewModel: ObservableObject {
                 NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: false)
                 NSAttributedString(string: text, attributes: attrs).draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
+            } else if annotation.type == .highlight {
+                let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
+                cgCtx.addPath(cgPath)
+                cgCtx.setFillColor(annotation.color.cgColor.copy(alpha: 0.38) ?? annotation.color.cgColor)
+                cgCtx.fillPath()
             } else {
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
                 if annotation.isFilled {

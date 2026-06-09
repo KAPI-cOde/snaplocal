@@ -1392,6 +1392,7 @@ struct AnnotationCanvasView: View {
             .onKeyPress("n") { if !viewModel.showTextInput { viewModel.currentTool = .step }; return .handled }
             .onKeyPress("u") { if !viewModel.showTextInput { viewModel.currentTool = .roundedRect }; return .handled }
             .onKeyPress("b") { if !viewModel.showTextInput { viewModel.currentTool = .callout }; return .handled }
+            .onKeyPress("h") { if !viewModel.showTextInput { viewModel.currentTool = .highlight }; return .handled }
             .onKeyPress("a", phases: .down) { press in
                 guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
                 viewModel.selectedAnnotationIDs = Set(viewModel.annotations.map { $0.id })
@@ -1602,7 +1603,14 @@ struct AnnotationCanvasView: View {
                 ? viewModel.selectedAnnotationID : nil
 
             for annotation in viewModel.annotations {
-                if annotation.type == .step, let n = annotation.stepNumber {
+                if annotation.type == .highlight {
+                    let path = annotation.path(in: canvasRect)
+                    context.fill(path, with: .color(annotation.color.color.opacity(0.38)))
+                    if annotation.id == viewModel.selectedAnnotationID || viewModel.selectedAnnotationIDs.contains(annotation.id) {
+                        context.stroke(path, with: .color(.accentColor),
+                                       style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                    }
+                } else if annotation.type == .step, let n = annotation.stepNumber {
                     let bounds = annotation.bounds(in: canvasRect)
                     let circlePath = annotation.path(in: canvasRect)
                     if annotation.id == viewModel.selectedAnnotationID {
