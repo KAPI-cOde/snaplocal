@@ -1462,6 +1462,41 @@ final class CanvasViewModel: ObservableObject {
         objectWillChange.send()
     }
 
+    // MARK: - Flip
+
+    func flipImage(horizontal: Bool) {
+        guard let src = backgroundImage else { return }
+        let w = src.width, h = src.height
+        guard let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        if horizontal {
+            ctx.translateBy(x: CGFloat(w), y: 0)
+            ctx.scaleBy(x: -1, y: 1)
+        } else {
+            ctx.translateBy(x: 0, y: CGFloat(h))
+            ctx.scaleBy(x: 1, y: -1)
+        }
+        ctx.draw(src, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
+        guard let flipped = ctx.makeImage() else { return }
+
+        // Mirror each annotation's transform to match the flipped canvas
+        let flipT: CGAffineTransform = horizontal
+            ? CGAffineTransform(scaleX: -1, y: 1).concatenating(CGAffineTransform(translationX: canvasSize.width, y: 0))
+            : CGAffineTransform(scaleX: 1, y: -1).concatenating(CGAffineTransform(translationX: 0, y: canvasSize.height))
+        for i in 0..<annotations.count {
+            annotations[i].transform = annotations[i].transform.concatenating(flipT)
+        }
+        backgroundImage = flipped
+        undoManager.removeAllActions()
+        updateUndoRedoState()
+        recomputeAllFilterPreviews()
+        objectWillChange.send()
+    }
+
     // MARK: - Resize
 
     func resizeCanvas(scale: CGFloat) {

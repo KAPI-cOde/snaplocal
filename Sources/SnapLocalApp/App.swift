@@ -699,6 +699,9 @@ struct CompactToolbar: View {
                 Text("現在: \(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—")")
                     .font(.caption)
                 Divider()
+                Button("左右反転") { canvas.flipImage(horizontal: true) }
+                Button("上下反転") { canvas.flipImage(horizontal: false) }
+                Divider()
                 Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
                 Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
                 Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
@@ -706,7 +709,7 @@ struct CompactToolbar: View {
             } label: {
                 Image(systemName: "aspectratio")
             }
-            .help("キャンバスをリサイズ")
+            .help("反転 / リサイズ")
             .disabled(canvas.backgroundImage == nil)
             .menuStyle(.borderlessButton)
             .frame(width: 22)
