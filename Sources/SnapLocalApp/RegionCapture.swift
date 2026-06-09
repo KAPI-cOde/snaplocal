@@ -228,6 +228,7 @@ private final class RegionOverlayWindow: NSObject {
         // Update view
         view.snapshot = snapshot
         view.cursorPixel = CGPoint(x: localX * scale, y: localY_topLeft * scale)
+        view.cursorLogicalPoint = CGPoint(x: localX, y: localY_topLeft)
         view.snapshotSize = CGSize(width: CGFloat(snapshot?.width ?? 1), height: CGFloat(snapshot?.height ?? 1))
         view.selectionSize = selectionSize
         view.needsDisplay = true
@@ -251,6 +252,8 @@ private final class LoupeView: NSView {
     var cursorPixel: CGPoint = .zero
     var snapshotSize: CGSize = .zero
     var selectionSize: CGSize = .zero
+    /// Cursor position in logical points (for the coord label)
+    var cursorLogicalPoint: CGPoint = .zero
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -295,26 +298,66 @@ private final class LoupeView: NSView {
         ctx.move(to: CGPoint(x: 0, y: cy)); ctx.addLine(to: CGPoint(x: bounds.width, y: cy))
         ctx.strokePath()
 
-        // Size label (when dragging)
-        if selectionSize.width >= 1 && selectionSize.height >= 1 {
-            let label = "\(Int(selectionSize.width))×\(Int(selectionSize.height))"
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: NSColor.white
-            ]
-            let str = NSAttributedString(string: label, attributes: attrs)
-            let textSize = str.size()
-            let pad: CGFloat = 4
-            let bgRect = CGRect(
-                x: (bounds.width - textSize.width) / 2 - pad,
-                y: pad,
-                width: textSize.width + pad * 2,
-                height: textSize.height + pad
-            )
-            ctx.setFillColor(NSColor.black.withAlphaComponent(0.65).cgColor)
-            let path = CGPath(roundedRect: bgRect, cornerWidth: 3, cornerHeight: 3, transform: nil)
-            ctx.addPath(path); ctx.fillPath()
-            str.draw(at: CGPoint(x: bgRect.minX + pad, y: bgRect.minY + pad / 2))
+        // Bottom label: selection size when dragging, cursor coords + color when idle
+        let isDragging = selectionSize.width >= 1 && selectionSize.height >= 1
+        let label: String
+        if isDragging {
+            label = "\(Int(selectionSize.width))×\(Int(selectionSize.height))"
+        } else {
+            label = "\(Int(cursorLogicalPoint.x)), \(Int(cursorLogicalPoint.y))"
+        }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        let str = NSAttributedString(string: label, attributes: attrs)
+        let textSize = str.size()
+        let pad: CGFloat = 4
+        let bgRect = CGRect(
+            x: (bounds.width - textSize.width) / 2 - pad,
+            y: pad,
+            width: textSize.width + pad * 2,
+            height: textSize.height + pad
+        )
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.65).cgColor)
+        let path = CGPath(roundedRect: bgRect, cornerWidth: 3, cornerHeight: 3, transform: nil)
+        ctx.addPath(path); ctx.fillPath()
+        str.draw(at: CGPoint(x: bgRect.minX + pad, y: bgRect.minY + pad / 2))
+
+        // Pixel color swatch + hex label when idle
+        if !isDragging, let snap = snapshot {
+            let px = max(0, min(Int(cursorPixel.x), snap.width - 1))
+            let py = max(0, min(Int(cursorPixel.y), snap.height - 1))
+            if let colorCtx = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
+                                        bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+               let cropped = snap.cropping(to: CGRect(x: px, y: py, width: 1, height: 1)) {
+                colorCtx.draw(cropped, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                if let data = colorCtx.data {
+                    let p = data.bindMemory(to: UInt8.self, capacity: 4)
+                    let r = p[0], g = p[1], b = p[2]
+                    let hexStr = String(format: "#%02X%02X%02X", r, g, b)
+                    let swatchW: CGFloat = 12
+                    let hexAttrs: [NSAttributedString.Key: Any] = [
+                        .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                        .foregroundColor: NSColor.white
+                    ]
+                    let hexAS = NSAttributedString(string: hexStr, attributes: hexAttrs)
+                    let hexSz = hexAS.size()
+                    let totalW = swatchW + 4 + hexSz.width
+                    let rowH: CGFloat = swatchW
+                    let rowY = bgRect.maxY + 4
+                    let rowX = (bounds.width - totalW) / 2
+                    // Color swatch
+                    ctx.setFillColor(CGColor(red: CGFloat(r)/255, green: CGFloat(g)/255, blue: CGFloat(b)/255, alpha: 1))
+                    ctx.fill(CGRect(x: rowX, y: rowY, width: swatchW, height: rowH))
+                    ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.6).cgColor)
+                    ctx.setLineWidth(0.5)
+                    ctx.stroke(CGRect(x: rowX, y: rowY, width: swatchW, height: rowH))
+                    // Hex label
+                    hexAS.draw(at: CGPoint(x: rowX + swatchW + 4, y: rowY + (rowH - hexSz.height) / 2))
+                }
+            }
         }
 
         // Circular border
