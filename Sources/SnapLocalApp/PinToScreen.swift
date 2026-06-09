@@ -77,3 +77,64 @@ extension PinnedImageWindow: NSWindowDelegate {
         Task { @MainActor in onClose?() }
     }
 }
+
+// MARK: - Countdown Overlay
+
+@MainActor
+final class CountdownOverlay {
+    static let shared = CountdownOverlay()
+    private var window: NSWindow?
+    private var label: NSTextField?
+    private init() {}
+
+    func show(count: Int) {
+        if window == nil { setup() }
+        label?.stringValue = "\(count)"
+        window?.orderFrontRegardless()
+    }
+
+    func hide() {
+        window?.orderOut(nil)
+    }
+
+    private func setup() {
+        let size: CGFloat = 160
+        guard let screen = NSScreen.main else { return }
+        let x = screen.frame.midX - size / 2
+        let y = screen.frame.midY - size / 2
+        let win = NSWindow(
+            contentRect: NSRect(x: x, y: y, width: size, height: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        win.level = NSWindow.Level(rawValue: Int(CGWindowLevelKey.floatingWindow.rawValue) + 100)
+        win.isOpaque = false
+        win.backgroundColor = .clear
+        win.ignoresMouseEvents = true
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        bg.material = .hudWindow
+        bg.state = .active
+        bg.wantsLayer = true
+        bg.layer?.cornerRadius = size / 2
+        bg.layer?.masksToBounds = true
+        container.addSubview(bg)
+
+        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        tf.isEditable = false
+        tf.isBordered = false
+        tf.backgroundColor = .clear
+        tf.alignment = .center
+        tf.font = NSFont.boldSystemFont(ofSize: 72)
+        tf.textColor = .labelColor
+        container.addSubview(tf)
+
+        win.contentView = container
+        win.center()
+        self.window = win
+        self.label = tf
+    }
+}

@@ -188,17 +188,20 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     func captureWithDelay(_ seconds: Int) {
         showStatus("\(seconds)秒後に撮影します…")
+        CountdownOverlay.shared.show(count: seconds)
         var remaining = seconds
         statusTask?.cancel()
         statusTask = Task {
             while remaining > 0 {
                 do {
                     try await Task.sleep(nanoseconds: 1_000_000_000)
-                } catch { return }
+                } catch { CountdownOverlay.shared.hide(); return }
                 remaining -= 1
                 if remaining > 0 {
+                    CountdownOverlay.shared.show(count: remaining)
                     showStatus("あと\(remaining)秒…")
                 } else {
+                    CountdownOverlay.shared.hide()
                     showStatus("撮影中…")
                     captureEngine?.captureScreen()
                 }
