@@ -196,6 +196,12 @@ enum RedactMode: String, Codable, CaseIterable {
     var displayName: String { self == .mosaic ? "モザイク" : "ぼかし" }
 }
 
+enum SpotlightShape: String, Codable, CaseIterable {
+    case ellipse, rectangle
+
+    var systemImage: String { self == .ellipse ? "circle" : "rectangle" }
+}
+
 // MARK: - Snap Guides
 
 struct SnapGuide: Equatable {
@@ -260,6 +266,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentColor: AnnotationColor = .red
     @Published var currentLineWidth: LineWidth = .thin
     @Published var currentRedactMode: RedactMode = .mosaic
+    @Published var currentSpotlightShape: SpotlightShape = .ellipse
     @Published var currentMosaicScale: Float = 12
     @Published var currentBlurRadius: Float = 20
     @Published var currentFontSize: CGFloat = 18
@@ -1365,7 +1372,7 @@ final class CanvasViewModel: ObservableObject {
                 width: abs(end.x - start.x),
                 height: abs(end.y - start.y)
             )
-            annotation = AnyAnnotation(SpotlightAnnotation(rect: rect))
+            annotation = AnyAnnotation(SpotlightAnnotation(rect: rect, shape: currentSpotlightShape))
         }
 
         var mutableAnnotation = annotation

@@ -962,6 +962,17 @@ struct CompactToolbar: View {
                 }
             }
 
+            if canvas.currentTool == .spotlight {
+                Picker("", selection: $canvas.currentSpotlightShape) {
+                    ForEach(SpotlightShape.allCases, id: \.self) { s in
+                        Image(systemName: s.systemImage).tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 60)
+                .help("楕円 / 矩形")
+            }
+
             if canvas.currentTool == .stamp {
                 let stamps = ["✅", "❌", "⚠️", "💡", "🐛", "📌", "❗", "❓", "✨", "🔍"]
                 HStack(spacing: 2) {
@@ -2935,12 +2946,13 @@ struct AnnotationCanvasView: View {
                     case .spotlight:
                         let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                        width: abs(end.x - start.x), height: abs(end.y - start.y))
+                        let spotPreviewPath = viewModel.currentSpotlightShape == .ellipse ? Path(ellipseIn: r) : Path(r)
                         context.drawLayer { ctx in
                             ctx.fill(Path(canvasRect), with: .color(.black.opacity(0.5)))
                             ctx.blendMode = .destinationOut
-                            ctx.fill(Path(ellipseIn: r), with: .color(.black))
+                            ctx.fill(spotPreviewPath, with: .color(.black))
                         }
-                        context.stroke(Path(ellipseIn: r), with: .color(.white.opacity(0.6)),
+                        context.stroke(spotPreviewPath, with: .color(.white.opacity(0.6)),
                                        style: StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
                     default: break
                     }

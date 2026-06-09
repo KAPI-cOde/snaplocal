@@ -354,9 +354,11 @@ struct SpotlightAnnotation: AnnotationElement {
     var transform: CGAffineTransform = .identity
     var rect: CGRect
     var dimOpacity: Double = 0.55
+    var shape: SpotlightShape = .ellipse
 
     func path(in rect: CGRect) -> Path {
-        Path(ellipseIn: self.rect.applying(transform))
+        let r = self.rect.applying(transform)
+        return shape == .ellipse ? Path(ellipseIn: r) : Path(r)
     }
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
