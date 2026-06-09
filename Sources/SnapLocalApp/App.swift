@@ -413,6 +413,10 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             guard let item = await vault.save(image: image) else { return }
             currentVaultID = item.id
             await loadHistory()
+
+            // QR / barcode detection (runs in parallel with OCR below)
+            async let qrPayloads = detectBarcodes(in: image)
+
             // Run OCR in background, update when done
             let ocrText = await OCRService.recognizeText(in: image)
             if !ocrText.isEmpty {
@@ -429,6 +433,34 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 await loadHistory()
                 showStatus("OCR完了 — 検索可能になりました")
             }
+
+            // Handle QR results
+            let payloads = await qrPayloads
+            if let first = payloads.first {
+                if let url = URL(string: first), url.scheme != nil {
+                    showStatus("QRコード検出: \(first)  ↗ 開く")
+                    detectedQRURL = url
+                } else {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(first, forType: .string)
+                    showStatus("QRコード検出 — テキストをコピーしました: \(String(first.prefix(40)))")
+                }
+            }
+        }
+    }
+
+    @Published var detectedQRURL: URL? = nil
+
+    private func detectBarcodes(in image: CGImage) async -> [String] {
+        await withCheckedContinuation { continuation in
+            let request = VNDetectBarcodesRequest { req, _ in
+                let payloads = (req.results as? [VNBarcodeObservation] ?? [])
+                    .compactMap { $0.payloadStringValue }
+                continuation.resume(returning: payloads)
+            }
+            request.symbologies = [.qr, .aztec, .dataMatrix]
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            try? handler.perform([request])
         }
     }
 
@@ -2734,6 +2766,37 @@ struct ContentView: View {
                         StatusChip(message: state.statusMessage, visible: state.statusVisible)
                             .padding(.bottom, 14)
                             .animation(.easeInOut(duration: 0.2), value: state.statusVisible)
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        if let qrURL = state.detectedQRURL {
+                            Button(action: {
+                                NSWorkspace.shared.open(qrURL)
+                                state.detectedQRURL = nil
+                            }) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "qrcode.viewfinder")
+                                        .font(.system(size: 11))
+                                    Text(qrURL.absoluteString.count > 40
+                                         ? String(qrURL.absoluteString.prefix(40)) + "…"
+                                         : qrURL.absoluteString)
+                                        .font(.system(size: 10))
+                                        .lineLimit(1)
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(.secondary)
+                                        .onTapGesture { state.detectedQRURL = nil }
+                                }
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+                                .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+                            }
+                            .buttonStyle(.plain)
+                            .padding([.bottom, .leading], 14)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
                     .overlay(alignment: .bottomTrailing) {
                         if let img = state.canvas.backgroundImage {
