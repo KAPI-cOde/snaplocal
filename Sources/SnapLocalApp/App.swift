@@ -410,16 +410,46 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         panel.allowedContentTypes = [.png, .jpeg]
         let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd-HHmmss"
         panel.nameFieldStringValue = "SnapLocal-\(formatter.string(from: Date())).png"
+
+        // Accessory view: scale factor selector
+        let scales: [String] = ["0.5x", "1x", "2x"]
+        let scaleValues: [CGFloat] = [0.5, 1.0, 2.0]
+        let seg = NSSegmentedControl(labels: scales, trackingMode: .selectOne, target: nil, action: nil)
+        seg.selectedSegment = 1
+        let label = NSTextField(labelWithString: "サイズ:")
+        let stack = NSStackView(views: [label, seg])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        panel.accessoryView = stack
+
         panel.begin { [self] response in
             guard response == .OK, let url = panel.url else { return }
+            let scale = scaleValues[max(0, min(scaleValues.count - 1, seg.selectedSegment))]
+            let targetImage: CGImage
+            if scale == 1.0 {
+                targetImage = image
+            } else {
+                let w = max(1, Int(CGFloat(image.width) * scale))
+                let h = max(1, Int(CGFloat(image.height) * scale))
+                guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                    self.showStatus("スケール変換失敗"); return
+                }
+                ctx.interpolationQuality = .high
+                ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+                guard let scaled = ctx.makeImage() else { self.showStatus("スケール変換失敗"); return }
+                targetImage = scaled
+            }
             let isJPEG = url.pathExtension.lowercased() == "jpg" || url.pathExtension.lowercased() == "jpeg"
             let data: Data? = isJPEG
-                ? NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
-                : NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+                ? NSBitmapImageRep(cgImage: targetImage).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+                : NSBitmapImageRep(cgImage: targetImage).representation(using: .png, properties: [:])
             guard let data else { self.showStatus("エンコード失敗"); return }
             do {
                 try data.write(to: url, options: .atomic)
-                self.showStatus("保存しました: \(url.lastPathComponent)")
+                let px = "\(targetImage.width)×\(targetImage.height)"
+                self.showStatus("保存しました: \(url.lastPathComponent) (\(px))")
             } catch {
                 self.showStatus("保存失敗: \(error.localizedDescription)")
             }
