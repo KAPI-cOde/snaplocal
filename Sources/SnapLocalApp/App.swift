@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 import ScreenCaptureKit
 import PDFKit
 import Combine
+import Vision
 
 extension Notification.Name {
     static let snapLocalZoomIn    = Notification.Name("snaplocal.zoom.in")
@@ -589,6 +590,59 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    // MARK: - Auto-redact faces
+
+    func autoRedactFaces(in image: CGImage, canvas: CanvasViewModel) {
+        showStatus("顔を検出中…")
+        Task {
+            let normalizedFaces = await detectFaceRects(in: image)
+            if normalizedFaces.isEmpty {
+                showStatus("顔が検出されませんでした")
+                return
+            }
+            // Vision returns rects normalized [0,1] with origin at bottom-left of the image.
+            // Canvas coords have origin at top-left.
+            let iw = CGFloat(image.width)
+            let ih = CGFloat(image.height)
+            let scaleX = canvas.canvasSize.width / iw
+            let scaleY = canvas.canvasSize.height / ih
+            let isBlur = canvas.currentRedactMode == .blur
+            for normalized in normalizedFaces {
+                let pixX = normalized.minX * iw
+                let pixY = (1 - normalized.maxY) * ih   // flip Y
+                let pixW = normalized.width * iw
+                let pixH = normalized.height * ih
+                let faceRect = CGRect(
+                    x: pixX * scaleX - 8, y: pixY * scaleY - 8,
+                    width: pixW * scaleX + 16, height: pixH * scaleY + 16
+                )
+                if isBlur {
+                    var a = BlurAnnotation(rect: faceRect)
+                    a.intensity = Float(canvas.currentBlurRadius)
+                    canvas.annotations.append(AnyAnnotation(a))
+                } else {
+                    var a = MosaicAnnotation(rect: faceRect)
+                    a.intensity = Float(canvas.currentMosaicScale)
+                    canvas.annotations.append(AnyAnnotation(a))
+                }
+            }
+            canvas.recomputeAllFilterPreviews()
+            canvas.objectWillChange.send()
+            showStatus("顔を\(normalizedFaces.count)箇所検出しました")
+        }
+    }
+
+    private func detectFaceRects(in image: CGImage) async -> [CGRect] {
+        await withCheckedContinuation { continuation in
+            let request = VNDetectFaceRectanglesRequest { req, _ in
+                let obs = req.results as? [VNFaceObservation] ?? []
+                continuation.resume(returning: obs.map { $0.boundingBox })
+            }
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            try? handler.perform([request])
+        }
+    }
+
     // MARK: - Capture result
 
     func handleCaptureResult(_ result: Result<CGImage, Error>) {
@@ -899,6 +953,7 @@ struct CompactToolbar: View {
     let onCopy: () -> Void
     let onPaste: () -> Void
     let onShare: () -> Void
+    var onAutoRedactFaces: (() -> Void)? = nil
     @Binding var sidebarVisible: Bool
     @State private var showHelp = false
     @State private var showSettings = false
@@ -1127,6 +1182,14 @@ struct CompactToolbar: View {
                         .frame(width: 60)
                         .help("ぼかしの強さ")
                 }
+
+                Button {
+                    onAutoRedactFaces?()
+                } label: {
+                    Image(systemName: "person.crop.rectangle.badge.plus")
+                }
+                .help("顔を自動検出してモザイク/ぼかし")
+                .disabled(canvas.backgroundImage == nil)
             }
 
             if canvas.currentTool == .colorPicker {
@@ -2389,6 +2452,10 @@ struct ContentView: View {
                 onCopy: state.copyToClipboard,
                 onPaste: state.pasteFromClipboard,
                 onShare: state.shareCurrentImage,
+                onAutoRedactFaces: {
+                    guard let img = state.canvas.backgroundImage else { return }
+                    state.autoRedactFaces(in: img, canvas: state.canvas)
+                },
                 sidebarVisible: $sidebarVisible
             )
             .sheet(isPresented: $state.showWindowPicker) {
