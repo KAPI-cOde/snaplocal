@@ -804,6 +804,16 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func stitchFromClipboard(vertical: Bool) {
+        guard let nsImage = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+              let other = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            showStatus("クリップボードに画像がありません")
+            return
+        }
+        canvas.stitch(with: other, vertical: vertical)
+        showStatus(vertical ? "下に結合しました" : "右に結合しました")
+    }
+
     func revealCurrentItemInFinder() {
         guard let id = currentVaultID,
               let item = history.first(where: { $0.id == id }) else {
@@ -1181,6 +1191,22 @@ struct CompactToolbar: View {
                 Button("上下反転") { canvas.flipImage(horizontal: false) }
                 Divider()
                 Button("余白を自動トリミング") { canvas.trimWhitespace() }
+                Divider()
+                Group {
+                    Button("クリップボードの画像を下に結合") {
+                        if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                           let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                            canvas.stitch(with: cg, vertical: true)
+                        }
+                    }
+                    Button("クリップボードの画像を右に結合") {
+                        if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                           let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                            canvas.stitch(with: cg, vertical: false)
+                        }
+                    }
+                }
+                .disabled(canvas.backgroundImage == nil)
                 Divider()
                 Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
                 Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }

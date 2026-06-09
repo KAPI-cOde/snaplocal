@@ -1594,6 +1594,39 @@ final class CanvasViewModel: ObservableObject {
         updateUndoRedoState()
     }
 
+    // MARK: - Image Stitch
+
+    /// Stitch `other` below (vertical=true) or to the right (vertical=false) of the current background.
+    func stitch(with other: CGImage, vertical: Bool) {
+        guard let src = backgroundImage else { return }
+        let outW = vertical ? max(src.width, other.width) : src.width + other.width
+        let outH = vertical ? src.height + other.height : max(src.height, other.height)
+        guard let ctx = CGContext(
+            data: nil, width: outW, height: outH,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
+        if vertical {
+            // top = src, bottom = other (CGContext y is bottom-up)
+            ctx.draw(src, in: CGRect(x: 0, y: outH - src.height, width: src.width, height: src.height))
+            ctx.draw(other, in: CGRect(x: 0, y: 0, width: other.width, height: other.height))
+        } else {
+            // left = src, right = other
+            ctx.draw(src, in: CGRect(x: 0, y: outH - src.height, width: src.width, height: src.height))
+            ctx.draw(other, in: CGRect(x: src.width, y: outH - other.height, width: other.width, height: other.height))
+        }
+        guard let stitched = ctx.makeImage() else { return }
+        let prevImage = src
+        let prevAnnotations = annotations
+        backgroundImage = stitched
+        canvasSize = CGSize(width: CGFloat(outW), height: CGFloat(outH))
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        recomputeAllFilterPreviews()
+    }
+
     // MARK: - Image Adjustments
 
     func bakeAdjustments() {
