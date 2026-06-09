@@ -676,7 +676,7 @@ struct CompactToolbar: View {
 
             // Tool buttons: two logical groups separated by mini-divider
             HStack(spacing: 2) {
-                ForEach([DrawingTool.select, .line, .arrow, .rectangle, .ellipse, .roundedRect], id: \.self) { tool in
+                ForEach([DrawingTool.select, .colorPicker, .line, .arrow, .rectangle, .ellipse, .roundedRect], id: \.self) { tool in
                     toolButton(tool, canvas: canvas)
                 }
                 Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
@@ -1304,6 +1304,7 @@ struct HelpPopoverContent: View {
             ("H", "ハイライト"),
             ("P", "鉛筆（フリーハンド）"),
             ("G", "スタンプ（クリックで絵文字配置）"),
+            ("I", "スポイト（クリックで色をサンプリング）"),
             ("X / M", "モザイク/ぼかし"),
             ("Tab", "次のツール"),
         ]),
@@ -1869,6 +1870,7 @@ struct AnnotationCanvasView: View {
             .onKeyPress("h") { if !viewModel.showTextInput { viewModel.currentTool = .highlight }; return .handled }
             .onKeyPress("p") { if !viewModel.showTextInput { viewModel.currentTool = .pencil }; return .handled }
             .onKeyPress("g") { if !viewModel.showTextInput { viewModel.currentTool = .stamp }; return .handled }
+            .onKeyPress("i") { if !viewModel.showTextInput { viewModel.currentTool = .colorPicker }; return .handled }
             .onKeyPress("c", phases: .down) { press in
                 guard press.modifiers.contains([.command, .option]) else { return .ignored }
                 onCopyOriginal?(); return .handled

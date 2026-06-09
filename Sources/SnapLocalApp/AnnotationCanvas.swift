@@ -116,6 +116,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     case redact = "redact"   // unified mosaic/blur
     case pencil = "pencil"
     case stamp = "stamp"
+    case colorPicker = "colorPicker"
 
     var systemImage: String {
         switch self {
@@ -132,6 +133,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .redact: return "eye.slash"
         case .pencil: return "pencil.tip"
         case .stamp: return "face.smiling"
+        case .colorPicker: return "eyedropper.halffull"
         }
     }
 
@@ -150,12 +152,13 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .redact: return "隠す"
         case .pencil: return "鉛筆"
         case .stamp: return "スタンプ"
+        case .colorPicker: return "スポイト"
         }
     }
 
     var annotationType: AnnotationType? {
         switch self {
-        case .select, .redact, .stamp: return nil
+        case .select, .redact, .stamp, .colorPicker: return nil
         case .line: return .line
         case .arrow: return .arrow
         case .rectangle: return .rectangle
@@ -172,7 +175,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     var usesLineWidth: Bool {
         switch self {
         case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout, .pencil: return true
-        case .select, .redact, .highlight, .stamp: return false
+        case .select, .redact, .highlight, .stamp, .colorPicker: return false
         }
     }
 }
@@ -232,7 +235,17 @@ struct DragState {
 @MainActor
 final class CanvasViewModel: ObservableObject {
     @Published var annotations: [AnyAnnotation] = []
-    @Published var currentTool: DrawingTool = .arrow
+    @Published private var _currentTool: DrawingTool = .arrow
+    var colorPickerPreviousTool: DrawingTool = .arrow
+    var currentTool: DrawingTool {
+        get { _currentTool }
+        set {
+            if newValue == .colorPicker && _currentTool != .colorPicker {
+                colorPickerPreviousTool = _currentTool
+            }
+            _currentTool = newValue
+        }
+    }
     @Published var currentColor: AnnotationColor = .red
     @Published var currentLineWidth: LineWidth = .thin
     @Published var currentRedactMode: RedactMode = .mosaic
@@ -379,6 +392,25 @@ final class CanvasViewModel: ObservableObject {
         for ann in annotations where !ann.hasStrokeRepresentation {
             updateFilterPreview(for: ann)
         }
+    }
+
+    // MARK: - Color Sampling
+
+    func sampleColor(at canvasPoint: CGPoint) -> String? {
+        guard let image = backgroundImage, canvasSize.width > 0, canvasSize.height > 0 else { return nil }
+        let imgW = CGFloat(image.width), imgH = CGFloat(image.height)
+        let px = Int(canvasPoint.x / canvasSize.width * imgW)
+        let py = Int(canvasPoint.y / canvasSize.height * imgH)
+        guard px >= 0, py >= 0, px < image.width, py < image.height else { return nil }
+        guard let ctx = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        // CGContext origin is bottom-left; shift so pixel (px,py) [top-origin] lands at (0,0)
+        ctx.translateBy(x: -CGFloat(px), y: -(imgH - 1.0 - CGFloat(py)))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: imgW, height: imgH))
+        guard let data = ctx.data else { return nil }
+        let bytes = data.bindMemory(to: UInt8.self, capacity: 4)
+        return String(format: "%02X%02X%02XFF", bytes[0], bytes[1], bytes[2])
     }
 
     // MARK: - Annotation Management
@@ -860,6 +892,13 @@ final class CanvasViewModel: ObservableObject {
             annotation.opacity = currentOpacity
             addAnnotation(annotation)
             selectedAnnotationID = annotation.id
+        case .colorPicker:
+            if let hex = sampleColor(at: localPoint) {
+                currentCustomColorHex = hex
+                applyCustomColorToSelection(hex: hex)
+                SettingsManager.shared.addRecentCustomColor(hex)
+            }
+            currentTool = colorPickerPreviousTool
         default:
             dragState.start(at: localPoint)
         }
