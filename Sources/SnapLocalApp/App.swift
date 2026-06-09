@@ -603,7 +603,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private func loadHistory() async {
         let q = searchQuery
         let items = q.isEmpty ? await vault.allItems() : await vault.search(query: q)
+        let wasEmpty = history.isEmpty && currentVaultID == nil
         history = items
+        // Auto-load the most recent screenshot on first launch
+        if wasEmpty, let first = items.first {
+            loadHistoryItem(first)
+        }
     }
 
     func applySearch() {
