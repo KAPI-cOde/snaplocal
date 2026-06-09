@@ -995,6 +995,12 @@ struct HistoryRail: View {
                                     NSPasteboard.general.writeObjects([nsImage])
                                 }
                             }
+                            Button("共有…") {
+                                let picker = NSSharingServicePicker(items: [item.imageURL])
+                                if let btn = NSApp.keyWindow?.contentView?.subviews.first {
+                                    picker.show(relativeTo: .zero, of: btn, preferredEdge: .minY)
+                                }
+                            }
                             if !item.ocrText.isEmpty {
                                 Button("OCRテキストをコピー") {
                                     NSPasteboard.general.clearContents()
