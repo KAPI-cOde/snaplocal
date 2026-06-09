@@ -223,6 +223,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentOpacity: Double = 1.0
     @Published var currentTextBackground: Bool = false
     @Published var snapGuides: [SnapGuide] = []
+    @Published var annotationsHidden: Bool = false
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero

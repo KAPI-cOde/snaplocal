@@ -769,6 +769,15 @@ struct CompactToolbar: View {
             .keyboardShortcut(.delete, modifiers: [])
 
             if !canvas.annotations.isEmpty {
+                Toggle(isOn: $canvas.annotationsHidden) {
+                    Image(systemName: canvas.annotationsHidden ? "eye.slash" : "eye")
+                }
+                .toggleStyle(.button)
+                .help(canvas.annotationsHidden ? "アノテーション表示 (⌘')" : "アノテーション非表示 (⌘')")
+                .keyboardShortcut("'", modifiers: .command)
+            }
+
+            if !canvas.annotations.isEmpty {
                 let selCount = canvas.selectedAnnotationIDs.count
                 Text(selCount > 1 ? "\(selCount)/\(canvas.annotations.count)" : "\(canvas.annotations.count)")
                     .font(.system(size: 9, design: .monospaced))
@@ -1866,6 +1875,8 @@ struct AnnotationCanvasView: View {
             // Normal annotation rendering
             let beingDragged = (viewModel.isDraggingAnnotation || viewModel.resizingHandleIndex != nil)
                 ? viewModel.selectedAnnotationID : nil
+
+            guard !viewModel.annotationsHidden else { return }
 
             for annotation in viewModel.annotations {
                 let annotationOpacity = annotation.opacity
