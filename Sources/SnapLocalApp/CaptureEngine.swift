@@ -107,7 +107,8 @@ final class CaptureEngine: @unchecked Sendable {
         }
     }
 
-    /// Capture a specific region (in screen-space logical points, origin at top-left).
+    /// Capture a specific region (in global CG coordinates: top-left origin, primary display at origin).
+    /// Supports multi-display: finds the display containing the region and captures from it.
     nonisolated func captureRegion(_ regionInPoints: CGRect) {
         Task {
             do {
@@ -115,23 +116,38 @@ final class CaptureEngine: @unchecked Sendable {
                     _ = CGRequestScreenCaptureAccess()
                     throw CaptureError.permissionDenied
                 }
-                let fullImage = try await captureWithScreenCaptureKit()
-                // fullImage is in physical pixels; convert region (logical points, top-left origin) to pixels
-                let mainScreen = NSScreen.screens.first(where: {
-                    ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == CGMainDisplayID()
-                }) ?? NSScreen.main
-                let scale = mainScreen?.backingScaleFactor ?? 2.0
-                let screenH = mainScreen?.frame.height ?? CGFloat(fullImage.height) / scale
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
-                // regionInPoints has origin at top-left (NSScreen is bottom-left, so flip Y)
-                // regionInPoints is already in top-left space (from our overlay)
-                let pixelRect = CGRect(
-                    x: regionInPoints.minX * scale,
-                    y: regionInPoints.minY * scale,
-                    width: regionInPoints.width * scale,
-                    height: regionInPoints.height * scale
+                // Find the display that contains the center of the selected region
+                let center = CGPoint(x: regionInPoints.midX, y: regionInPoints.midY)
+                let display = content.displays.first(where: { CGDisplayBounds($0.displayID).contains(center) })
+                    ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
+                    ?? content.displays.first
+                guard let display else { throw CaptureError.noDisplay }
+
+                let fullImage = try await captureDisplayImage(display: display, content: content)
+
+                // Compute region relative to this display's origin (in logical points)
+                let displayBounds = CGDisplayBounds(display.displayID)
+                let relativeRect = CGRect(
+                    x: regionInPoints.minX - displayBounds.minX,
+                    y: regionInPoints.minY - displayBounds.minY,
+                    width: regionInPoints.width,
+                    height: regionInPoints.height
                 )
-                _ = screenH // suppress warning
+
+                // Scale to physical pixels
+                let screen = NSScreen.screens.first(where: {
+                    ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID
+                })
+                let scale = screen?.backingScaleFactor ?? 2.0
+                let pixelRect = CGRect(
+                    x: relativeRect.minX * scale,
+                    y: relativeRect.minY * scale,
+                    width: relativeRect.width * scale,
+                    height: relativeRect.height * scale
+                )
+
                 guard let cropped = fullImage.cropping(to: pixelRect) else {
                     throw CaptureError.noImageBuffer
                 }
@@ -140,6 +156,41 @@ final class CaptureEngine: @unchecked Sendable {
                 await MainActor.run { self.completion(.failure(error)) }
             }
         }
+    }
+
+    /// Capture a single display, excluding our own app windows.
+    private func captureDisplayImage(display: SCDisplay, content: SCShareableContent) async throws -> CGImage {
+        let ourBundleID = Bundle.main.bundleIdentifier ?? "com.snaplocal.app"
+        let ourApps = content.applications.filter { $0.bundleIdentifier == ourBundleID }
+        let filter = SCContentFilter(display: display, excludingApplications: ourApps, exceptingWindows: [])
+
+        let screen = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID
+        })
+        let displayScale = screen?.backingScaleFactor ?? 1.0
+
+        let config = SCStreamConfiguration()
+        config.width = Int(CGFloat(display.width) * displayScale)
+        config.height = Int(CGFloat(display.height) * displayScale)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+        config.showsCursor = false
+        config.capturesAudio = false
+        config.scalesToFit = false
+
+        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        let output = CaptureStreamOutput()
+        let cgImage: CGImage = try await withCheckedThrowingContinuation { continuation in
+            output.continuation = continuation
+            do {
+                try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
+                stream.startCapture()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        try? await stream.stopCapture()
+        try? stream.removeStreamOutput(output, type: .screen)
+        return cgImage
     }
 
     /// Fetch list of capturable windows (excludes our own app and wallpaper).
