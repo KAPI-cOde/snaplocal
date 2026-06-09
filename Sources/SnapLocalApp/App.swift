@@ -303,6 +303,20 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         copyImageToClipboard(image)
         showStatus("撮影 → クリップボードにコピーしました")
         sendNotification(title: "撮影完了", body: "クリップボードにコピーしました")
+
+        // Post-capture floating HUD
+        let actions = CaptureNotificationActions(
+            copy: { [weak self] in self?.copyToClipboard() },
+            save: { [weak self] in self?.saveAnnotatedImage() },
+            annotate: {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+            },
+            pin: { [weak self] in self?.pinCurrentImage() },
+            share: { [weak self] in self?.shareCurrentImage() }
+        )
+        CaptureNotificationWindow.shared.show(image: image, actions: actions)
+
         Task {
             guard let item = await vault.save(image: image) else { return }
             currentVaultID = item.id
