@@ -103,19 +103,19 @@ struct HistoryRail: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
+            .padding(.horizontal, DS.Space.xs)
+            .padding(.vertical, DS.Space.xxs)
             .background(.ultraThinMaterial)
 
             Divider()
 
             if displayedHistory.isEmpty {
-                VStack(spacing: 8) {
+                VStack(spacing: DS.Space.xs) {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 28))
                         .foregroundStyle(.tertiary)
                     Text(searchQuery.isEmpty ? "キャプチャなし" : "見つかりません")
-                        .font(.system(size: 10))
+                        .font(.system(size: DS.FontSize.caption))
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
                 }
@@ -127,11 +127,11 @@ struct HistoryRail: View {
                 VStack(spacing: 0) {
                     ForEach(groupedHistory, id: \.0.rawValue) { group, items in
                         Text(group.rawValue)
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: DS.FontSize.caption2, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 6)
-                            .padding(.top, 8)
+                            .padding(.horizontal, DS.Space.xs)
+                            .padding(.top, DS.Space.xs)
                             .padding(.bottom, 2)
                         VStack(spacing: 6) {
                         ForEach(items) { item in
@@ -171,14 +171,14 @@ struct HistoryRail: View {
                             )
                         }   // ForEach(items)
                         }   // VStack for items
-                        .padding(.horizontal, 6)
-                        .padding(.bottom, 4)
+                        .padding(.horizontal, DS.Space.xs)
+                        .padding(.bottom, DS.Space.xxs)
                     }   // ForEach(groupedHistory)
                 }   // outer VStack
             }
             .onChange(of: selectedID) { _, newID in
                 if let id = newID {
-                    withAnimation(.easeInOut(duration: 0.3)) {
+                    withAnimation(DS.Anim.smooth) {
                         proxy.scrollTo(id, anchor: .center)
                     }
                 }
@@ -204,7 +204,7 @@ struct HistoryRail: View {
                 let nextItem = list[nextIdx]
                 if nextItem.id != selectedID {
                     onSelect(nextItem)
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(DS.Anim.smooth) {
                         proxy.scrollTo(nextItem.id, anchor: .center)
                     }
                 }
@@ -227,9 +227,9 @@ struct HistoryRail: View {
             Divider()
             HStack(spacing: 0) {
                 Text("\(displayedHistory.count)件")
-                    .font(.system(size: 9))
+                    .font(.system(size: DS.FontSize.caption2))
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 6)
+                    .padding(.leading, DS.Space.xs)
                 Spacer()
                 Button(action: { showOnlyStarred.toggle() }) {
                     Image(systemName: showOnlyStarred ? "star.fill" : "star")
@@ -266,14 +266,14 @@ struct HistoryRail: View {
                             .foregroundStyle(.red.opacity(0.7))
                     }
                     .buttonStyle(.borderless)
-                    .padding(.trailing, 4)
+                    .padding(.trailing, DS.Space.xxs)
                     .confirmationDialog("すべての履歴を削除しますか？\nこの操作は取り消せません。", isPresented: $showDeleteAllConfirm, titleVisibility: .visible) {
                         Button("すべて削除", role: .destructive) { onDeleteAll() }
                         Button("キャンセル", role: .cancel) {}
                     }
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, DS.Space.xxs)
         }
         .frame(width: 88)
         .background(.regularMaterial)
@@ -368,7 +368,7 @@ private struct HistoryItemRow: View {
             }
         }
         .frame(width: thumbW, height: thumbH)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.small))
         .overlay(alignment: .topTrailing) {
             if item.annotations.count > 0 {
                 Text("\(item.annotations.count)")
@@ -418,7 +418,7 @@ private struct HistoryItemRow: View {
                     .padding(2)
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.small).stroke(isSelected ? Color.accentColor : .clear, lineWidth: 2))
     }
 
     @ViewBuilder private var labelView: some View {
@@ -518,7 +518,7 @@ struct HistoryItemPopover: View {
                     .scaledToFit()
                     .frame(maxWidth: 380, maxHeight: 220)
                     .clipped()
-                    .animation(.easeIn(duration: 0.12), value: fullImage != nil)
+                    .animation(DS.Anim.fast, value: fullImage != nil)
             } else {
                 Color.secondary.opacity(0.1)
                     .frame(width: 380, height: 120)
@@ -530,7 +530,7 @@ struct HistoryItemPopover: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text("テキスト")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: DS.FontSize.caption, weight: .semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button {
@@ -541,20 +541,20 @@ struct HistoryItemPopover: View {
                         } label: {
                             Label(ocrCopied ? "コピー済" : "全コピー",
                                   systemImage: ocrCopied ? "checkmark" : "doc.on.clipboard")
-                                .font(.system(size: 10))
+                                .font(.system(size: DS.FontSize.caption))
                                 .foregroundStyle(ocrCopied ? .green : Color.accentColor)
                         }
                         .buttonStyle(.plain)
                     }
                     // Selectable text via TextEditor (read-only binding workaround)
                     TextEditor(text: .constant(item.ocrText))
-                        .font(.system(size: 11))
+                        .font(.system(size: DS.FontSize.caption))
                         .scrollContentBackground(.hidden)
-                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: DS.Radius.small))
                         .frame(height: 72)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, DS.Space.s)
+                .padding(.vertical, DS.Space.xs)
             }
 
             Divider()
@@ -565,16 +565,16 @@ struct HistoryItemPopover: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 TextEditor(text: $notesText)
-                    .font(.system(size: 12))
+                    .font(.system(size: DS.FontSize.body))
                     .frame(height: 52)
                     .scrollContentBackground(.hidden)
-                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: DS.Radius.small))
                     .overlay(alignment: .topLeading) {
                         if notesText.isEmpty {
                             Text("メモを追加…")
                                 .foregroundStyle(.tertiary)
-                                .font(.system(size: 12))
-                                .padding(.top, 4).padding(.leading, 4)
+                                .font(.system(size: DS.FontSize.body))
+                                .padding(.top, DS.Space.xxs).padding(.leading, DS.Space.xxs)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -582,8 +582,8 @@ struct HistoryItemPopover: View {
                         onUpdateNotes?(item, newVal.isEmpty ? nil : newVal)
                     }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, DS.Space.s)
+            .padding(.vertical, DS.Space.xs)
         }
         .frame(width: 380)
         .task {
