@@ -14,20 +14,48 @@ private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
 @main
 struct SnapLocalApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+    @StateObject private var appState = SnapLocalState()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(state: appState)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
         .commands {
-            CommandGroup(replacing: .appSettings) {
-                // Remove default settings menu
-            }
+            CommandGroup(replacing: .appSettings) {}
         }
-    }
 
+        MenuBarExtra("SnapLocal", systemImage: "camera.viewfinder") {
+            MenuBarQuickActions(state: appState)
+        }
+        .menuBarExtraStyle(.menu)
+    }
+}
+
+// MARK: - Menu Bar Quick Actions
+
+struct MenuBarQuickActions: View {
+    @ObservedObject var state: SnapLocalState
+
+    var body: some View {
+        Button("全画面撮影 (⌘⇧2)") { state.captureNow() }
+        Button("範囲選択撮影 (⌘⇧4)") { state.captureRegion() }
+        Button("ウィンドウ撮影 (⌘⇧3)") { state.captureWindowMode() }
+        Divider()
+        Menu("遅延撮影") {
+            Button("3秒後") { state.captureWithDelay(3) }
+            Button("5秒後") { state.captureWithDelay(5) }
+            Button("10秒後") { state.captureWithDelay(10) }
+        }
+        Divider()
+        Button("SnapLocalを表示") {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        }
+        Divider()
+        Button("終了") { NSApp.terminate(nil) }
+    }
 }
 
 // AppDelegate to ensure window is properly configured and in foreground
@@ -1232,7 +1260,7 @@ struct WindowPickerRow: View {
 // MARK: - Content View
 
 struct ContentView: View {
-    @StateObject private var state = SnapLocalState()
+    @ObservedObject var state: SnapLocalState
     @State private var isDropTargeted = false
 
     var windowTitle: String {
