@@ -22,15 +22,19 @@ final class CaptureNotificationWindow {
 
     private var panel: NSPanel?
     private var dismissTimer: DispatchWorkItem?
+    private var isHovered = false
 
     private init() {}
 
     func show(image: CGImage, actions: CaptureNotificationActions, onScreen: NSScreen? = nil) {
         dismiss(animated: false)
 
-        let view = CaptureNotificationView(image: image, actions: actions) { [weak self] in
-            self?.dismiss(animated: true)
-        }
+        let view = CaptureNotificationView(
+            image: image,
+            actions: actions,
+            onDismiss: { [weak self] in self?.dismiss(animated: true) },
+            onHoverChanged: { [weak self] hovering in self?.handleHoverChange(hovering) }
+        )
         let hosting = NSHostingView(rootView: view)
         hosting.translatesAutoresizingMaskIntoConstraints = false
 
@@ -47,7 +51,6 @@ final class CaptureNotificationWindow {
         newPanel.isMovableByWindowBackground = true
         newPanel.contentView = hosting
 
-        // Fit panel to hosting view's intrinsic size
         hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 80)
 
         positionPanel(newPanel, on: onScreen)
@@ -65,12 +68,14 @@ final class CaptureNotificationWindow {
         }
 
         panel = newPanel
+        isHovered = false
         scheduleDismiss()
     }
 
     func dismiss(animated: Bool = true) {
         dismissTimer?.cancel()
         dismissTimer = nil
+        isHovered = false
         guard let p = panel else { return }
         panel = nil
         if animated {
@@ -83,6 +88,17 @@ final class CaptureNotificationWindow {
         }
     }
 
+    // Pause dismiss timer while HUD is hovered; resume with full 4s when mouse leaves
+    func handleHoverChange(_ hovering: Bool) {
+        isHovered = hovering
+        if hovering {
+            dismissTimer?.cancel()
+            dismissTimer = nil
+        } else {
+            scheduleDismiss(delay: 4)
+        }
+    }
+
     private func positionPanel(_ p: NSPanel, on preferredScreen: NSScreen? = nil) {
         let screen = preferredScreen ?? NSScreen.screens.first(where: { $0 == NSScreen.main }) ?? NSScreen.screens[0]
         let margin: CGFloat = 24
@@ -91,12 +107,14 @@ final class CaptureNotificationWindow {
         p.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
-    private func scheduleDismiss() {
+    private func scheduleDismiss(delay: Double = 5) {
+        dismissTimer?.cancel()
         let item = DispatchWorkItem { [weak self] in
+            guard self?.isHovered == false else { return }
             self?.dismiss(animated: true)
         }
         dismissTimer = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 }
 
@@ -106,9 +124,12 @@ struct CaptureNotificationView: View {
     let image: CGImage
     let actions: CaptureNotificationActions
     let onDismiss: () -> Void
+    var onHoverChanged: ((Bool) -> Void)? = nil
 
     @State private var timerProgress: CGFloat = 1.0
+    @State private var isHUDHovered = false
     @State private var thumbnailHovered = false
+    @State private var isDragging = false
     @State private var copiedFeedback = false
 
     private var aspectRatio: CGFloat {
@@ -117,42 +138,60 @@ struct CaptureNotificationView: View {
     }
 
     private var thumbWidth: CGFloat { min(80, max(48, 52 * aspectRatio)) }
+    private var nsImage: NSImage { NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)) }
 
     var body: some View {
         HStack(spacing: 10) {
-            // Thumbnail — click to open editor
-            Button {
-                actions.annotate(); onDismiss()
-            } label: {
-                Image(nsImage: NSImage(cgImage: image,
-                                       size: NSSize(width: image.width, height: image.height)))
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: thumbWidth, height: 50)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(thumbnailHovered ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.15),
-                                    lineWidth: thumbnailHovered ? 1.5 : 0.5)
-                    )
-                    .overlay(alignment: .bottom) {
-                        if thumbnailHovered {
+            // Thumbnail — click to open editor, drag to other apps
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: thumbWidth, height: 50)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isDragging ? Color.green.opacity(0.8)
+                                : thumbnailHovered ? Color.accentColor.opacity(0.8)
+                                : Color.white.opacity(0.15),
+                                lineWidth: (thumbnailHovered || isDragging) ? 1.5 : 0.5)
+                )
+                .overlay(alignment: .bottom) {
+                    if thumbnailHovered && !isDragging {
+                        HStack(spacing: 3) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 7))
                             Text("編集")
                                 .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(.ultraThinMaterial)
-                                .clipShape(RoundedRectangle(cornerRadius: 3))
-                                .padding(.bottom, 3)
                         }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .padding(.bottom, 3)
                     }
-                    .scaleEffect(thumbnailHovered ? 1.03 : 1.0)
-                    .animation(.easeInOut(duration: 0.15), value: thumbnailHovered)
-                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
-            }
-            .buttonStyle(.plain)
-            .onHover { thumbnailHovered = $0 }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if thumbnailHovered && !isDragging {
+                        Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .padding(3)
+                            .background(.black.opacity(0.4), in: Circle())
+                            .padding(3)
+                    }
+                }
+                .scaleEffect(isDragging ? 0.92 : (thumbnailHovered ? 1.03 : 1.0))
+                .animation(.easeInOut(duration: 0.15), value: thumbnailHovered)
+                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isDragging)
+                .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                .onTapGesture { actions.annotate(); onDismiss() }
+                .onDrag {
+                    isDragging = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isDragging = false }
+                    return NSItemProvider(object: nsImage)
+                }
+                .onHover { thumbnailHovered = $0 }
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 4) {
@@ -201,7 +240,7 @@ struct CaptureNotificationView: View {
         .overlay(alignment: .bottom) {
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.accentColor.opacity(0.5))
+                    .fill(Color.accentColor.opacity(isHUDHovered ? 0.25 : 0.5))
                     .frame(width: geo.size.width * timerProgress, height: 2.5)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -211,8 +250,20 @@ struct CaptureNotificationView: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+                .stroke(isHUDHovered ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.1), lineWidth: 0.5)
         )
+        .onHover { hovering in
+            isHUDHovered = hovering
+            onHoverChanged?(hovering)
+            if hovering {
+                // Freeze progress bar at current position by interrupting animation
+                withAnimation(.linear(duration: 0)) { }
+            } else {
+                // Resume: animate remaining progress proportional to 4s
+                let remaining = 4.0 * timerProgress
+                withAnimation(.linear(duration: max(0.1, remaining))) { timerProgress = 0 }
+            }
+        }
         .onAppear {
             withAnimation(.linear(duration: 5)) {
                 timerProgress = 0
