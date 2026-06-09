@@ -1326,13 +1326,23 @@ struct HintRow: View {
     let key: String
     let label: String
     var body: some View {
-        HStack(spacing: DS.Space.xs) {
+        GridRow {
             Text(key)
+                .font(.system(size: DS.FontSize.caption, weight: .medium, design: .rounded))
                 .monospacedDigit()
-                .padding(.horizontal, DS.Space.xxs)
-                .padding(.vertical, 1)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, DS.Space.xs)
+                .padding(.vertical, 3)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.small)
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.08), radius: 0.5, y: 1)
+                .gridColumnAlignment(.trailing)
             Text(label)
+                .foregroundStyle(.secondary)
+                .gridColumnAlignment(.leading)
         }
     }
 }
@@ -1706,22 +1716,28 @@ struct AnnotationCanvasView: View {
                         .allowsHitTesting(false)
                     }
                 } else {
-                    VStack(spacing: DS.Space.s) {
-                        Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.tertiary)
+                    VStack(spacing: DS.Space.l) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.accentColor.opacity(0.08))
+                                .frame(width: 96, height: 96)
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 40, weight: .light))
+                                .foregroundStyle(Color.accentColor.opacity(0.75))
+                        }
                         if let onCapture = onCapture {
                             Button("撮影する", action: onCapture)
                                 .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
                         }
-                        VStack(spacing: DS.Space.xxs) {
+                        Grid(horizontalSpacing: DS.Space.s, verticalSpacing: DS.Space.xs) {
                             HintRow(key: "⌘⇧2", label: "全画面撮影")
                             HintRow(key: "⌘⇧3", label: "ウィンドウ撮影")
                             HintRow(key: "⌘⇧4", label: "範囲選択撮影")
                             HintRow(key: "⌘V",  label: "クリップボードから貼り付け")
                         }
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .padding(.top, DS.Space.xs)
                         if let onOpenPermissions = onOpenPermissions {
                             Button("画面録画の設定を開く", action: onOpenPermissions)
                                 .buttonStyle(.link)
