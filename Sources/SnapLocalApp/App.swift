@@ -903,6 +903,15 @@ struct HistoryRail: View {
                         .contextMenu {
                             Button("開く") { onSelect(item) }
                             Button("ファイルに保存…") { onExport(item) }
+                            Button("Finderで表示") {
+                                NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
+                            }
+                            Button("クリップボードにコピー") {
+                                if let nsImage = NSImage(contentsOf: item.imageURL) {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.writeObjects([nsImage])
+                                }
+                            }
                             if !item.ocrText.isEmpty {
                                 Button("OCRテキストをコピー") {
                                     NSPasteboard.general.clearContents()
@@ -1605,11 +1614,15 @@ struct AnnotationCanvasView: View {
                 }
                 return .handled
             }
-            .onKeyPress(.tab) {
+            .onKeyPress(.tab, phases: .down) { press in
                 guard !viewModel.showTextInput else { return .ignored }
                 let tools = DrawingTool.allCases
                 if let i = tools.firstIndex(of: viewModel.currentTool) {
-                    viewModel.currentTool = tools[(i + 1) % tools.count]
+                    if press.modifiers.contains(.shift) {
+                        viewModel.currentTool = tools[(i - 1 + tools.count) % tools.count]
+                    } else {
+                        viewModel.currentTool = tools[(i + 1) % tools.count]
+                    }
                 }
                 return .handled
             }
