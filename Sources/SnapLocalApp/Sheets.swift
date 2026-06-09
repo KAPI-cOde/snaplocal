@@ -159,6 +159,58 @@ struct SettingsSheet: View {
             Divider()
 
             Form {
+                Section {
+                    Toggle("カーソルを含める", isOn: Binding(
+                        get: { settings.captureWithCursor },
+                        set: { settings.captureWithCursor = $0 }
+                    ))
+                    Toggle("撮影後にクリップボードへ自動コピー", isOn: Binding(
+                        get: { settings.autoCopyOnCapture },
+                        set: { settings.autoCopyOnCapture = $0 }
+                    ))
+                    Toggle("撮影後すぐにエディタを開く（HUDをスキップ）", isOn: Binding(
+                        get: { settings.openEditorOnCapture },
+                        set: { settings.openEditorOnCapture = $0 }
+                    ))
+                } header: {
+                    Text("キャプチャ")
+                } footer: {
+                    Text("「カーソルを含める」は撮影画像にマウスポインタを写し込みます")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Section {
+                    Picker("形式", selection: Binding(
+                        get: { settings.exportFormat },
+                        set: { settings.exportFormat = $0 }
+                    )) {
+                        ForEach(ExportFormat.allCases, id: \.self) { fmt in
+                            Text(fmt.displayName).tag(fmt)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    if settings.exportFormat == .jpeg {
+                        HStack {
+                            Text("JPEG品質")
+                                .foregroundStyle(.secondary)
+                            Slider(value: Binding(
+                                get: { settings.jpegQuality },
+                                set: { settings.jpegQuality = $0 }
+                            ), in: 0.4...1.0, step: 0.05)
+                            Text("\(Int(settings.jpegQuality * 100))%")
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 36)
+                        }
+                    }
+                } header: {
+                    Text("書き出し形式")
+                } footer: {
+                    Text("⌘S保存時の形式です。別名保存(⌘⇧S)では毎回選択できます")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
                 Section("保存先") {
                     HStack {
                         Text(saveDirectoryPath)
@@ -184,7 +236,7 @@ struct SettingsSheet: View {
                     }
                 }
 
-                Section("ホットキー") {
+                Section {
                     Picker("全画面撮影", selection: Binding(
                         get: { settings.hotkeyConfig },
                         set: { settings.hotkeyConfig = $0 }
@@ -194,46 +246,12 @@ struct SettingsSheet: View {
                         }
                     }
                     .pickerStyle(.menu)
-                }
-
-                Section("キャプチャ") {
-                    Toggle("カーソルを含める", isOn: Binding(
-                        get: { settings.captureWithCursor },
-                        set: { settings.captureWithCursor = $0 }
-                    ))
-                    Toggle("撮影後にクリップボードへ自動コピー", isOn: Binding(
-                        get: { settings.autoCopyOnCapture },
-                        set: { settings.autoCopyOnCapture = $0 }
-                    ))
-                    Toggle("撮影後すぐにエディタを開く（HUDをスキップ）", isOn: Binding(
-                        get: { settings.openEditorOnCapture },
-                        set: { settings.openEditorOnCapture = $0 }
-                    ))
-                }
-
-                Section("書き出し形式") {
-                    Picker("形式", selection: Binding(
-                        get: { settings.exportFormat },
-                        set: { settings.exportFormat = $0 }
-                    )) {
-                        ForEach(ExportFormat.allCases, id: \.self) { fmt in
-                            Text(fmt.displayName).tag(fmt)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    if settings.exportFormat == .jpeg {
-                        HStack {
-                            Text("JPEG品質")
-                                .foregroundStyle(.secondary)
-                            Slider(value: Binding(
-                                get: { settings.jpegQuality },
-                                set: { settings.jpegQuality = $0 }
-                            ), in: 0.4...1.0, step: 0.05)
-                            Text("\(Int(settings.jpegQuality * 100))%")
-                                .font(.system(.caption, design: .monospaced))
-                                .frame(width: 36)
-                        }
-                    }
+                } header: {
+                    Text("ホットキー")
+                } footer: {
+                    Text("全画面撮影のキーのみ変更できます。他のショートカットは固定です")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
 
                 Section("通知") {
