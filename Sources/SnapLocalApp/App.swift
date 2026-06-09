@@ -437,6 +437,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             showStatus("クリップボードにコピーしました（履歴には保存しません）")
             return
         }
+        // Persist current annotations before overwriting canvas
+        if let id = currentVaultID, !canvas.annotations.isEmpty {
+            let anns = canvas.annotations
+            let v = vault
+            Task { await v.updateAnnotations(id: id, annotations: anns) }
+        }
         canvas.backgroundImage = image
         canvas.annotations.removeAll()
         canvas.loadToken = UUID()
@@ -1295,8 +1301,8 @@ struct CompactToolbar: View {
             .frame(width: 18)
             .help("その他のキャプチャ")
 
-            if canvas.backgroundImage != nil { imageEditControls }
             if canvas.backgroundImage != nil { annotationToolControls }
+            if canvas.backgroundImage != nil { imageEditControls }
 
             normalControlsExport
         }
@@ -3336,11 +3342,17 @@ struct WindowPickerRow: View {
 struct ContentView: View {
     @ObservedObject var state: SnapLocalState
     @State private var isDropTargeted = false
-    @State private var sidebarVisible = true
+    @AppStorage("sidebarVisible") private var sidebarVisible = true
 
     var windowTitle: String {
+        guard state.canvas.backgroundImage != nil else { return "SnapLocal" }
+        if let id = state.selectedHistoryID,
+           let item = state.history.first(where: { $0.id == id }),
+           let title = item.title, !title.isEmpty {
+            return title
+        }
         if let img = state.canvas.backgroundImage {
-            return "SnapLocal — \(img.width) × \(img.height)"
+            return "\(img.width) × \(img.height)"
         }
         return "SnapLocal"
     }
