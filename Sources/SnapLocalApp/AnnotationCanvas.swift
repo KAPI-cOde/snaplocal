@@ -832,6 +832,18 @@ final class CanvasViewModel: ObservableObject {
             let w = abs(end.x - start.x), h = abs(end.y - start.y)
             if w > 8 || h > 8 {
                 createAnnotation(type: .callout, from: start, to: end)
+                // Auto-open text input inside the callout bubble (above the tail)
+                let bubbleRect = CGRect(
+                    x: min(start.x, end.x),
+                    y: min(start.y, end.y),
+                    width: w,
+                    height: h * 0.82
+                )
+                let inset: CGFloat = 8
+                textInputRect = bubbleRect.insetBy(dx: inset, dy: inset)
+                textInputString = ""
+                editingAnnotationID = nil
+                showTextInput = true
             }
         case .highlight:
             let w = abs(end.x - start.x), h = abs(end.y - start.y)
