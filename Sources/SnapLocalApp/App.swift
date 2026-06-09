@@ -279,6 +279,15 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         captureEngine?.registerHotkey()
         refreshHistory()
 
+        // 起動時クリーンアップ: index.json未登録の残留画像をゴミ箱へ(復元可能)
+        let v = vault
+        Task { [weak self] in
+            let n = await v.cleanOrphans()
+            if n > 0 {
+                await MainActor.run { self?.showStatus("未登録の残留ファイル\(n)件をゴミ箱へ移動しました") }
+            }
+        }
+
         // AppIntents notifications
         NotificationCenter.default.addObserver(forName: .intentCaptureScreen, object: nil, queue: .main) { [weak self] _ in
             self?.captureNow()

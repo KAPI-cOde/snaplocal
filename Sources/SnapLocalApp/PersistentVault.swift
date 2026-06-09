@@ -149,22 +149,24 @@ actor PersistentVault {
 
     /// Update OCR text for an item (called after async OCR finishes)
     func updateOCR(id: UUID, text: String) {
-        guard manifest[id] != nil else { return }
+        guard let entry = manifest[id], entry.ocrText != text else { return }
         manifest[id]!.ocrText = text
         saveManifest()
     }
 
     /// Update title/label for an item
     func updateTitle(id: UUID, title: String?) {
-        guard manifest[id] != nil else { return }
-        manifest[id]!.title = title?.isEmpty == true ? nil : title
+        let normalized = title?.isEmpty == true ? nil : title
+        guard let entry = manifest[id], entry.title != normalized else { return }
+        manifest[id]!.title = normalized
         saveManifest()
     }
 
     /// Update freeform notes for an item
     func updateNotes(id: UUID, notes: String?) {
-        guard manifest[id] != nil else { return }
-        manifest[id]!.notes = notes?.isEmpty == true ? nil : notes
+        let normalized = notes?.isEmpty == true ? nil : notes
+        guard let entry = manifest[id], entry.notes != normalized else { return }
+        manifest[id]!.notes = normalized
         saveManifest()
     }
 
@@ -177,8 +179,11 @@ actor PersistentVault {
 
     /// Update annotations for an item
     func updateAnnotations(id: UUID, annotations: [AnyAnnotation]) {
-        guard manifest[id] != nil else { return }
-        manifest[id]!.annotationsData = try? JSONEncoder().encode(annotations)
+        guard let entry = manifest[id] else { return }
+        let newData = try? JSONEncoder().encode(annotations)
+        // 内容が同じならindex.jsonを書き直さない(クラウド同期フォルダでの無駄な同期防止)
+        guard entry.annotationsData != newData else { return }
+        manifest[id]!.annotationsData = newData
         saveManifest()
     }
 
@@ -192,6 +197,28 @@ actor PersistentVault {
                                      forKey: entry.thumbFilename as NSString,
                                      cost: thumbData.count)
         }
+    }
+
+    /// index.json に載っていない画像/サムネイルをゴミ箱へ移動する(復元可能)。
+    /// 「消したはずの画像がディスクに残る」事故を防ぐ起動時クリーンアップ(PLAN.md T5.2)。
+    func cleanOrphans() -> Int {
+        let fm = FileManager.default
+        let validImages = Set(manifest.values.map { $0.filename })
+        let validThumbs = Set(manifest.values.map { ($0.thumbFilename as NSString).lastPathComponent })
+        var trashed = 0
+        if let files = try? fm.contentsOfDirectory(at: baseDirectory, includingPropertiesForKeys: nil) {
+            for url in files
+            where url.pathExtension.lowercased() == "png" && !validImages.contains(url.lastPathComponent) {
+                if (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil { trashed += 1 }
+            }
+        }
+        if let files = try? fm.contentsOfDirectory(at: thumbDirectory, includingPropertiesForKeys: nil) {
+            for url in files
+            where url.pathExtension.lowercased() == "jpg" && !validThumbs.contains(url.lastPathComponent) {
+                if (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil { trashed += 1 }
+            }
+        }
+        return trashed
     }
 
     /// Delete an item and its files
