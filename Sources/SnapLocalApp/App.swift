@@ -756,6 +756,20 @@ struct CompactToolbar: View {
                 canvas.applyCurrentLineWidthToSelection()
             }
 
+            Picker("", selection: $canvas.currentLineStyle) {
+                Image(systemName: "line.horizontal.3").tag(LineStyle.solid)
+                Image(systemName: "line.horizontal.3").tag(LineStyle.dashed)
+                Image(systemName: "circle.dotted").tag(LineStyle.dotted)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 76)
+            .disabled(!canvas.currentTool.usesLineWidth)
+            .opacity(canvas.currentTool.usesLineWidth ? 1.0 : 0.5)
+            .help("線のスタイル（実線 / 破線 / 点線）")
+            .onChange(of: canvas.currentLineStyle) { _, _ in
+                canvas.applyCurrentLineStyleToSelection()
+            }
+
             Spacer()
 
             Button(action: { canvas.undo() }) {
@@ -1965,7 +1979,7 @@ struct AnnotationCanvasView: View {
                 } else {
                     let path = annotation.path(in: canvasRect)
                     let lw = annotation.lineWidth.rawValue
-                    let strokeStyle = StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round)
+                    let strokeStyle = annotation.lineStyle.strokeStyle(lineWidth: lw)
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.stroke(path, with: .color(.white),
                                        style: StrokeStyle(lineWidth: lw + 4, lineCap: .round, lineJoin: .round))

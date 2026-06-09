@@ -22,6 +22,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var hasStrokeRepresentation: Bool
     var opacity: Double = 1.0
     var isLocked: Bool = false
+    var lineStyle: LineStyle = .solid
 
     // Captures base path with .identity transform; AnyAnnotation.transform applied on top in path(in:)
     private let _basePath: (CGRect) -> Path
@@ -86,10 +87,11 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     func encode(to encoder: Encoder) throws {
         try _encode(encoder)
         // Write opacity alongside concrete annotation keys (shared keyed container)
-        if opacity != 1.0 || isLocked {
+        if opacity != 1.0 || isLocked || lineStyle != .solid {
             var container = encoder.container(keyedBy: CodingKeys.self)
             if opacity != 1.0 { try container.encode(opacity, forKey: .opacity) }
             if isLocked { try container.encode(isLocked, forKey: .isLocked) }
+            if lineStyle != .solid { try container.encode(lineStyle, forKey: .lineStyle) }
         }
     }
 
@@ -140,12 +142,13 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation
         self.opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        self.lineStyle = try container.decodeIfPresent(LineStyle.self, forKey: .lineStyle) ?? .solid
         self._basePath = wrapped._basePath
         self._applyFilter = wrapped._applyFilter
         self._encode = wrapped._encode
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, color, lineWidth, transform, opacity, isLocked
+        case id, type, color, lineWidth, transform, opacity, isLocked, lineStyle
     }
 }

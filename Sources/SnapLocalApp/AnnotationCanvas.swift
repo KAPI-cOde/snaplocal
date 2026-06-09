@@ -87,6 +87,18 @@ enum LineWidth: CGFloat, Codable, CaseIterable {
     case thick = 8
 }
 
+enum LineStyle: String, Codable, CaseIterable {
+    case solid, dashed, dotted
+
+    func strokeStyle(lineWidth lw: CGFloat) -> StrokeStyle {
+        switch self {
+        case .solid:  return StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round)
+        case .dashed: return StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round, dash: [lw * 3, lw * 2])
+        case .dotted: return StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round, dash: [0.01, lw * 2])
+        }
+    }
+}
+
 // MARK: - Drawing Tool
 
 enum DrawingTool: String, Codable, CaseIterable {
@@ -222,6 +234,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentFilled: Bool = false
     @Published var currentOpacity: Double = 1.0
     @Published var currentTextBackground: Bool = false
+    @Published var currentLineStyle: LineStyle = .solid
     @Published var snapGuides: [SnapGuide] = []
     @Published var annotationsHidden: Bool = false
     @Published var dragState = DragState()
@@ -267,6 +280,15 @@ final class CanvasViewModel: ObservableObject {
             guard var ann = annotations.first(where: { $0.id == id }),
                   ann.hasStrokeRepresentation, ann.lineWidth != currentLineWidth else { continue }
             ann.lineWidth = currentLineWidth
+            updateAnnotation(ann)
+        }
+    }
+
+    func applyCurrentLineStyleToSelection() {
+        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        for id in ids {
+            guard var ann = annotations.first(where: { $0.id == id }), ann.lineStyle != currentLineStyle else { continue }
+            ann.lineStyle = currentLineStyle
             updateAnnotation(ann)
         }
     }
@@ -435,6 +457,7 @@ final class CanvasViewModel: ObservableObject {
                     currentFilled = annotation.isFilled
                 }
                 currentOpacity = annotation.opacity
+                currentLineStyle = annotation.lineStyle
                 if annotation.type == .text {
                     currentTextBackground = annotation.textHasBackground
                 }
@@ -1189,6 +1212,7 @@ final class CanvasViewModel: ObservableObject {
 
         var mutableAnnotation = annotation
         mutableAnnotation.opacity = currentOpacity
+        mutableAnnotation.lineStyle = currentLineStyle
         addAnnotation(mutableAnnotation)
         selectedAnnotationID = mutableAnnotation.id
     }
@@ -1437,9 +1461,15 @@ final class CanvasViewModel: ObservableObject {
                 }
                 cgCtx.addPath(cgPath)
                 cgCtx.setStrokeColor(annotation.color.cgColor)
-                cgCtx.setLineWidth(annotation.lineWidth.rawValue * strokeScale)
+                let lw = annotation.lineWidth.rawValue * strokeScale
+                cgCtx.setLineWidth(lw)
                 cgCtx.setLineCap(.round)
                 cgCtx.setLineJoin(.round)
+                switch annotation.lineStyle {
+                case .dashed: cgCtx.setLineDash(phase: 0, lengths: [lw * 3, lw * 2])
+                case .dotted: cgCtx.setLineDash(phase: 0, lengths: [0.01, lw * 2])
+                case .solid:  break
+                }
                 cgCtx.strokePath()
             }
             cgCtx.restoreGState()
