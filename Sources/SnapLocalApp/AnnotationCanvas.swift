@@ -384,8 +384,23 @@ final class CanvasViewModel: ObservableObject {
         }
     }
     
+    func toggleLockSelected() {
+        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        for id in ids {
+            guard var ann = annotations.first(where: { $0.id == id }) else { continue }
+            ann.isLocked.toggle()
+            updateAnnotation(ann)
+        }
+        // Deselect if we just locked
+        if let id = selectedAnnotationID, annotations.first(where: { $0.id == id })?.isLocked == true {
+            selectedAnnotationID = nil
+            selectedAnnotationIDs = []
+        }
+    }
+
     func selectAnnotation(at point: CGPoint, pickStyleOnly: Bool = false) {
         for annotation in annotations.reversed() {
+            if annotation.isLocked { continue }
             if annotation.hitTest(point, in: CGRect(origin: .zero, size: canvasSize)) {
                 if pickStyleOnly {
                     if annotation.hasStrokeRepresentation {
@@ -424,8 +439,9 @@ final class CanvasViewModel: ObservableObject {
     
     func deleteSelectedAnnotation() {
         if selectedAnnotationIDs.count > 1 {
-            // Multi-delete
-            let ids = selectedAnnotationIDs
+            // Multi-delete: skip locked
+            let ids = selectedAnnotationIDs.filter { id in annotations.first(where: { $0.id == id })?.isLocked != true }
+            guard !ids.isEmpty else { return }
             let snapshot = annotations
             undoManager.registerUndo(withTarget: self) { target in
                 target.isUndoing = true
@@ -439,7 +455,8 @@ final class CanvasViewModel: ObservableObject {
             selectedAnnotationIDs = []
             selectedAnnotationID = nil
             updateUndoRedoState()
-        } else if let id = selectedAnnotationID {
+        } else if let id = selectedAnnotationID,
+                  annotations.first(where: { $0.id == id })?.isLocked != true {
             removeAnnotation(id: id)
         }
     }
@@ -571,7 +588,7 @@ final class CanvasViewModel: ObservableObject {
             if NSEvent.modifierFlags.contains(.option) {
                 // Option+drag: duplicate the hit annotation and drag the copy
                 let innerRect = CGRect(origin: .zero, size: canvasSize)
-                let hitAnn = annotations.reversed().first(where: { $0.hitTest(localPoint, in: innerRect) })
+                let hitAnn = annotations.reversed().first(where: { !$0.isLocked && $0.hitTest(localPoint, in: innerRect) })
                 if let ann = hitAnn,
                    let data = try? JSONEncoder().encode(ann),
                    var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

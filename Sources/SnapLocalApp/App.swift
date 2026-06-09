@@ -1521,18 +1521,21 @@ struct AnnotationCanvasView: View {
                 }
             )
             .contextMenu {
-                if let id = viewModel.selectedAnnotationID {
-                    if let ann = viewModel.annotations.first(where: { $0.id == id }),
-                       ann.type == .text {
+                if let id = viewModel.selectedAnnotationID,
+                   let ann = viewModel.annotations.first(where: { $0.id == id }) {
+                    if ann.type == .text {
                         Button("テキストを編集") { viewModel.beginEditingSelectedText() }
                         Divider()
                     }
+                    Button(ann.isLocked ? "ロック解除" : "ロック") { viewModel.toggleLockSelected() }
                     Button("複製 (⌘D)") { viewModel.duplicateSelectedAnnotation() }
                     Button("前面へ (⌘])") { viewModel.bringSelectedToFront() }
                     Button("背面へ (⌘[)") { viewModel.sendSelectedToBack() }
                     Divider()
-                    Button("削除", role: .destructive) { viewModel.deleteSelectedAnnotation() }
-                    Divider()
+                    if !ann.isLocked {
+                        Button("削除", role: .destructive) { viewModel.deleteSelectedAnnotation() }
+                        Divider()
+                    }
                 }
                 Button("選択ツール (V)") { viewModel.currentTool = .select }
                 Button("矢印ツール (A)") { viewModel.currentTool = .arrow }
@@ -1693,7 +1696,7 @@ struct AnnotationCanvasView: View {
                     : viewModel.selectedAnnotationIDs
                 guard !ids.isEmpty else { return .ignored }
                 for id in ids {
-                    guard var ann = viewModel.annotations.first(where: { $0.id == id }) else { continue }
+                    guard var ann = viewModel.annotations.first(where: { $0.id == id }), !ann.isLocked else { continue }
                     ann.applyTransform(t)
                     viewModel.updateAnnotation(ann)
                     if !ann.hasStrokeRepresentation { viewModel.updateFilterPreview(for: ann) }
@@ -1909,6 +1912,13 @@ struct AnnotationCanvasView: View {
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
                     }
                 }
+            }
+
+            // Lock badges on locked annotations
+            for annotation in viewModel.annotations where annotation.isLocked {
+                let bounds = annotation.bounds(in: canvasRect)
+                let badge = CGPoint(x: bounds.maxX - 6, y: bounds.minY + 6)
+                context.draw(Text("🔒").font(.system(size: 10)), at: badge)
             }
 
             // Multi-selection outlines
