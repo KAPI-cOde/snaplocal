@@ -119,6 +119,26 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         captureEngine?.captureScreen()
     }
 
+    func captureWithDelay(_ seconds: Int) {
+        showStatus("\(seconds)秒後に撮影します…")
+        var remaining = seconds
+        statusTask?.cancel()
+        statusTask = Task {
+            while remaining > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch { return }
+                remaining -= 1
+                if remaining > 0 {
+                    showStatus("あと\(remaining)秒…")
+                } else {
+                    showStatus("撮影中…")
+                    captureEngine?.captureScreen()
+                }
+            }
+        }
+    }
+
     func captureWindowMode() {
         showStatus("ウィンドウ一覧を取得中…")
         Task {
@@ -393,6 +413,7 @@ struct CompactToolbar: View {
     let onCaptureRegion: () -> Void
     let onCaptureWindow: () -> Void
     let onPin: () -> Void
+    let onCaptureWithDelay: (Int) -> Void
     let onSave: () -> Void
     let onSaveAs: () -> Void
     let onCopy: () -> Void
@@ -459,6 +480,17 @@ struct CompactToolbar: View {
             .help("画面にピン留め (⌘⇧P)")
             .disabled(canvas.backgroundImage == nil)
             .keyboardShortcut("p", modifiers: [.command, .shift])
+
+            Menu {
+                Button("3秒後") { onCaptureWithDelay(3) }
+                Button("5秒後") { onCaptureWithDelay(5) }
+                Button("10秒後") { onCaptureWithDelay(10) }
+            } label: {
+                Image(systemName: "timer")
+            }
+            .help("遅延撮影")
+            .menuStyle(.borderlessButton)
+            .frame(width: 22)
 
             Button(action: onPaste) {
                 Image(systemName: "doc.on.clipboard.fill")
@@ -1179,6 +1211,7 @@ struct ContentView: View {
                 onCaptureRegion: state.captureRegion,
                 onCaptureWindow: state.captureWindowMode,
                 onPin: state.pinCurrentImage,
+                onCaptureWithDelay: state.captureWithDelay,
                 onSave: state.saveAnnotatedImage,
                 onSaveAs: state.saveAnnotatedImageAs,
                 onCopy: state.copyToClipboard,
