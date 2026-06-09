@@ -96,6 +96,19 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
         captureEngine?.registerHotkey()
         refreshHistory()
+
+        // Save annotations on quit
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, let id = self.currentVaultID, !self.canvas.annotations.isEmpty else { return }
+            let anns = self.canvas.annotations
+            let v = self.vault
+            let sem = DispatchSemaphore(value: 0)
+            Task.detached {
+                await v.updateAnnotations(id: id, annotations: anns)
+                sem.signal()
+            }
+            sem.wait()
+        }
     }
 
     // MARK: - Status
