@@ -70,6 +70,9 @@ struct SnapLocalApp: App {
             CommandGroup(after: .saveItem) {
                 Button("別名で保存…") { appState.saveAnnotatedImageAs() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
+                Button("Finderで表示") { appState.revealCurrentItemInFinder() }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+                Divider()
                 Button("履歴をZIPで書き出し") { appState.exportHistoryAsZip() }
                 Button("履歴をPDFで書き出し") { appState.exportHistoryAsPDF() }
             }
@@ -799,6 +802,15 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             await vault.toggleStar(id: item.id)
             await loadHistory()
         }
+    }
+
+    func revealCurrentItemInFinder() {
+        guard let id = currentVaultID,
+              let item = history.first(where: { $0.id == id }) else {
+            showStatus("保存済みのファイルがありません")
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
     }
 
     func duplicateHistoryItem(_ item: VaultItem) {
