@@ -1272,13 +1272,6 @@ struct CompactToolbar: View {
             .help("ウィンドウ撮影 (⌘⇧3)")
             .keyboardShortcut("3", modifiers: [.command, .shift])
 
-            Button(action: onPin) {
-                Image(systemName: "pin.fill")
-            }
-            .help("画面にピン留め (⌘⇧P)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("p", modifiers: [.command, .shift])
-
             Menu {
                 Button("前回の範囲を再撮影 (⌘⇧R)") { onRepeatRegion() }
                 Divider()
@@ -1302,81 +1295,7 @@ struct CompactToolbar: View {
             .frame(width: 18)
             .help("その他のキャプチャ")
 
-            Divider().frame(height: 18)
-
-            // ─ 画像編集 ─
-            Button { canvas.enterCropMode() } label: {
-                Image(systemName: "scissors")
-            }
-            .help("切り取り (⌘K)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("k", modifiers: .command)
-
-            Button { showAdjustments.toggle() } label: {
-                Image(systemName: "slider.horizontal.3")
-            }
-            .help("明るさ・コントラスト・彩度")
-            .disabled(canvas.backgroundImage == nil)
-            .popover(isPresented: $showAdjustments, arrowEdge: .bottom) {
-                adjustmentsPopover
-            }
-
-            Button { showDecoration.toggle() } label: {
-                Image(systemName: canvas.decorationEnabled ? "wand.and.stars.inverse" : "wand.and.stars")
-                    .foregroundStyle(canvas.decorationEnabled ? Color.accentColor : Color.primary)
-            }
-            .help("書き出し装飾 (パディング・角丸・影)")
-            .disabled(canvas.backgroundImage == nil)
-            .popover(isPresented: $showDecoration, arrowEdge: .bottom) {
-                decorationPopover
-            }
-
-            Menu {
-                Section("回転・反転") {
-                    Button("90°左に回転 (⌘⌥←)") { canvas.rotateImage(clockwise: false) }
-                    Button("90°右に回転 (⌘⌥→)") { canvas.rotateImage(clockwise: true) }
-                    Button("左右反転") { canvas.flipImage(horizontal: true) }
-                    Button("上下反転") { canvas.flipImage(horizontal: false) }
-                }
-                Divider()
-                Section("リサイズ (\(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—"))") {
-                    Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
-                    Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
-                    Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
-                    Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
-                    Divider()
-                    Button("1920×1080 (FHD)") { canvas.resizeToFit(width: 1920, height: 1080) }
-                    Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
-                    Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
-                    Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
-                }
-                Divider()
-                Button("余白を追加…") { showExtendCanvas = true }
-                Button("余白を自動トリミング") { canvas.trimWhitespace() }
-                Divider()
-                Button("クリップボードの画像を下に結合") {
-                    if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
-                       let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                        canvas.stitch(with: cg, vertical: true)
-                    }
-                }
-                Button("クリップボードの画像を右に結合") {
-                    if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
-                       let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                        canvas.stitch(with: cg, vertical: false)
-                    }
-                }
-            } label: {
-                Image(systemName: "photo")
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 22)
-            .disabled(canvas.backgroundImage == nil)
-            .help("回転・反転・リサイズ・結合")
-            .sheet(isPresented: $showExtendCanvas) {
-                extendCanvasSheet
-            }
-
+            if canvas.backgroundImage != nil { imageEditControls }
             if canvas.backgroundImage != nil { annotationToolControls }
 
             normalControlsExport
@@ -1610,6 +1529,218 @@ struct CompactToolbar: View {
     } // annotationToolControls
 
     @ViewBuilder
+    private var imageEditControls: some View {
+        Divider().frame(height: 18)
+
+        Button(action: onPin) {
+            Image(systemName: "pin.fill")
+        }
+        .help("画面にピン留め (⌘⇧P)")
+        .keyboardShortcut("p", modifiers: [.command, .shift])
+
+        Button { canvas.enterCropMode() } label: {
+            Image(systemName: "scissors")
+        }
+        .help("切り取り (⌘K)")
+        .keyboardShortcut("k", modifiers: .command)
+
+        Button { showAdjustments.toggle() } label: {
+            Image(systemName: "slider.horizontal.3")
+        }
+        .help("明るさ・コントラスト・彩度")
+        .popover(isPresented: $showAdjustments, arrowEdge: .bottom) {
+            adjustmentsPopover
+        }
+
+        Button { showDecoration.toggle() } label: {
+            Image(systemName: canvas.decorationEnabled ? "wand.and.stars.inverse" : "wand.and.stars")
+                .foregroundStyle(canvas.decorationEnabled ? Color.accentColor : Color.primary)
+        }
+        .help("書き出し装飾 (パディング・角丸・影)")
+        .popover(isPresented: $showDecoration, arrowEdge: .bottom) {
+            decorationPopover
+        }
+
+        Menu {
+            Section("回転・反転") {
+                Button("90°左に回転 (⌘⌥←)") { canvas.rotateImage(clockwise: false) }
+                Button("90°右に回転 (⌘⌥→)") { canvas.rotateImage(clockwise: true) }
+                Button("左右反転") { canvas.flipImage(horizontal: true) }
+                Button("上下反転") { canvas.flipImage(horizontal: false) }
+            }
+            Divider()
+            Section("リサイズ (\(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—"))") {
+                Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
+                Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
+                Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
+                Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
+                Divider()
+                Button("1920×1080 (FHD)") { canvas.resizeToFit(width: 1920, height: 1080) }
+                Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
+                Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
+                Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
+            }
+            Divider()
+            Button("余白を追加…") { showExtendCanvas = true }
+            Button("余白を自動トリミング") { canvas.trimWhitespace() }
+            Divider()
+            Button("クリップボードの画像を下に結合") {
+                if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                   let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    canvas.stitch(with: cg, vertical: true)
+                }
+            }
+            Button("クリップボードの画像を右に結合") {
+                if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                   let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    canvas.stitch(with: cg, vertical: false)
+                }
+            }
+        } label: {
+            Image(systemName: "photo")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 22)
+        .help("回転・反転・リサイズ・結合")
+        .sheet(isPresented: $showExtendCanvas) {
+            extendCanvasSheet
+        }
+    }
+
+    @ViewBuilder
+    private var imageOnlyExportControls: some View {
+        Button(action: onCopy) {
+            Image(systemName: "doc.on.clipboard")
+        }
+        .help("クリップボードにコピー (⌘C)")
+        .keyboardShortcut("c", modifiers: .command)
+
+        Button(action: onSave) {
+            Image(systemName: "square.and.arrow.down")
+        }
+        .help("保存 (⌘S)")
+        .keyboardShortcut("s", modifiers: .command)
+
+        Menu {
+            Button("別名で保存… (⌘⇧S)") { onSaveAs() }
+            Divider()
+            Button("共有… (⌘⇧E)") { onShare() }
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 22)
+        .help("別名保存 / 共有")
+
+        Divider().frame(height: 18)
+
+        Button(action: { canvas.undo() }) {
+            Image(systemName: "arrow.uturn.backward")
+        }
+        .disabled(!canvas.canUndo)
+        .help("元に戻す (⌘Z)")
+        .keyboardShortcut("z", modifiers: .command)
+
+        Button(action: { canvas.redo() }) {
+            Image(systemName: "arrow.uturn.forward")
+        }
+        .disabled(!canvas.canRedo)
+        .help("やり直し (⌘⇧Z)")
+        .keyboardShortcut("z", modifiers: [.command, .shift])
+
+        Button(action: { canvas.deleteSelectedAnnotation() }) {
+            Image(systemName: "trash")
+        }
+        .disabled(canvas.selectedAnnotationID == nil)
+        .help("削除 (⌫)")
+        .keyboardShortcut(.delete, modifiers: [])
+
+        if !canvas.annotations.isEmpty {
+            Toggle(isOn: $canvas.annotationsHidden) {
+                Image(systemName: canvas.annotationsHidden ? "eye.slash" : "eye")
+            }
+            .toggleStyle(.button)
+            .help(canvas.annotationsHidden ? "アノテーション表示 (⌘')" : "アノテーション非表示 (⌘')")
+            .keyboardShortcut("'", modifiers: .command)
+        }
+
+        if !canvas.annotations.isEmpty {
+            let selCount = canvas.selectedAnnotationIDs.count
+            Text(selCount > 1 ? "\(selCount)/\(canvas.annotations.count)" : "\(canvas.annotations.count)")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(selCount > 1 ? Color.accentColor : Color.secondary)
+                .monospacedDigit()
+                .help(selCount > 1
+                      ? "\(selCount)個選択中 / \(canvas.annotations.count)個 (⌘Aで全選択、⌫で選択削除)"
+                      : "\(canvas.annotations.count)個のアノテーション (⌘Aで全選択、⌘⇧⌫で全削除)")
+
+            if selCount > 1 {
+                Divider().frame(height: 14)
+                HStack(spacing: 1) {
+                    ForEach([
+                        ("align.horizontal.left", CanvasViewModel.AlignEdge.left, "左揃え"),
+                        ("align.horizontal.center", .centerX, "中央揃え（水平）"),
+                        ("align.horizontal.right", .right, "右揃え"),
+                        ("align.vertical.top", .top, "上揃え"),
+                        ("align.vertical.center", .centerY, "中央揃え（垂直）"),
+                        ("align.vertical.bottom", .bottom, "下揃え"),
+                    ], id: \.0) { icon, edge, help in
+                        Button { canvas.alignSelected(edge) } label: {
+                            Image(systemName: icon).font(.system(size: 9))
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 16, height: 16)
+                        .help(help)
+                    }
+                }
+            }
+        }
+
+        Menu {
+            if !canvas.annotations.isEmpty {
+                Button("現在のアノテーションをテンプレートとして保存…") {
+                    templateNameInput = ""
+                    showSaveTemplate = true
+                }
+                if !settings.annotationTemplates.isEmpty { Divider() }
+            }
+            if settings.annotationTemplates.isEmpty {
+                Text("テンプレートなし").foregroundStyle(.secondary)
+            } else {
+                ForEach(settings.annotationTemplates) { t in
+                    Menu(t.name) {
+                        Button("適用（追加）") {
+                            for var ann in t.annotations {
+                                ann.id = UUID()
+                                canvas.addAnnotation(ann)
+                            }
+                        }
+                        Button("削除", role: .destructive) {
+                            settings.deleteTemplate(id: t.id)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "square.on.square.dashed")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 22)
+        .help("アノテーションテンプレート")
+        .alert("テンプレート名を入力", isPresented: $showSaveTemplate) {
+            TextField("テンプレート名", text: $templateNameInput)
+            Button("保存") {
+                let name = templateNameInput.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                settings.saveTemplate(name: name, annotations: canvas.annotations)
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("現在の\(canvas.annotations.count)個のアノテーションを保存します")
+        }
+    }
+
+    @ViewBuilder
     private var colorPalettePopover: some View {
         VStack(spacing: 8) {
             // 8 standard colors
@@ -1696,166 +1827,33 @@ struct CompactToolbar: View {
 
     @ViewBuilder
     private var normalControlsExport: some View {
-            Spacer()
+        Spacer()
 
-            // ─ エクスポート ─
-            Button(action: onCopy) {
-                Image(systemName: "doc.on.clipboard")
-            }
-            .help("クリップボードにコピー (⌘C)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("c", modifiers: .command)
+        if canvas.backgroundImage != nil { imageOnlyExportControls }
 
-            Button(action: onSave) {
-                Image(systemName: "square.and.arrow.down")
-            }
-            .help("保存 (⌘S)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("s", modifiers: .command)
+        Button(action: { showHelp.toggle() }) {
+            Image(systemName: "questionmark.circle")
+        }
+        .help("ショートカットキー一覧")
+        .popover(isPresented: $showHelp, arrowEdge: .bottom) {
+            HelpPopoverContent()
+        }
 
-            Menu {
-                Button("別名で保存… (⌘⇧S)") { onSaveAs() }
-                Divider()
-                Button("共有… (⌘⇧E)") { onShare() }
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 22)
-            .disabled(canvas.backgroundImage == nil)
-            .help("別名保存 / 共有")
+        Button(action: { showSettings.toggle() }) {
+            Image(systemName: "gearshape")
+        }
+        .help("設定 (⌘,)")
+        .keyboardShortcut(",", modifiers: .command)
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet()
+        }
 
-            Divider().frame(height: 18)
-
-            Button(action: { canvas.undo() }) {
-                Image(systemName: "arrow.uturn.backward")
-            }
-            .disabled(!canvas.canUndo)
-            .help("元に戻す (⌘Z)")
-            .keyboardShortcut("z", modifiers: .command)
-
-            Button(action: { canvas.redo() }) {
-                Image(systemName: "arrow.uturn.forward")
-            }
-            .disabled(!canvas.canRedo)
-            .help("やり直し (⌘⇧Z)")
-            .keyboardShortcut("z", modifiers: [.command, .shift])
-
-            Button(action: { canvas.deleteSelectedAnnotation() }) {
-                Image(systemName: "trash")
-            }
-            .disabled(canvas.selectedAnnotationID == nil)
-            .help("削除 (⌫)")
-            .keyboardShortcut(.delete, modifiers: [])
-
-            if !canvas.annotations.isEmpty {
-                Toggle(isOn: $canvas.annotationsHidden) {
-                    Image(systemName: canvas.annotationsHidden ? "eye.slash" : "eye")
-                }
-                .toggleStyle(.button)
-                .help(canvas.annotationsHidden ? "アノテーション表示 (⌘')" : "アノテーション非表示 (⌘')")
-                .keyboardShortcut("'", modifiers: .command)
-            }
-
-            if !canvas.annotations.isEmpty {
-                let selCount = canvas.selectedAnnotationIDs.count
-                Text(selCount > 1 ? "\(selCount)/\(canvas.annotations.count)" : "\(canvas.annotations.count)")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(selCount > 1 ? Color.accentColor : Color.secondary)
-                    .monospacedDigit()
-                    .help(selCount > 1
-                          ? "\(selCount)個選択中 / \(canvas.annotations.count)個 (⌘Aで全選択、⌫で選択削除)"
-                          : "\(canvas.annotations.count)個のアノテーション (⌘Aで全選択、⌘⇧⌫で全削除)")
-
-                if selCount > 1 {
-                    Divider().frame(height: 14)
-                    HStack(spacing: 1) {
-                        ForEach([
-                            ("align.horizontal.left", CanvasViewModel.AlignEdge.left, "左揃え"),
-                            ("align.horizontal.center", .centerX, "中央揃え（水平）"),
-                            ("align.horizontal.right", .right, "右揃え"),
-                            ("align.vertical.top", .top, "上揃え"),
-                            ("align.vertical.center", .centerY, "中央揃え（垂直）"),
-                            ("align.vertical.bottom", .bottom, "下揃え"),
-                        ], id: \.0) { icon, edge, help in
-                            Button { canvas.alignSelected(edge) } label: {
-                                Image(systemName: icon).font(.system(size: 9))
-                            }
-                            .buttonStyle(.plain)
-                            .frame(width: 16, height: 16)
-                            .help(help)
-                        }
-                    }
-                }
-            }
-
-            // Annotation templates
-            Menu {
-                if !canvas.annotations.isEmpty {
-                    Button("現在のアノテーションをテンプレートとして保存…") {
-                        templateNameInput = ""
-                        showSaveTemplate = true
-                    }
-                    if !settings.annotationTemplates.isEmpty { Divider() }
-                }
-                if settings.annotationTemplates.isEmpty {
-                    Text("テンプレートなし").foregroundStyle(.secondary)
-                } else {
-                    ForEach(settings.annotationTemplates) { t in
-                        Menu(t.name) {
-                            Button("適用（追加）") {
-                                for var ann in t.annotations {
-                                    ann.id = UUID()
-                                    canvas.addAnnotation(ann)
-                                }
-                            }
-                            Button("削除", role: .destructive) {
-                                settings.deleteTemplate(id: t.id)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                Image(systemName: "square.on.square.dashed")
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 22)
-            .help("アノテーションテンプレート")
-            .alert("テンプレート名を入力", isPresented: $showSaveTemplate) {
-                TextField("テンプレート名", text: $templateNameInput)
-                Button("保存") {
-                    let name = templateNameInput.trimmingCharacters(in: .whitespaces)
-                    guard !name.isEmpty else { return }
-                    settings.saveTemplate(name: name, annotations: canvas.annotations)
-                }
-                Button("キャンセル", role: .cancel) {}
-            } message: {
-                Text("現在の\(canvas.annotations.count)個のアノテーションを保存します")
-            }
-
-            Button(action: { showHelp.toggle() }) {
-                Image(systemName: "questionmark.circle")
-            }
-            .help("ショートカットキー一覧")
-            .popover(isPresented: $showHelp, arrowEdge: .bottom) {
-                HelpPopoverContent()
-            }
-
-            Button(action: { showSettings.toggle() }) {
-                Image(systemName: "gearshape")
-            }
-            .help("設定 (⌘,)")
-            .keyboardShortcut(",", modifiers: .command)
-            .sheet(isPresented: $showSettings) {
-                SettingsSheet()
-            }
-
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible.toggle() } }) {
-                Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
-                    .symbolVariant(sidebarVisible ? .none : .slash)
-            }
-            .help("履歴を表示/非表示 (⌘⇧H)")
-            .keyboardShortcut("h", modifiers: [.command, .shift])
+        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible.toggle() } }) {
+            Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
+                .symbolVariant(sidebarVisible ? .none : .slash)
+        }
+        .help("履歴を表示/非表示 (⌘⇧H)")
+        .keyboardShortcut("h", modifiers: [.command, .shift])
     }
 
     private var adjustmentsPopover: some View {
