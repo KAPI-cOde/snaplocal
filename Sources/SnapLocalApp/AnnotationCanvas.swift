@@ -49,6 +49,7 @@ enum AnnotationType: String, Codable, CaseIterable {
     case roundedRect = "roundedRect"
     case callout = "callout"
     case highlight = "highlight"
+    case pencil = "pencil"
 }
 
 enum AnnotationColor: String, Codable, CaseIterable {
@@ -113,6 +114,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     case callout = "callout"
     case highlight = "highlight"
     case redact = "redact"   // unified mosaic/blur
+    case pencil = "pencil"
 
     var systemImage: String {
         switch self {
@@ -127,6 +129,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .callout: return "bubble.left"
         case .highlight: return "highlighter"
         case .redact: return "eye.slash"
+        case .pencil: return "pencil.tip"
         }
     }
 
@@ -143,6 +146,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .callout: return "吹き出し"
         case .highlight: return "ハイライト"
         case .redact: return "隠す"
+        case .pencil: return "鉛筆"
         }
     }
 
@@ -158,12 +162,13 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .roundedRect: return .roundedRect
         case .callout: return .callout
         case .highlight: return .highlight
+        case .pencil: return .pencil
         }
     }
 
     var usesLineWidth: Bool {
         switch self {
-        case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout: return true
+        case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout, .pencil: return true
         case .select, .redact, .highlight: return false
         }
     }
@@ -238,6 +243,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentCustomColorHex: String? = nil
     @Published var snapGuides: [SnapGuide] = []
     @Published var annotationsHidden: Bool = false
+    @Published var currentPencilPoints: [CGPoint] = []
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
@@ -834,6 +840,9 @@ final class CanvasViewModel: ObservableObject {
             textInputRect = CGRect(x: tx, y: ty, width: textW, height: textH)
             textInputString = ""
             showTextInput = true
+        case .pencil:
+            dragState.start(at: localPoint)
+            currentPencilPoints = [localPoint]
         default:
             dragState.start(at: localPoint)
         }
@@ -959,6 +968,17 @@ final class CanvasViewModel: ObservableObject {
                 }
             }
         }
+
+        // Pencil: accumulate freehand points (skip if distance too small to reduce noise)
+        if currentTool == .pencil {
+            if let last = currentPencilPoints.last {
+                let dist = hypot(localPoint.x - last.x, localPoint.y - last.y)
+                if dist >= 2 { currentPencilPoints.append(localPoint) }
+            } else {
+                currentPencilPoints.append(localPoint)
+            }
+        }
+
         objectWillChange.send()
     }
 
@@ -1104,6 +1124,21 @@ final class CanvasViewModel: ObservableObject {
             if w > 4 || h > 4 {
                 createAnnotation(type: .highlight, from: start, to: end)
             }
+        case .pencil:
+            let pts = currentPencilPoints
+            currentPencilPoints = []
+            if pts.count >= 2 {
+                var annotation = AnyAnnotation(PencilAnnotation(
+                    color: currentColor,
+                    lineWidth: currentLineWidth,
+                    points: pts
+                ))
+                annotation.opacity = currentOpacity
+                annotation.lineStyle = currentLineStyle
+                annotation.customColorHex = currentCustomColorHex
+                addAnnotation(annotation)
+                selectedAnnotationID = annotation.id
+            }
         default:
             if let type = currentTool.annotationType {
                 let dist = hypot(end.x - start.x, end.y - start.y)
@@ -1120,6 +1155,7 @@ final class CanvasViewModel: ObservableObject {
         resizingHandleIndex = nil
         resizingStartBounds = nil
         resizingStartTransform = nil
+        currentPencilPoints = []
         dragState.cancel()
         if isCropMode { cropStart = nil; cropEnd = nil }
         objectWillChange.send()
@@ -1217,7 +1253,7 @@ final class CanvasViewModel: ObservableObject {
                 height: abs(end.y - start.y)
             )
             annotation = AnyAnnotation(HighlightAnnotation(color: color, rect: rect))
-        case .text:
+        case .text, .pencil:
             return
         }
 

@@ -317,6 +317,45 @@ struct CalloutAnnotation: AnnotationElement {
     }
 }
 
+// MARK: - Pencil Annotation (freehand stroke)
+
+struct PencilAnnotation: AnnotationElement {
+    var id = UUID()
+    let type: AnnotationType = .pencil
+    var color: AnnotationColor
+    var lineWidth: LineWidth
+    var transform: CGAffineTransform = .identity
+    var points: [CGPoint]
+
+    func path(in rect: CGRect) -> Path {
+        guard points.count >= 2 else { return Path() }
+        let pts = points.map { $0.applying(transform) }
+        var p = Path()
+        p.move(to: pts[0])
+        for i in 1..<pts.count {
+            let prev = pts[i - 1], curr = pts[i]
+            let mid = CGPoint(x: (prev.x + curr.x) / 2, y: (prev.y + curr.y) / 2)
+            p.addQuadCurve(to: mid, control: prev)
+        }
+        p.addLine(to: pts.last!)
+        return p
+    }
+
+    func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
+        let path = self.path(in: rect)
+        let tolerance = max(lineWidth.rawValue + 8, 12)
+        return path.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
+    }
+
+    func bounds(in rect: CGRect) -> CGRect {
+        path(in: rect).boundingRect.insetBy(dx: -lineWidth.rawValue, dy: -lineWidth.rawValue)
+    }
+
+    mutating func applyTransform(_ transform: CGAffineTransform) {
+        self.transform = transform.concatenating(self.transform)
+    }
+}
+
 // MARK: - Highlight Annotation (semi-transparent fill, no stroke)
 
 struct HighlightAnnotation: AnnotationElement {

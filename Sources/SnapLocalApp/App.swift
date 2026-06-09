@@ -649,7 +649,7 @@ struct CompactToolbar: View {
                     toolButton(tool, canvas: canvas)
                 }
                 Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
-                ForEach([DrawingTool.text, .step, .callout, .highlight, .redact], id: \.self) { tool in
+                ForEach([DrawingTool.text, .step, .callout, .highlight, .pencil, .redact], id: \.self) { tool in
                     toolButton(tool, canvas: canvas)
                 }
             }
@@ -1195,11 +1195,13 @@ struct HelpPopoverContent: View {
             ("U", "角丸長方形"),
             ("B", "吹き出し"),
             ("H", "ハイライト"),
+            ("P", "鉛筆（フリーハンド）"),
             ("X / M", "モザイク/ぼかし"),
             ("Tab", "次のツール"),
         ]),
         ("描画", [
             ("Shift+ドラッグ", "45°制約 / 正方形/正円"),
+            ("Option+クリック", "スポイト（色を拾う）"),
             ("Option+ドラッグ", "アノテーション複製"),
             ("[  /  ]", "線幅 細/太"),
         ]),
@@ -1209,6 +1211,7 @@ struct HelpPopoverContent: View {
             ("⌘A", "全アノテーション選択"),
             ("⌘D", "アノテーション複製"),
             ("⌘L", "ロック / ロック解除"),
+            ("⌘'", "アノテーション表示/非表示"),
             ("矢印キー", "1px移動（Shift=10px）"),
             ("⌘] / ⌘[", "前面へ / 背面へ"),
             ("1〜8", "色を選択"),
@@ -1225,6 +1228,7 @@ struct HelpPopoverContent: View {
         ("その他", [
             ("⌘↑ / ⌘↓", "履歴の前/次"),
             ("⌘K", "切り取りモード"),
+            ("⌘⇧R", "前回範囲を再撮影"),
             ("⌘C", "クリップボードにコピー"),
             ("⌘S", "ファイルに保存"),
         ]),
@@ -1750,6 +1754,7 @@ struct AnnotationCanvasView: View {
             .onKeyPress("u") { if !viewModel.showTextInput { viewModel.currentTool = .roundedRect }; return .handled }
             .onKeyPress("b") { if !viewModel.showTextInput { viewModel.currentTool = .callout }; return .handled }
             .onKeyPress("h") { if !viewModel.showTextInput { viewModel.currentTool = .highlight }; return .handled }
+            .onKeyPress("p") { if !viewModel.showTextInput { viewModel.currentTool = .pencil }; return .handled }
             .onKeyPress("a", phases: .down) { press in
                 guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
                 viewModel.selectedAnnotationIDs = Set(viewModel.annotations.map { $0.id })
@@ -2119,6 +2124,23 @@ struct AnnotationCanvasView: View {
                 context.fill(Path(band), with: .color(.accentColor.opacity(0.1)))
                 context.stroke(Path(band), with: .color(.accentColor),
                                style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+            }
+
+            // Pencil live preview
+            if viewModel.currentTool == .pencil && viewModel.currentPencilPoints.count >= 2 {
+                let pts = viewModel.currentPencilPoints
+                let previewColor = viewModel.currentColor.color.opacity(0.75)
+                let lw = viewModel.currentLineWidth.rawValue
+                var pencilPath = Path()
+                pencilPath.move(to: pts[0])
+                for i in 1..<pts.count {
+                    let prev = pts[i-1], curr = pts[i]
+                    let mid = CGPoint(x: (prev.x + curr.x) / 2, y: (prev.y + curr.y) / 2)
+                    pencilPath.addQuadCurve(to: mid, control: prev)
+                }
+                pencilPath.addLine(to: pts.last!)
+                context.stroke(pencilPath, with: .color(previewColor),
+                               style: StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round))
             }
 
             // Drawing preview

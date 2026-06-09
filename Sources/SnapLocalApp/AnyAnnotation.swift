@@ -149,6 +149,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
             wrapped = AnyAnnotation(try CalloutAnnotation(from: decoder))
         case .highlight:
             wrapped = AnyAnnotation(try HighlightAnnotation(from: decoder))
+        case .pencil:
+            wrapped = AnyAnnotation(try PencilAnnotation(from: decoder))
         }
 
         self.id = decodedID
