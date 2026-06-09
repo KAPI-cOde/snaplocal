@@ -922,8 +922,11 @@ struct HelpPopoverContent: View {
     private let sections: [(String, [(String, String)])] = [
         ("キャプチャ", [
             ("⌘⇧2", "全画面撮影"),
+            ("⌘⇧3", "ウィンドウ撮影"),
             ("⌘⇧4", "範囲選択撮影"),
+            ("タイマー", "3/5/10秒遅延撮影"),
             ("⌘V", "クリップボードから貼り付け"),
+            ("⌘⇧P", "画面にピン留め"),
         ]),
         ("ツール", [
             ("V", "選択ツール"),
@@ -934,11 +937,14 @@ struct HelpPopoverContent: View {
             ("T", "テキスト"),
             ("N", "ステップ番号"),
             ("U", "角丸長方形"),
+            ("B", "吹き出し"),
+            ("H", "ハイライト"),
             ("X / M", "モザイク/ぼかし"),
             ("Tab", "次のツール"),
         ]),
         ("描画", [
-            ("Shift+ドラッグ", "直線/矢印: 45°制約、\n長方形/楕円: 正方形/正円"),
+            ("Shift+ドラッグ", "45°制約 / 正方形/正円"),
+            ("Option+ドラッグ", "アノテーション複製"),
             ("[  /  ]", "線幅 細/太"),
         ]),
         ("編集", [
@@ -953,12 +959,14 @@ struct HelpPopoverContent: View {
             ("ダブルクリック", "テキスト再編集"),
             ("Esc", "選択解除 / モード終了"),
         ]),
-        ("ズーム", [
-            ("ピンチ", "ズームイン/アウト"),
+        ("ズーム/パン", [
+            ("ピンチ / スクロール", "ズーム・パン"),
+            ("Space+ドラッグ", "パン"),
             ("⌘+ / ⌘-", "ズームイン/アウト"),
-            ("⌘0", "ズームリセット (100%)"),
+            ("⌘0", "ズームリセット"),
         ]),
         ("その他", [
+            ("⌘↑ / ⌘↓", "履歴の前/次"),
             ("⌘K", "切り取りモード"),
             ("⌘C", "クリップボードにコピー"),
             ("⌘S", "ファイルに保存"),
@@ -1423,6 +1431,8 @@ struct AnnotationCanvasView: View {
                 Button("テキストツール (T)") { viewModel.currentTool = .text }
                 Button("ステップツール (N)") { viewModel.currentTool = .step }
                 Button("角丸ツール (U)") { viewModel.currentTool = .roundedRect }
+                Button("吹き出しツール (B)") { viewModel.currentTool = .callout }
+                Button("ハイライトツール (H)") { viewModel.currentTool = .highlight }
                 if viewModel.backgroundImage != nil {
                     Divider()
                     Button("切り取りモード (⌘K)") { viewModel.enterCropMode() }
