@@ -88,6 +88,11 @@ struct SnapLocalApp: App {
                 Button("前回の範囲を再撮影") { appState.repeatLastRegionCapture() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Divider()
+                Button("全画面→クリップボードのみ") { appState.captureNowToClipboard() }
+                    .keyboardShortcut("2", modifiers: [.command, .control])
+                Button("範囲→クリップボードのみ") { appState.captureRegionToClipboard() }
+                    .keyboardShortcut("4", modifiers: [.command, .control])
+                Divider()
                 Menu("遅延撮影") {
                     Button("3秒後") { appState.captureWithDelay(3) }
                     Button("5秒後") { appState.captureWithDelay(5) }
@@ -229,6 +234,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private var statusTask: Task<Void, Never>?
     private var autoSaveTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
+    private var clipboardOnlyCapture = false   // set before a "capture to clipboard only" call
     // ID of the VaultItem currently shown on canvas (for annotation save-back)
     private var currentVaultID: UUID?
 
@@ -307,6 +313,20 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         captureEngine?.captureScreen()
     }
 
+    func captureNowToClipboard() {
+        clipboardOnlyCapture = true
+        showStatus("撮影中（クリップボードへ）…")
+        captureEngine?.captureScreen()
+    }
+
+    func captureRegionToClipboard() {
+        clipboardOnlyCapture = true
+        RegionCapture.start { [weak self] rect in
+            guard let rect else { self?.clipboardOnlyCapture = false; return }
+            self?.captureEngine?.captureRegion(rect)
+        }
+    }
+
     func captureWithDelay(_ seconds: Int) {
         showStatus("\(seconds)秒後に撮影します…")
         CountdownOverlay.shared.show(count: seconds)
@@ -379,6 +399,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     func acceptCapture(_ image: CGImage) {
         CameraFlash.shared.flash()
+        // Clipboard-only mode: copy and return immediately, skip history/HUD
+        if clipboardOnlyCapture {
+            clipboardOnlyCapture = false
+            copyImageToClipboard(image)
+            showStatus("クリップボードにコピーしました（履歴には保存しません）")
+            return
+        }
         canvas.backgroundImage = image
         canvas.annotations.removeAll()
         canvas.loadToken = UUID()
@@ -1092,6 +1119,8 @@ struct CompactToolbar: View {
     let onShare: () -> Void
     var onAutoRedactFaces: (() -> Void)? = nil
     @Binding var sidebarVisible: Bool
+    var onCaptureToClipboard: (() -> Void)? = nil
+    var onCaptureRegionToClipboard: (() -> Void)? = nil
     @State private var showHelp = false
     @State private var showSettings = false
     @State private var showAdjustments = false
@@ -1181,13 +1210,20 @@ struct CompactToolbar: View {
             .keyboardShortcut("p", modifiers: [.command, .shift])
 
             Menu {
-                Button("3秒後") { onCaptureWithDelay(3) }
-                Button("5秒後") { onCaptureWithDelay(5) }
-                Button("10秒後") { onCaptureWithDelay(10) }
+                Section("遅延撮影") {
+                    Button("3秒後") { onCaptureWithDelay(3) }
+                    Button("5秒後") { onCaptureWithDelay(5) }
+                    Button("10秒後") { onCaptureWithDelay(10) }
+                }
+                Divider()
+                Section("クリップボードのみ（履歴に保存しない）") {
+                    Button("全画面→クリップボード (⌘⌃2)") { onCaptureToClipboard?() }
+                    Button("範囲選択→クリップボード (⌘⌃4)") { onCaptureRegionToClipboard?() }
+                }
             } label: {
                 Image(systemName: "timer")
             }
-            .help("遅延撮影")
+            .help("遅延撮影 / クリップボードのみ")
             .menuStyle(.borderlessButton)
             .frame(width: 22)
 
@@ -2728,7 +2764,9 @@ struct ContentView: View {
                     guard let img = state.canvas.backgroundImage else { return }
                     state.autoRedactFaces(in: img, canvas: state.canvas)
                 },
-                sidebarVisible: $sidebarVisible
+                sidebarVisible: $sidebarVisible,
+                onCaptureToClipboard: state.captureNowToClipboard,
+                onCaptureRegionToClipboard: state.captureRegionToClipboard
             )
             .sheet(isPresented: $state.showWindowPicker) {
                 WindowPickerSheet(
