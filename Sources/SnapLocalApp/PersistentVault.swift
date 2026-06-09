@@ -317,7 +317,7 @@ enum OCRService {
         await withCheckedContinuation { continuation in
             let request = VNRecognizeTextRequest { req, _ in
                 let obs = req.results as? [VNRecognizedTextObservation] ?? []
-                let text = obs.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+                let text = obs.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
                 continuation.resume(returning: text)
             }
             request.recognitionLevel = .accurate
