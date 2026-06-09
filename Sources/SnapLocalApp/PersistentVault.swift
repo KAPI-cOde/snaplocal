@@ -18,6 +18,7 @@ struct VaultManifestEntry: Codable, Sendable {
     var width: Int
     var height: Int
     var title: String?
+    var notes: String?
 }
 
 // MARK: - VaultItem (in-memory representation for UI)
@@ -31,6 +32,7 @@ struct VaultItem: Identifiable, Sendable {
     var annotations: [AnyAnnotation]
     var level: VaultLevel
     var title: String?
+    var notes: String?
     var width: Int = 0
     var height: Int = 0
 
@@ -130,6 +132,7 @@ actor PersistentVault {
             annotations: annotations,
             level: .permanent,
             title: nil,
+            notes: nil,
             width: image.width,
             height: image.height
         )
@@ -146,6 +149,13 @@ actor PersistentVault {
     func updateTitle(id: UUID, title: String?) {
         guard manifest[id] != nil else { return }
         manifest[id]!.title = title?.isEmpty == true ? nil : title
+        saveManifest()
+    }
+
+    /// Update freeform notes for an item
+    func updateNotes(id: UUID, notes: String?) {
+        guard manifest[id] != nil else { return }
+        manifest[id]!.notes = notes?.isEmpty == true ? nil : notes
         saveManifest()
     }
 
@@ -203,7 +213,7 @@ actor PersistentVault {
         return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
                          thumbnailData: thumbData, ocrText: entry.ocrText,
                          annotations: annotations, level: .permanent, title: entry.title,
-                         width: entry.width, height: entry.height)
+                         notes: entry.notes, width: entry.width, height: entry.height)
     }
 
     /// All items, newest first
@@ -224,6 +234,7 @@ actor PersistentVault {
                 annotations: annotations,
                 level: .permanent,
                 title: entry.title,
+                notes: entry.notes,
                 width: entry.width,
                 height: entry.height
             )
@@ -236,6 +247,7 @@ actor PersistentVault {
         return allItems().filter { item in
             if item.ocrText.localizedCaseInsensitiveContains(query) { return true }
             if let title = item.title, title.localizedCaseInsensitiveContains(query) { return true }
+            if let notes = item.notes, notes.localizedCaseInsensitiveContains(query) { return true }
             let annotationText = item.annotations.compactMap { $0.textContent }.joined(separator: " ")
             return annotationText.localizedCaseInsensitiveContains(query)
         }

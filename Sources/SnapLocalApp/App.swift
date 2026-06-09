@@ -660,6 +660,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func updateNotesForItem(_ item: VaultItem, notes: String?) {
+        Task {
+            await vault.updateNotes(id: item.id, notes: notes)
+            await loadHistory()
+        }
+    }
+
     func duplicateHistoryItem(_ item: VaultItem) {
         Task {
             _ = await vault.duplicate(id: item.id)
@@ -1535,6 +1542,7 @@ struct HistoryRail: View {
     var onDuplicate: ((VaultItem) -> Void)? = nil
     var onDeleteAll: (() -> Void)? = nil
     var onExportZip: (() -> Void)? = nil
+    var onUpdateNotes: ((VaultItem, String?) -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
@@ -1718,23 +1726,7 @@ struct HistoryRail: View {
                             get: { hoveredItemID == item.id },
                             set: { if !$0 { hoveredItemID = nil } }
                         ), arrowEdge: .leading) {
-                            VStack(spacing: 4) {
-                                if let nsImage = NSImage(data: item.imageData) {
-                                    Image(nsImage: nsImage)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxWidth: 360, maxHeight: 280)
-                                } else {
-                                    Color.clear.frame(width: 120, height: 80)
-                                }
-                                let dim = item.dimensionLabel
-                                if !dim.isEmpty {
-                                    Text(dim)
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(4)
+                            HistoryItemPopover(item: item, onUpdateNotes: onUpdateNotes)
                         }
                         .contextMenu {
                             Button("開く") { onSelect(item) }
@@ -1847,6 +1839,59 @@ struct HistoryRail: View {
         }
         .frame(width: 88)
         .background(.regularMaterial)
+    }
+}
+
+// MARK: - History Item Popover
+
+struct HistoryItemPopover: View {
+    let item: VaultItem
+    var onUpdateNotes: ((VaultItem, String?) -> Void)?
+
+    @State private var notesText: String
+
+    init(item: VaultItem, onUpdateNotes: ((VaultItem, String?) -> Void)?) {
+        self.item = item
+        self.onUpdateNotes = onUpdateNotes
+        self._notesText = State(initialValue: item.notes ?? "")
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if let nsImage = NSImage(data: item.imageData) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 360, maxHeight: 240)
+            } else {
+                Color.clear.frame(width: 120, height: 80)
+            }
+            let dim = item.dimensionLabel
+            if !dim.isEmpty {
+                Text(dim)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+            TextEditor(text: $notesText)
+                .font(.system(size: 12))
+                .frame(width: 360, height: 56)
+                .scrollContentBackground(.hidden)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(alignment: .topLeading) {
+                    if notesText.isEmpty {
+                        Text("メモを追加…")
+                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 12))
+                            .padding(.top, 4).padding(.leading, 4)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .onChange(of: notesText) { _, newVal in
+                    onUpdateNotes?(item, newVal.isEmpty ? nil : newVal)
+                }
+        }
+        .padding(8)
     }
 }
 
@@ -2409,7 +2454,8 @@ struct ContentView: View {
                         onRename: state.renameHistoryItem,
                         onDuplicate: state.duplicateHistoryItem,
                         onDeleteAll: state.deleteAllHistory,
-                        onExportZip: state.exportHistoryAsZip
+                        onExportZip: state.exportHistoryAsZip,
+                        onUpdateNotes: state.updateNotesForItem
                     )
                     .transition(.move(edge: .trailing))
                 }
