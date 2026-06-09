@@ -25,6 +25,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var isLocked: Bool = false
     var lineStyle: LineStyle = .solid
     var customColorHex: String? = nil   // "RRGGBBAA" when set; overrides color
+    var calloutTailPoint: CGPoint? = nil  // pre-transform tail point for callout; canvas coords = this.applying(transform)
 
     var resolvedColor: Color {
         guard let hex = customColorHex, hex.count == 8,
@@ -68,6 +69,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.stepNumber = (annotation as? StepAnnotation)?.stepNumber
         self.arrowDoubleSided = (annotation as? ArrowAnnotation)?.doubleSided ?? false
         self.hasStrokeRepresentation = annotation.hasStrokeRepresentation
+        self.calloutTailPoint = (annotation as? CalloutAnnotation)?.tailPoint
 
         var base = annotation
         base.transform = .identity
@@ -169,6 +171,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.stepNumber = wrapped.stepNumber
         self.arrowDoubleSided = wrapped.arrowDoubleSided
         self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation
+        self.calloutTailPoint = wrapped.calloutTailPoint
         self.opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
         self.lineStyle = try container.decodeIfPresent(LineStyle.self, forKey: .lineStyle) ?? .solid

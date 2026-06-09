@@ -4049,7 +4049,15 @@ struct AnnotationCanvasView: View {
                            CanvasViewModel.isResizable(ann.type) {
                             let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
                             let corners = viewModel.handleCorners(for: bounds)
-                            hoverHandleIndex = viewModel.hitTestHandle(at: canvasLoc, corners: corners)
+                            var hi = viewModel.hitTestHandle(at: canvasLoc, corners: corners)
+                            if hi == nil, ann.type == .callout, let baseTail = ann.calloutTailPoint {
+                                let tailCanvas = baseTail.applying(ann.transform)
+                                let r: CGFloat = 10
+                                if abs(canvasLoc.x - tailCanvas.x) <= r && abs(canvasLoc.y - tailCanvas.y) <= r {
+                                    hi = 8
+                                }
+                            }
+                            hoverHandleIndex = hi
                         } else {
                             hoverHandleIndex = nil
                         }
@@ -4416,6 +4424,16 @@ struct AnnotationCanvasView: View {
                         context.fill(Path(roundedRect: inner, cornerRadius: 2), with: .color(.white))
                         context.stroke(Path(roundedRect: inner, cornerRadius: 2), with: .color(.accentColor), lineWidth: 1.5)
                     }
+                }
+                // Callout tail handle (index 8 — distinct orange dot)
+                if ann.type == .callout, let baseTail = ann.calloutTailPoint {
+                    let tailCanvas = baseTail.applying(ann.transform)
+                    let hs: CGFloat = 5.0
+                    let outer = CGRect(x: tailCanvas.x - hs - 1, y: tailCanvas.y - hs - 1, width: (hs+1)*2, height: (hs+1)*2)
+                    let inner = CGRect(x: tailCanvas.x - hs, y: tailCanvas.y - hs, width: hs*2, height: hs*2)
+                    context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.2)))
+                    context.fill(Path(ellipseIn: inner), with: .color(.white))
+                    context.stroke(Path(ellipseIn: inner), with: .color(Color.orange), lineWidth: 1.5)
                 }
             }
 

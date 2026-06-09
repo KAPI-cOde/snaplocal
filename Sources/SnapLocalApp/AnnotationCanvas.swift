@@ -417,6 +417,7 @@ final class CanvasViewModel: ObservableObject {
     let undoManager = UndoManager()
     private var isUndoing = false
     private var dragStartAnnotation: AnyAnnotation? = nil
+    private var calloutTailBakedBase: CalloutAnnotation? = nil
 
     func applyCurrentColorToSelection() {
         let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
@@ -987,6 +988,25 @@ final class CanvasViewModel: ObservableObject {
                     dragStartAnnotation = ann
                     return
                 }
+                // Callout tail handle (index 8)
+                if ann.type == .callout, let baseTail = ann.calloutTailPoint {
+                    let tailCanvas = baseTail.applying(ann.transform)
+                    let r: CGFloat = 10
+                    if abs(localPoint.x - tailCanvas.x) <= r && abs(localPoint.y - tailCanvas.y) <= r,
+                       let data = try? JSONEncoder().encode(ann),
+                       var decoded = try? JSONDecoder().decode(CalloutAnnotation.self, from: data) {
+                        // Bake the current AnyAnnotation.transform into absolute coordinates
+                        let t = ann.transform
+                        decoded.rect = decoded.rect.applying(t)
+                        decoded.tailPoint = decoded.tailPoint.applying(t)
+                        decoded.transform = .identity
+                        calloutTailBakedBase = decoded
+                        dragState.start(at: localPoint)
+                        resizingHandleIndex = 8
+                        dragStartAnnotation = ann
+                        return
+                    }
+                }
             }
 
             if NSEvent.modifierFlags.contains(.option) {
@@ -1192,6 +1212,24 @@ final class CanvasViewModel: ObservableObject {
                 return
             }
 
+            // Callout tail drag (handle index 8)
+            if resizingHandleIndex == 8,
+               var baked = calloutTailBakedBase,
+               let id = selectedAnnotationID,
+               let origAnn = dragStartAnnotation {
+                baked.tailPoint = localPoint
+                var newAnn = AnyAnnotation(baked)
+                newAnn.opacity = origAnn.opacity
+                newAnn.isLocked = origAnn.isLocked
+                newAnn.lineStyle = origAnn.lineStyle
+                newAnn.customColorHex = origAnn.customColorHex
+                if let index = annotations.firstIndex(where: { $0.id == id }) {
+                    annotations[index] = newAnn
+                }
+                objectWillChange.send()
+                return
+            }
+
             // Resize mode
             if let handleIdx = resizingHandleIndex,
                let id = selectedAnnotationID,
@@ -1383,6 +1421,7 @@ final class CanvasViewModel: ObservableObject {
             resizingHandleIndex = nil
             resizingStartBounds = nil
             resizingStartTransform = nil
+            calloutTailBakedBase = nil
             // Multi-move undo: snapshot all moved annotations
             if !multiDragStartPositions.isEmpty {
                 let startPositions = multiDragStartPositions
@@ -1487,6 +1526,7 @@ final class CanvasViewModel: ObservableObject {
         resizingHandleIndex = nil
         resizingStartBounds = nil
         resizingStartTransform = nil
+        calloutTailBakedBase = nil
         currentPencilPoints = []
         dragState.cancel()
         if isCropMode { cropStart = nil; cropEnd = nil }
