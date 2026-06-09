@@ -3606,10 +3606,13 @@ struct AnnotationCanvasView: View {
             NSCursor.iBeam.set()
         case .colorPicker:
             NSCursor.crosshair.set()
-        case .redact, .highlight:
-            NSCursor.crosshair.set()
         default:
-            NSCursor.crosshair.set()
+            // Show grab cursor when hovering over an annotation with a grab-capable drawing tool
+            if viewModel.hoveredAnnotationID != nil {
+                NSCursor.openHand.set()
+            } else {
+                NSCursor.crosshair.set()
+            }
         }
     }
 
@@ -4235,35 +4238,42 @@ struct AnnotationCanvasView: View {
                         hoverLocation = nil
                         hoverColorHex = nil
                     }
-                    if viewModel.currentTool == .select, !viewModel.isDraggingAnnotation {
+                    let grabSupportedTools: Set<DrawingTool> = [.arrow, .line, .rectangle,
+                        .ellipse, .roundedRect, .callout, .highlight, .step, .redact, .spotlight]
+                    if !viewModel.isDraggingAnnotation && !viewModel.isGrabMoving &&
+                       (viewModel.currentTool == .select || grabSupportedTools.contains(viewModel.currentTool)) {
                         let canvasLoc = toCanvas(location, size: proxy.size)
                         let hit = viewModel.annotations.last(where: {
                             !$0.isLocked && $0.hitTest(canvasLoc, in: CGRect(origin: .zero, size: viewModel.canvasSize))
                         })
                         viewModel.hoveredAnnotationID = hit?.id
-                        // Check if hovering over a resize/endpoint handle of the selected annotation
-                        if let selID = viewModel.selectedAnnotationID,
-                           let ann = viewModel.annotations.first(where: { $0.id == selID }) {
-                            let r: CGFloat = 10
-                            if CanvasViewModel.isResizable(ann.type) {
-                                let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
-                                let corners = viewModel.handleCorners(for: bounds)
-                                var hi = viewModel.hitTestHandle(at: canvasLoc, corners: corners)
-                                if hi == nil, ann.type == .callout, let baseTail = ann.calloutTailPoint {
-                                    let tailCanvas = baseTail.applying(ann.transform)
-                                    if abs(canvasLoc.x - tailCanvas.x) <= r && abs(canvasLoc.y - tailCanvas.y) <= r {
-                                        hi = 8
+                        // Full handle detection only in select mode
+                        if viewModel.currentTool == .select {
+                            if let selID = viewModel.selectedAnnotationID,
+                               let ann = viewModel.annotations.first(where: { $0.id == selID }) {
+                                let r: CGFloat = 10
+                                if CanvasViewModel.isResizable(ann.type) {
+                                    let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
+                                    let corners = viewModel.handleCorners(for: bounds)
+                                    var hi = viewModel.hitTestHandle(at: canvasLoc, corners: corners)
+                                    if hi == nil, ann.type == .callout, let baseTail = ann.calloutTailPoint {
+                                        let tailCanvas = baseTail.applying(ann.transform)
+                                        if abs(canvasLoc.x - tailCanvas.x) <= r && abs(canvasLoc.y - tailCanvas.y) <= r {
+                                            hi = 8
+                                        }
                                     }
-                                }
-                                hoverHandleIndex = hi
-                            } else if (ann.type == .arrow || ann.type == .line),
-                                      let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
-                                let t = ann.transform
-                                let startC = baseStart.applying(t), endC = baseEnd.applying(t)
-                                if abs(canvasLoc.x - endC.x) <= r && abs(canvasLoc.y - endC.y) <= r {
-                                    hoverHandleIndex = 10
-                                } else if abs(canvasLoc.x - startC.x) <= r && abs(canvasLoc.y - startC.y) <= r {
-                                    hoverHandleIndex = 9
+                                    hoverHandleIndex = hi
+                                } else if (ann.type == .arrow || ann.type == .line),
+                                          let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
+                                    let t = ann.transform
+                                    let startC = baseStart.applying(t), endC = baseEnd.applying(t)
+                                    if abs(canvasLoc.x - endC.x) <= r && abs(canvasLoc.y - endC.y) <= r {
+                                        hoverHandleIndex = 10
+                                    } else if abs(canvasLoc.x - startC.x) <= r && abs(canvasLoc.y - startC.y) <= r {
+                                        hoverHandleIndex = 9
+                                    } else {
+                                        hoverHandleIndex = nil
+                                    }
                                 } else {
                                     hoverHandleIndex = nil
                                 }

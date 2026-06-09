@@ -366,6 +366,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var annotationsHidden: Bool = false
     @Published var currentPencilPoints: [CGPoint] = []
     @Published var currentStamp: String = "✅"
+    @Published var isGrabMoving = false  // true when non-select tool is moving an existing annotation
     @Published var dragState = DragState()
     // Live mosaic/blur preview while dragging redact tool
     @Published var redactDragPreview: CGImage? = nil
@@ -1004,6 +1005,29 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
+        // Grab-to-move: in any drawing tool, clicking on an existing annotation moves it
+        let grabSupportedTools: Set<DrawingTool> = [.arrow, .line, .rectangle, .ellipse,
+            .roundedRect, .callout, .highlight, .step, .redact, .spotlight]
+        if grabSupportedTools.contains(currentTool) {
+            let innerRect = CGRect(origin: .zero, size: canvasSize)
+            if let hitAnn = annotations.reversed().first(where: { !$0.isLocked && $0.hitTest(localPoint, in: innerRect) }) {
+                dragState.start(at: localPoint)
+                if !selectedAnnotationIDs.contains(hitAnn.id) {
+                    selectedAnnotationID = hitAnn.id
+                    selectedAnnotationIDs = [hitAnn.id]
+                }
+                if let id = selectedAnnotationID, let ann = annotations.first(where: { $0.id == id }) {
+                    dragStartAnnotation = ann
+                    let bounds = ann.bounds(in: innerRect)
+                    dragState.dragOffset = CGSize(width: localPoint.x - bounds.midX,
+                                                  height: localPoint.y - bounds.midY)
+                    multiDragStartPositions = [:]
+                }
+                isGrabMoving = true
+                return
+            }
+        }
+
         switch currentTool {
         case .select:
             // Check resize handles first (single selection only)
@@ -1258,6 +1282,30 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
+        // Grab-move in progress (non-select tool dragging an existing annotation)
+        if isGrabMoving {
+            if let id = selectedAnnotationID, var annotation = annotations.first(where: { $0.id == id }) {
+                isDraggingAnnotation = true
+                hoveredAnnotationID = nil
+                let newCenter = CGPoint(x: localPoint.x - dragState.dragOffset.width,
+                                        y: localPoint.y - dragState.dragOffset.height)
+                let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
+                let proposedBounds = CGRect(x: bounds.minX + (newCenter.x - bounds.midX),
+                                            y: bounds.minY + (newCenter.y - bounds.midY),
+                                            width: bounds.width, height: bounds.height)
+                let (snappedDx, snappedDy, guides) = computeSnap(for: proposedBounds, excluding: id)
+                let deltaX = newCenter.x - bounds.midX - snappedDx
+                let deltaY = newCenter.y - bounds.midY - snappedDy
+                snapGuides = guides
+                annotation.applyTransform(CGAffineTransform(translationX: deltaX, y: deltaY))
+                if let index = annotations.firstIndex(where: { $0.id == id }) {
+                    annotations[index] = annotation
+                }
+                objectWillChange.send()
+            }
+            return
+        }
+
         if currentTool == .select {
             // Rubber-band update
             if isRubberBanding, let start = dragState.startPoint {
@@ -1483,6 +1531,30 @@ final class CanvasViewModel: ObservableObject {
         }
 
         clearRedactDragPreview()
+
+        // Grab-move finalization
+        if isGrabMoving {
+            isGrabMoving = false
+            isDraggingAnnotation = false
+            snapGuides = []
+            _ = dragState.end()
+            if let original = dragStartAnnotation,
+               let index = annotations.firstIndex(where: { $0.id == original.id }) {
+                let orig = original
+                undoManager.registerUndo(withTarget: self) { target in
+                    target.isUndoing = true
+                    target.annotations[index] = orig
+                    target.objectWillChange.send()
+                    target.isUndoing = false
+                }
+                updateUndoRedoState()
+                if !annotations[index].hasStrokeRepresentation {
+                    updateFilterPreview(for: annotations[index])
+                }
+            }
+            dragStartAnnotation = nil
+            return
+        }
 
         guard let (start, end) = dragState.end() else { return }
 
