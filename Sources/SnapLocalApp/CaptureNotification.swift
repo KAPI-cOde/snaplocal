@@ -145,15 +145,15 @@ struct CaptureNotificationView: View {
     private var nsImage: NSImage { NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)) }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.xs) {
             // Thumbnail — click to open editor, drag to other apps
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: thumbWidth, height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: DS.Radius.medium)
                         .stroke(isDragging ? Color.green.opacity(0.8)
                                 : thumbnailHovered ? Color.accentColor.opacity(0.8)
                                 : Color.white.opacity(0.15),
@@ -165,13 +165,13 @@ struct CaptureNotificationView: View {
                             Image(systemName: "pencil")
                                 .font(.system(size: 7))
                             Text("編集")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: DS.FontSize.caption2, weight: .semibold))
                         }
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
+                        .padding(.horizontal, DS.Space.xxs)
                         .padding(.vertical, 2)
                         .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.small))
                         .padding(.bottom, 3)
                     }
                 }
@@ -186,9 +186,9 @@ struct CaptureNotificationView: View {
                     }
                 }
                 .scaleEffect(isDragging ? 0.92 : (thumbnailHovered ? 1.03 : 1.0))
-                .animation(.easeInOut(duration: 0.15), value: thumbnailHovered)
+                .animation(DS.Anim.base, value: thumbnailHovered)
                 .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isDragging)
-                .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                .shadow(DS.Shadow.overlay)
                 .onTapGesture { actions.annotate(); onDismiss() }
                 .onDrag {
                     isDragging = true
@@ -197,13 +197,13 @@ struct CaptureNotificationView: View {
                 }
                 .onHover { thumbnailHovered = $0 }
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                HStack(spacing: DS.Space.xxs) {
                     Text("撮影しました")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: DS.FontSize.caption, weight: .semibold))
                         .foregroundStyle(.primary)
                     Text("\(image.width) × \(image.height)")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: DS.FontSize.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
 
@@ -230,17 +230,17 @@ struct CaptureNotificationView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.secondary)
-                    .padding(5)
+                    .padding(DS.Space.xxs)
                     .background(Color.primary.opacity(0.08), in: Circle())
             }
             .buttonStyle(.plain)
             .padding(.trailing, 2)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, DS.Space.s)
+        .padding(.vertical, DS.Space.xs)
         .frame(width: 320, height: 80)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.large))
         .overlay(alignment: .bottom) {
             TimelineView(.periodic(from: .now, by: 1.0 / 30)) { tl in
                 let elapsed = isProgressPaused
@@ -259,7 +259,7 @@ struct CaptureNotificationView: View {
             }
         }
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: DS.Radius.large)
                 .stroke(isHUDHovered ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.1), lineWidth: 0.5)
         )
         .onHover { hovering in
@@ -299,7 +299,7 @@ struct CaptureNotificationView: View {
             }
             .frame(width: 40, height: 32)
             .background(copiedFeedback ? Color.green.opacity(0.12) : Color.primary.opacity(0.06),
-                        in: RoundedRectangle(cornerRadius: 7))
+                        in: RoundedRectangle(cornerRadius: DS.Radius.medium))
             .scaleEffect(copiedFeedback ? 1.05 : 1.0)
         }
         .buttonStyle(.plain)
@@ -316,7 +316,7 @@ struct CaptureNotificationView: View {
             }
             .foregroundStyle(.primary)
             .frame(width: 40, height: 32)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: DS.Radius.medium))
         }
         .buttonStyle(.plain)
     }
@@ -401,26 +401,26 @@ private struct HistoryQuickLookView: View {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
-                .padding(16)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium))
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.medium).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
+                .padding(DS.Space.m)
                 .onTapGesture { onDismiss() }
-            HStack(spacing: 8) {
+            HStack(spacing: DS.Space.xs) {
                 VStack(alignment: .leading, spacing: 2) {
                     if let title = item.title {
                         Text(title)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: DS.FontSize.caption, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                     }
-                    HStack(spacing: 6) {
+                    HStack(spacing: DS.Space.xs) {
                         if item.width > 0 {
                             Text("\(item.width) × \(item.height)")
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: DS.FontSize.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
                         Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 10))
+                            .font(.system(size: DS.FontSize.caption))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -432,11 +432,11 @@ private struct HistoryQuickLookView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, DS.Space.m)
+            .padding(.bottom, DS.Space.s)
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.large))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.large).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
     }
 }

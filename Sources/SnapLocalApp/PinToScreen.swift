@@ -167,21 +167,21 @@ private struct PinnedContentView: View {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: DS.Radius.medium)
                         .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
                 )
-                .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                .shadow(DS.Shadow.canvas)
 
             // Opacity indicator badge (when opacity < 1)
             if opacity < 0.95 && isHovering {
                 Text("\(Int(opacity * 100))%")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.system(size: DS.FontSize.caption2, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
-                    .padding(.bottom, 6)
+                    .padding(.horizontal, DS.Space.xxs).padding(.vertical, 2)
+                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                    .padding(.bottom, DS.Space.xs)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
 
@@ -191,15 +191,15 @@ private struct PinnedContentView: View {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 18))
                         .foregroundStyle(.white, .black.opacity(0.6))
-                        .shadow(radius: 2)
+                        .shadow(DS.Shadow.overlay)
                 }
                 .buttonStyle(.plain)
-                .padding(6)
+                .padding(DS.Space.xs)
                 .transition(.scale(scale: 0.7).combined(with: .opacity))
             }
         }
         .opacity(opacity)
-        .animation(.easeInOut(duration: 0.15), value: isHovering)
+        .animation(DS.Anim.base, value: isHovering)
         .onHover { isHovering = $0 }
         .gesture(
             MagnifyGesture()

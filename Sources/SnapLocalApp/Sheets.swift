@@ -106,20 +106,20 @@ struct HelpPopoverContent: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
                 ForEach(sections, id: \.0) { section, rows in
                     Text(section)
                         .font(.caption.bold())
                         .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+                        .padding(.top, DS.Space.xxs)
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(rows, id: \.0) { key, desc in
-                            HStack(alignment: .top, spacing: 8) {
+                            HStack(alignment: .top, spacing: DS.Space.xs) {
                                 Text(key)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .padding(.horizontal, 4)
+                                    .font(.system(size: DS.FontSize.caption, design: .monospaced))
+                                    .padding(.horizontal, DS.Space.xxs)
                                     .padding(.vertical, 1)
-                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.small))
                                     .frame(minWidth: 80, alignment: .leading)
                                 Text(desc)
                                     .font(.caption)
@@ -130,7 +130,7 @@ struct HelpPopoverContent: View {
                     Divider()
                 }
             }
-            .padding(12)
+            .padding(DS.Space.s)
         }
         .frame(width: 280, height: 380)
     }
@@ -153,8 +153,8 @@ struct SettingsSheet: View {
                 Button("閉じる") { dismiss() }
                     .keyboardShortcut(.escape)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.horizontal, DS.Space.l)
+            .padding(.vertical, DS.Space.m)
 
             Divider()
 
@@ -170,7 +170,7 @@ struct SettingsSheet: View {
                         Button("変更…") { chooseSaveDirectory() }
                             .controlSize(.small)
                     }
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("ファイル名テンプレート")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -297,13 +297,13 @@ struct WindowPickerSheet: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, DS.Space.m)
+            .padding(.vertical, DS.Space.s)
 
             Divider()
 
             if windows.isEmpty {
-                VStack(spacing: 8) {
+                VStack(spacing: DS.Space.xs) {
                     Image(systemName: "macwindow.badge.plus")
                         .font(.system(size: 36))
                         .foregroundStyle(.tertiary)
@@ -314,7 +314,7 @@ struct WindowPickerSheet: View {
                 .padding()
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 4) {
+                    LazyVStack(spacing: DS.Space.xxs) {
                         ForEach(windows, id: \.windowID) { win in
                             WindowPickerRow(window: win, isHovered: hovered == win.windowID)
                                 .onHover { hovering in
@@ -325,7 +325,7 @@ struct WindowPickerSheet: View {
                                 }
                         }
                     }
-                    .padding(8)
+                    .padding(DS.Space.xs)
                 }
                 .frame(minHeight: 200, maxHeight: 480)
             }
@@ -337,8 +337,8 @@ struct WindowPickerSheet: View {
                 Button("キャンセル", action: onCancel)
                     .keyboardShortcut(.escape)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, DS.Space.m)
+            .padding(.vertical, DS.Space.xs)
         }
         .frame(width: 480)
     }
@@ -364,7 +364,7 @@ struct WindowPickerRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.xs) {
             if let icon = appIcon {
                 Image(nsImage: icon)
                     .resizable()
@@ -385,13 +385,13 @@ struct WindowPickerRow: View {
             }
             Spacer()
             Text("\(Int(window.frame.width))×\(Int(window.frame.height))")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: DS.FontSize.caption, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, DS.Space.xs)
+        .padding(.vertical, DS.Space.xs)
         .background(isHovered ? Color.accentColor.opacity(0.12) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 6))
+                    in: RoundedRectangle(cornerRadius: DS.Radius.medium))
         .contentShape(Rectangle())
     }
 }

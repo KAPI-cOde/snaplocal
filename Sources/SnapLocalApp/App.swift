@@ -150,24 +150,24 @@ struct MenuBarQuickActions: View {
                 Button {
                     openItem(item)
                 } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: DS.Space.xs) {
                         if let nsImage = NSImage(data: item.thumbnailData) {
                             Image(nsImage: nsImage)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 56, height: 36)
-                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.small))
                         } else {
-                            RoundedRectangle(cornerRadius: 3)
+                            RoundedRectangle(cornerRadius: DS.Radius.small)
                                 .fill(Color.secondary.opacity(0.15))
                                 .frame(width: 56, height: 36)
                         }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.title ?? item.dimensionLabel)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: DS.FontSize.body, weight: .medium))
                                 .lineLimit(1)
                             Text(item.createdAt.formatted(date: .omitted, time: .shortened))
-                                .font(.system(size: 10))
+                                .font(.system(size: DS.FontSize.caption))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -1324,12 +1324,12 @@ struct HintRow: View {
     let key: String
     let label: String
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: DS.Space.xs) {
             Text(key)
                 .monospacedDigit()
-                .padding(.horizontal, 4)
+                .padding(.horizontal, DS.Space.xxs)
                 .padding(.vertical, 1)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.small))
             Text(label)
         }
     }
@@ -1346,10 +1346,10 @@ struct StatusChip: View {
             Text(message)
                 .font(.caption)
                 .lineLimit(1)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, DS.Space.xs)
+                .padding(.vertical, DS.Space.xxs)
                 .background(.regularMaterial, in: Capsule())
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .shadow(DS.Shadow.overlay)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
@@ -1433,32 +1433,32 @@ struct ContentView: View {
                     .overlay {
                         if isDropTargeted {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 10)
+                                RoundedRectangle(cornerRadius: DS.Radius.large)
                                     .fill(Color.accentColor.opacity(0.08))
-                                    .padding(4)
-                                RoundedRectangle(cornerRadius: 10)
+                                    .padding(DS.Space.xxs)
+                                RoundedRectangle(cornerRadius: DS.Radius.large)
                                     .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, dash: [10, 5]))
-                                    .padding(4)
-                                VStack(spacing: 8) {
+                                    .padding(DS.Space.xxs)
+                                VStack(spacing: DS.Space.xs) {
                                     Image(systemName: "arrow.down.circle.fill")
                                         .font(.system(size: 36))
                                         .foregroundStyle(Color.accentColor)
                                     Text("画像をドロップして開く")
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(.system(size: DS.FontSize.body, weight: .medium))
                                         .foregroundStyle(Color.accentColor)
                                 }
-                                .padding(16)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                                .padding(DS.Space.m)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.large))
                                 .shadow(color: Color.accentColor.opacity(0.2), radius: 12, y: 4)
                             }
                             .transition(.opacity)
-                            .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+                            .animation(DS.Anim.base, value: isDropTargeted)
                         }
                     }
                     .overlay(alignment: .bottom) {
                         StatusChip(message: state.statusMessage, visible: state.statusVisible)
-                            .padding(.bottom, 14)
-                            .animation(.easeInOut(duration: 0.2), value: state.statusVisible)
+                            .padding(.bottom, DS.Space.m)
+                            .animation(DS.Anim.smooth, value: state.statusVisible)
                     }
                     .overlay(alignment: .bottomLeading) {
                         if let qrURL = state.detectedQRURL {
@@ -1466,13 +1466,13 @@ struct ContentView: View {
                                 NSWorkspace.shared.open(qrURL)
                                 state.detectedQRURL = nil
                             }) {
-                                HStack(spacing: 5) {
+                                HStack(spacing: DS.Space.xxs) {
                                     Image(systemName: "qrcode.viewfinder")
                                         .font(.system(size: 11))
                                     Text(qrURL.absoluteString.count > 40
                                          ? String(qrURL.absoluteString.prefix(40)) + "…"
                                          : qrURL.absoluteString)
-                                        .font(.system(size: 10))
+                                        .font(.system(size: DS.FontSize.caption))
                                         .lineLimit(1)
                                     Image(systemName: "xmark")
                                         .font(.system(size: 8))
@@ -1480,14 +1480,14 @@ struct ContentView: View {
                                         .onTapGesture { state.detectedQRURL = nil }
                                 }
                                 .foregroundStyle(.primary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
-                                .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+                                .padding(.horizontal, DS.Space.xs)
+                                .padding(.vertical, DS.Space.xxs)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.medium))
+                                .overlay(RoundedRectangle(cornerRadius: DS.Radius.medium).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+                                .shadow(DS.Shadow.overlay)
                             }
                             .buttonStyle(.plain)
-                            .padding([.bottom, .leading], 14)
+                            .padding([.bottom, .leading], DS.Space.m)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
                     }
@@ -1510,12 +1510,12 @@ struct ContentView: View {
                                 + (annCount > 0 ? "  ✎\(annCount)" : "")
                                 + selInfo
                             Text(info)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: DS.FontSize.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
-                                .padding(.horizontal, 6)
+                                .padding(.horizontal, DS.Space.xs)
                                 .padding(.vertical, 3)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-                                .padding([.bottom, .trailing], 8)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                                .padding([.bottom, .trailing], DS.Space.xs)
                         }
                     }
 
@@ -1629,18 +1629,18 @@ struct AnnotationCanvasView: View {
         let color = nsColor.map { Color(nsColor: $0) } ?? Color.clear
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: DS.Radius.small)
                     .fill(color)
                     .frame(width: 16, height: 16)
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.6), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.small).stroke(Color.white.opacity(0.6), lineWidth: 1))
                 Text("#" + hex.prefix(6).lowercased())
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: DS.FontSize.caption, design: .monospaced))
                     .foregroundStyle(.primary)
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, DS.Space.xs)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 7))
-            .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.medium))
+            .shadow(DS.Shadow.overlay)
             .offset(x: x, y: y)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1688,7 +1688,7 @@ struct AnnotationCanvasView: View {
                         .allowsHitTesting(false)
                     }
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: DS.Space.s) {
                         Image(systemName: "camera.viewfinder")
                             .font(.system(size: 48))
                             .foregroundStyle(.tertiary)
@@ -1696,7 +1696,7 @@ struct AnnotationCanvasView: View {
                             Button("撮影する", action: onCapture)
                                 .buttonStyle(.borderedProminent)
                         }
-                        VStack(spacing: 4) {
+                        VStack(spacing: DS.Space.xxs) {
                             HintRow(key: "⌘⇧2", label: "全画面撮影")
                             HintRow(key: "⌘⇧3", label: "ウィンドウ撮影")
                             HintRow(key: "⌘⇧4", label: "範囲選択撮影")
@@ -1813,14 +1813,14 @@ struct AnnotationCanvasView: View {
             .overlay(alignment: .topTrailing) {
                 if abs(zoom - 1.0) > 0.01 {
                     Text("\(Int(zoom * 100))%")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: DS.FontSize.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, DS.Space.xs)
                         .padding(.vertical, 2)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-                        .padding(8)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                        .padding(DS.Space.xs)
                         .onTapGesture {
-                            withAnimation(.easeOut(duration: 0.2)) { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
+                            withAnimation(DS.Anim.smooth) { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
                         }
                 }
             }
@@ -1855,14 +1855,14 @@ struct AnnotationCanvasView: View {
             .overlay(alignment: .bottom) {
                 if let msg = viewModel.undoRedoToast {
                     Text(msg)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: DS.FontSize.body, weight: .medium))
                         .foregroundStyle(.primary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
-                        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
-                        .padding(.bottom, 20)
+                        .padding(.horizontal, DS.Space.s)
+                        .padding(.vertical, DS.Space.xs)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.medium))
+                        .overlay(RoundedRectangle(cornerRadius: DS.Radius.medium).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+                        .shadow(DS.Shadow.overlay)
+                        .padding(.bottom, DS.Space.l)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
@@ -1880,12 +1880,12 @@ struct AnnotationCanvasView: View {
                     let inBounds = px >= 0 && px < img.width && py >= 0 && py < img.height
                     if inBounds {
                         Text("\(px), \(py)")
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.system(size: DS.FontSize.caption2, design: .monospaced))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
+                            .padding(.horizontal, DS.Space.xxs)
                             .padding(.vertical, 2)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3))
-                            .padding(6)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                            .padding(DS.Space.xs)
                             .transition(.opacity)
                     }
                 }
@@ -1902,12 +1902,12 @@ struct AnnotationCanvasView: View {
                     let pw = Int(b.width * sx), ph = Int(b.height * sy)
                     if pw > 0 && ph > 0 {
                         Text("\(pw) × \(ph)")
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.system(size: DS.FontSize.caption2, design: .monospaced))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
+                            .padding(.horizontal, DS.Space.xxs)
                             .padding(.vertical, 2)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3))
-                            .padding(6)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                            .padding(DS.Space.xs)
                             .transition(.opacity)
                     }
                 }
@@ -2945,14 +2945,14 @@ struct AnnotationCanvasView: View {
                 }
 
                 // Hint bar
-                HStack(spacing: 8) {
-                    Text("⏎ 確定").font(.system(size: 9)).foregroundStyle(.secondary)
-                    Text("⇧⏎ 改行").font(.system(size: 9)).foregroundStyle(.secondary)
-                    Text("Esc キャンセル").font(.system(size: 9)).foregroundStyle(.secondary)
+                HStack(spacing: DS.Space.xs) {
+                    Text("⏎ 確定").font(.system(size: DS.FontSize.caption2)).foregroundStyle(.secondary)
+                    Text("⇧⏎ 改行").font(.system(size: DS.FontSize.caption2)).foregroundStyle(.secondary)
+                    Text("Esc キャンセル").font(.system(size: DS.FontSize.caption2)).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, DS.Space.xs)
                 .padding(.vertical, 3)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
             }
             .position(x: viewX, y: viewY)
             .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
