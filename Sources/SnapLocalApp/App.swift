@@ -1683,6 +1683,17 @@ struct HistoryRail: View {
                                             .padding(2)
                                     }
                                 }
+                                .overlay(alignment: .topTrailing) {
+                                    if item.notes != nil {
+                                        Image(systemName: "note.text")
+                                            .font(.system(size: 7))
+                                            .foregroundStyle(.white)
+                                            .padding(2)
+                                            .background(Color.black.opacity(0.55))
+                                            .clipShape(Circle())
+                                            .padding(2)
+                                    }
+                                }
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 4)
                                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
