@@ -1343,11 +1343,12 @@ struct CompactToolbar: View {
 
             Divider().frame(height: 18)
 
-            // ─ 描画ツール（主要5つ + もっと見る）─
+            // ─ 描画ツール（主要6つ + もっと見る）─
             HStack(spacing: 2) {
-                let moreTools: [DrawingTool] = [.arrow, .ellipse, .roundedRect, .callout, .step,
+                let moreTools: [DrawingTool] = [.ellipse, .roundedRect, .callout, .step,
                                                 .highlight, .pencil, .stamp, .spotlight, .colorPicker, .measure]
                 toolButton(.select, canvas: canvas)
+                toolButton(.arrow, canvas: canvas)
                 toolButton(.rectangle, canvas: canvas)
                 toolButton(.line, canvas: canvas)
                 toolButton(.text, canvas: canvas)
@@ -1360,7 +1361,7 @@ struct CompactToolbar: View {
 
                 Menu {
                     Section("描画") {
-                        ForEach([DrawingTool.arrow, .ellipse, .roundedRect, .callout,
+                        ForEach([DrawingTool.ellipse, .roundedRect, .callout,
                                  .step, .highlight, .pencil, .stamp, .spotlight], id: \.self) { tool in
                             Button(action: { canvas.currentTool = tool }) {
                                 Label(tool.helpText, systemImage: tool.systemImage)
