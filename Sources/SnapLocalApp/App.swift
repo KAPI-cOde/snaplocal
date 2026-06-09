@@ -1789,14 +1789,23 @@ struct AnnotationCanvasView: View {
                         let stepSize: CGFloat = viewModel.currentLineWidth == .thick ? 48 : viewModel.currentLineWidth == .medium ? 36 : 28
                         let rect = CGRect(x: start.x - stepSize/2, y: start.y - stepSize/2, width: stepSize, height: stepSize)
                         preview = Path(ellipseIn: rect)
+                    case .callout:
+                        let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                                       width: abs(end.x - start.x), height: abs(end.y - start.y))
+                        let cr = min(r.width, r.height) * 0.15
+                        preview = Path(roundedRect: r, cornerRadius: cr)
+                    case .highlight:
+                        preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                                              width: abs(end.x - start.x), height: abs(end.y - start.y)))
                     default: break
                     }
                     if !preview.isEmpty {
                         let isFillTool = (viewModel.currentTool == .rectangle || viewModel.currentTool == .ellipse || viewModel.currentTool == .roundedRect) && viewModel.currentFilled
-                        if isFillTool || viewModel.currentTool == .step {
-                            context.fill(preview, with: .color(previewColor.opacity(viewModel.currentTool == .step ? 0.7 : 0.35)))
+                        let isHighlight = viewModel.currentTool == .highlight
+                        if isFillTool || viewModel.currentTool == .step || isHighlight {
+                            context.fill(preview, with: .color(previewColor.opacity(isHighlight ? 0.38 : viewModel.currentTool == .step ? 0.7 : 0.35)))
                         }
-                        if viewModel.currentTool != .step {
+                        if viewModel.currentTool != .step && !isHighlight {
                             context.stroke(preview, with: .color(previewColor),
                                            style: StrokeStyle(lineWidth: lw, dash: [4, 2]))
                         }
