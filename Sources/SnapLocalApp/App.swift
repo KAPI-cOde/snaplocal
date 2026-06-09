@@ -245,6 +245,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 final class SnapLocalState: ObservableObject, @unchecked Sendable {
     @Published var statusMessage = ""
+    @Published var statusIsSuccess = false
     @Published var statusVisible = false
     @Published var history: [VaultItem] = []
     @Published var searchQuery = ""
@@ -308,9 +309,10 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     // MARK: - Status
 
-    func showStatus(_ message: String) {
+    func showStatus(_ message: String, success: Bool = false) {
         statusTask?.cancel()
         statusMessage = message
+        statusIsSuccess = success
         statusVisible = true
         statusTask = Task {
             do {
@@ -392,7 +394,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                     if let win = selected {
                         self.captureWindowNow(win)
                     } else {
-                        self.showStatus("キャンセルしました")
+                        self.showStatus("キャンセルしました", success: true)
                     }
                 }
             } catch {
@@ -417,7 +419,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             guard let self else { return }
             self.isRegionCapturing = false
             guard let rect else {
-                self.showStatus("キャンセルしました")
+                self.showStatus("キャンセルしました", success: true)
                 return
             }
             self.lastRegionRect = rect
@@ -449,7 +451,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         if clipboardOnlyCapture {
             clipboardOnlyCapture = false
             copyImageToClipboard(image)
-            showStatus("クリップボードにコピーしました（履歴には保存しません）")
+            showStatus("クリップボードにコピーしました（履歴には保存しません）", success: true)
             return
         }
         // Persist current annotations before overwriting canvas
@@ -465,10 +467,10 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         selectedHistoryID = nil
         if SettingsManager.shared.autoCopyOnCapture {
             copyImageToClipboard(image)
-            showStatus("撮影 → クリップボードにコピーしました")
+            showStatus("撮影 → クリップボードにコピーしました", success: true)
             sendNotification(title: "撮影完了", body: "クリップボードにコピーしました")
         } else {
-            showStatus("撮影しました")
+            showStatus("撮影しました", success: true)
             sendNotification(title: "撮影完了", body: "HUDから操作できます")
         }
 
@@ -517,7 +519,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                     await vault.updateTitle(id: item.id, title: autoTitle)
                 }
                 await loadHistory()
-                showStatus("OCR完了 — 検索可能になりました")
+                showStatus("OCR完了 — 検索可能になりました", success: true)
             }
 
             // Handle QR results
@@ -529,7 +531,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 } else {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(first, forType: .string)
-                    showStatus("QRコード検出 — テキストをコピーしました: \(String(first.prefix(40)))")
+                    showStatus("QRコード検出 — テキストをコピーしました: \(String(first.prefix(40)))", success: true)
                 }
             }
         }
@@ -595,7 +597,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             return
         }
         PinManager.shared.pin(image: image)
-        showStatus("画面にピン留めしました")
+        showStatus("画面にピン留めしました", success: true)
     }
 
     func copyToClipboard() {
@@ -609,7 +611,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         NSPasteboard.general.writeObjects([nsImage])
         // Also copy annotation data if one is selected (allows cross-screenshot paste)
         canvas.copySelectedAnnotationToClipboard()
-        showStatus("クリップボードにコピーしました")
+        showStatus("クリップボードにコピーしました", success: true)
     }
 
     func copyOriginalToClipboard() {
@@ -617,7 +619,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             showStatus("コピーする画像がありません"); return
         }
         copyImageToClipboard(image)
-        showStatus("オリジナル（アノテーションなし）をコピーしました")
+        showStatus("オリジナル（アノテーションなし）をコピーしました", success: true)
     }
 
     func openInPreview() {
@@ -690,7 +692,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
               let cropped = bgImage.cropping(to: pixelRect) else { return }
         copyImageToClipboard(cropped)
-        showStatus("選択範囲をコピーしました (\(Int(pixelRect.width))×\(Int(pixelRect.height)) px)")
+        showStatus("選択範囲をコピーしました (\(Int(pixelRect.width))×\(Int(pixelRect.height)) px)", success: true)
     }
 
     func ocrSelectedRegion() {
@@ -718,7 +720,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             } else {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
-                showStatus("テキストをコピーしました (\(text.count)文字)")
+                showStatus("テキストをコピーしました (\(text.count)文字)", success: true)
             }
         }
     }
@@ -761,7 +763,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             }
             canvas.recomputeAllFilterPreviews()
             canvas.objectWillChange.send()
-            showStatus("顔を\(normalizedFaces.count)箇所検出しました")
+            showStatus("顔を\(normalizedFaces.count)箇所検出しました", success: true)
         }
     }
 
@@ -820,7 +822,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                         try? FileManager.default.copyItem(at: zipURL, to: url)
                     }
                     try? FileManager.default.removeItem(at: tmpDir)
-                    showStatus("ZIPを保存しました: \(url.lastPathComponent) (\(history.count)件)")
+                    showStatus("ZIPを保存しました: \(url.lastPathComponent) (\(history.count)件)", success: true)
                 } catch {
                     showStatus("ZIP作成失敗: \(error.localizedDescription)")
                 }
@@ -884,7 +886,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                     ctx.endPDFPage()
                 }
                 ctx.closePDF()
-                await MainActor.run { self.showStatus("PDFを保存しました: \(url.lastPathComponent) (\(history.count)ページ)") }
+                await MainActor.run { self.showStatus("PDFを保存しました: \(url.lastPathComponent) (\(history.count)ページ)", success: true) }
             }
         }
     }
@@ -897,7 +899,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             currentVaultID = nil
             selectedHistoryID = nil
             await loadHistory()
-            showStatus("すべての履歴を削除しました")
+            showStatus("すべての履歴を削除しました", success: true)
         }
     }
 
@@ -929,7 +931,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             return
         }
         canvas.stitch(with: other, vertical: vertical)
-        showStatus(vertical ? "下に結合しました" : "右に結合しました")
+        showStatus(vertical ? "下に結合しました" : "右に結合しました", success: true)
     }
 
     func revealCurrentItemInFinder() {
@@ -945,7 +947,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         Task {
             _ = await vault.duplicate(id: item.id)
             await loadHistory()
-            showStatus("複製しました")
+            showStatus("複製しました", success: true)
         }
     }
 
@@ -1059,7 +1061,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             let url = directory.appendingPathComponent("\(baseName).\(fmt.fileExtension)")
             try data.write(to: url, options: .atomic)
             let px = "\(image.width)×\(image.height)"
-            showStatus("保存しました: \(url.lastPathComponent) (\(px))")
+            showStatus("保存しました: \(url.lastPathComponent) (\(px))", success: true)
             refreshHistory()
         } catch {
             showStatus("保存失敗: \(error.localizedDescription)")
@@ -1117,7 +1119,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                     if let pdfData = pdfDoc.dataRepresentation() {
                         do {
                             try pdfData.write(to: url, options: .atomic)
-                            self.showStatus("保存しました: \(url.lastPathComponent)")
+                            self.showStatus("保存しました: \(url.lastPathComponent)", success: true)
                         } catch { self.showStatus("保存失敗: \(error.localizedDescription)") }
                     } else { self.showStatus("PDF生成失敗") }
                 } else { self.showStatus("PDF生成失敗") }
@@ -1128,7 +1130,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 CGImageDestinationAddImage(dest, targetImage, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
                 if CGImageDestinationFinalize(dest) {
                     let px = "\(targetImage.width)×\(targetImage.height)"
-                    self.showStatus("保存しました: \(url.lastPathComponent) (\(px))")
+                    self.showStatus("保存しました: \(url.lastPathComponent) (\(px))", success: true)
                 } else { self.showStatus("WebP書き出し失敗") }
             } else {
                 let data: Data?
@@ -1141,7 +1143,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 do {
                     try data.write(to: url, options: .atomic)
                     let px = "\(targetImage.width)×\(targetImage.height)"
-                    self.showStatus("保存しました: \(url.lastPathComponent) (\(px))")
+                    self.showStatus("保存しました: \(url.lastPathComponent) (\(px))", success: true)
                 } catch {
                     self.showStatus("保存失敗: \(error.localizedDescription)")
                 }
@@ -1340,17 +1342,26 @@ struct HintRow: View {
 struct StatusChip: View {
     let message: String
     let visible: Bool
+    var success: Bool = false
 
     var body: some View {
         if visible {
-            Text(message)
-                .font(.caption)
-                .lineLimit(1)
-                .padding(.horizontal, DS.Space.xs)
-                .padding(.vertical, DS.Space.xxs)
-                .background(.regularMaterial, in: Capsule())
-                .shadow(DS.Shadow.overlay)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            HStack(spacing: DS.Space.xxs) {
+                if success {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                }
+                Text(message)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, DS.Space.xs)
+            .padding(.vertical, DS.Space.xxs)
+            .background(.regularMaterial, in: Capsule())
+            .shadow(DS.Shadow.overlay)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .animation(DS.Anim.base, value: success)
         }
     }
 }
@@ -1408,7 +1419,7 @@ struct ContentView: View {
                     onSelect: { state.captureWindowNow($0) },
                     onCancel: {
                         state.showWindowPicker = false
-                        state.showStatus("キャンセルしました")
+                        state.showStatus("キャンセルしました", success: true)
                     }
                 )
             }
@@ -1456,7 +1467,8 @@ struct ContentView: View {
                         }
                     }
                     .overlay(alignment: .bottom) {
-                        StatusChip(message: state.statusMessage, visible: state.statusVisible)
+                        StatusChip(message: state.statusMessage, visible: state.statusVisible,
+                                   success: state.statusIsSuccess)
                             .padding(.bottom, DS.Space.m)
                             .animation(DS.Anim.smooth, value: state.statusVisible)
                     }
