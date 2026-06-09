@@ -1661,6 +1661,12 @@ struct AnnotationCanvasView: View {
                         .opacity(imageOpacity)
                         .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 4)
                     annotationLayer(size: proxy.size)
+                    selectionHandlesOverlay(size: proxy.size)
+                        .allowsHitTesting(false)
+                        .animation(viewModel.isDraggingAnnotation || viewModel.resizingHandleIndex != nil
+                                   ? nil : DS.Anim.fast,
+                                   value: viewModel.selectedAnnotationID)
+                        .animation(DS.Anim.fast, value: viewModel.currentTool)
                     // Animated crop overlay (TimelineView for marching ants)
                     if viewModel.isCropMode {
                         cropOverlayLayer(size: proxy.size)
@@ -2431,6 +2437,57 @@ struct AnnotationCanvasView: View {
         }
     }
 
+    /// 選択中アノテーションのリサイズ/端点/テールハンドル。
+    /// Canvas(GraphicsContext)ではなくSwiftUIビューで描くことで出現/消滅をアニメーションさせる。
+    /// ヒットテストはCanvasViewModel側の座標計算で行うため、ここは表示専用(allowsHitTesting(false))。
+    @ViewBuilder
+    private func selectionHandlesOverlay(size: CGSize) -> some View {
+        let canvasRect = CGRect(origin: .zero, size: size)
+        if viewModel.currentTool == .select,
+           !viewModel.isCropMode,
+           !viewModel.annotationsHidden,
+           viewModel.selectedAnnotationIDs.count <= 1,
+           let ann = viewModel.annotations.first(where: { $0.id == viewModel.selectedAnnotationID }) {
+            ZStack {
+                if CanvasViewModel.isResizable(ann.type) {
+                    let bounds = ann.bounds(in: canvasRect)
+                    let handles = viewModel.handleCorners(for: bounds)
+                    ForEach(Array(handles.enumerated()), id: \.offset) { i, pt in
+                        // corners (0-3): circles, slightly larger / mid-edges (4-7): rounded squares
+                        handleDot(circle: i < 4, diameter: i < 4 ? 11 : 9, tint: .accentColor)
+                            .position(pt)
+                    }
+                    if ann.type == .callout, let baseTail = ann.calloutTailPoint {
+                        handleDot(circle: true, diameter: 10, tint: .orange)
+                            .position(baseTail.applying(ann.transform))
+                    }
+                }
+                if ann.type == .arrow || ann.type == .line,
+                   let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
+                    handleDot(circle: true, diameter: 11, tint: .secondary)
+                        .position(baseStart.applying(ann.transform))
+                    handleDot(circle: true, diameter: 11, tint: .accentColor)
+                        .position(baseEnd.applying(ann.transform))
+                }
+            }
+        }
+    }
+
+    private func handleDot(circle: Bool, diameter: CGFloat, tint: Color) -> some View {
+        Group {
+            if circle {
+                Circle().fill(.white)
+                    .overlay(Circle().stroke(tint, lineWidth: 1.5))
+            } else {
+                RoundedRectangle(cornerRadius: 2).fill(.white)
+                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(tint, lineWidth: 1.5))
+            }
+        }
+        .frame(width: diameter, height: diameter)
+        .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+        .transition(.opacity.combined(with: .scale(scale: 0.5)))
+    }
+
     private func annotationLayer(size: CGSize) -> some View {
         Canvas { context, _ in
             let canvasRect = CGRect(origin: .zero, size: size)
@@ -2624,59 +2681,8 @@ struct AnnotationCanvasView: View {
                 }
             }
 
-            // Resize handles for selected resizable annotation (single select only)
-            if viewModel.currentTool == .select,
-               viewModel.selectedAnnotationIDs.count <= 1,
-               let id = viewModel.selectedAnnotationID,
-               let ann = viewModel.annotations.first(where: { $0.id == id }),
-               CanvasViewModel.isResizable(ann.type) {
-                let bounds = ann.bounds(in: canvasRect)
-                let handles = viewModel.handleCorners(for: bounds)
-                for (i, handle) in handles.enumerated() {
-                    let hs: CGFloat = i < 4 ? 5.5 : 4.5  // corners slightly larger
-                    let outer = CGRect(x: handle.x - hs - 1, y: handle.y - hs - 1, width: (hs+1)*2, height: (hs+1)*2)
-                    let inner = CGRect(x: handle.x - hs, y: handle.y - hs, width: hs*2, height: hs*2)
-                    if i < 4 {
-                        // Corner handles: circles
-                        context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.2)))
-                        context.fill(Path(ellipseIn: inner), with: .color(.white))
-                        context.stroke(Path(ellipseIn: inner), with: .color(.accentColor), lineWidth: 1.5)
-                    } else {
-                        // Mid-edge handles: small rounded squares
-                        context.fill(Path(roundedRect: outer, cornerRadius: 2), with: .color(.black.opacity(0.2)))
-                        context.fill(Path(roundedRect: inner, cornerRadius: 2), with: .color(.white))
-                        context.stroke(Path(roundedRect: inner, cornerRadius: 2), with: .color(.accentColor), lineWidth: 1.5)
-                    }
-                }
-                // Callout tail handle (index 8 — distinct orange dot)
-                if ann.type == .callout, let baseTail = ann.calloutTailPoint {
-                    let tailCanvas = baseTail.applying(ann.transform)
-                    let hs: CGFloat = 5.0
-                    let outer = CGRect(x: tailCanvas.x - hs - 1, y: tailCanvas.y - hs - 1, width: (hs+1)*2, height: (hs+1)*2)
-                    let inner = CGRect(x: tailCanvas.x - hs, y: tailCanvas.y - hs, width: hs*2, height: hs*2)
-                    context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.2)))
-                    context.fill(Path(ellipseIn: inner), with: .color(.white))
-                    context.stroke(Path(ellipseIn: inner), with: .color(Color.orange), lineWidth: 1.5)
-                }
-            }
-
-            // Arrow / Line endpoint handles (single selection)
-            if viewModel.currentTool == .select,
-               viewModel.selectedAnnotationIDs.count <= 1,
-               let id = viewModel.selectedAnnotationID,
-               let ann = viewModel.annotations.first(where: { $0.id == id }),
-               (ann.type == .arrow || ann.type == .line),
-               let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
-                let t = ann.transform
-                for (pt, isEnd) in [(baseStart.applying(t), false), (baseEnd.applying(t), true)] {
-                    let hs: CGFloat = 5.5
-                    let outer = CGRect(x: pt.x - hs - 1, y: pt.y - hs - 1, width: (hs+1)*2, height: (hs+1)*2)
-                    let inner = CGRect(x: pt.x - hs, y: pt.y - hs, width: hs*2, height: hs*2)
-                    context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.2)))
-                    context.fill(Path(ellipseIn: inner), with: .color(.white))
-                    context.stroke(Path(ellipseIn: inner), with: .color(isEnd ? .accentColor : Color.secondary), lineWidth: 1.5)
-                }
-            }
+            // NOTE: resize/endpoint/tail handles are rendered by selectionHandlesOverlay
+            // (SwiftUI views, so appear/disappear can animate — PLAN.md T2.2)
 
             // Rubber-band selection rectangle
             if let band = viewModel.rubberBandRect {
