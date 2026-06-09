@@ -2322,27 +2322,36 @@ final class CanvasViewModel: ObservableObject {
                 cgCtx.fillPath()
             } else {
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
-                if annotation.isFilled {
-                    cgCtx.addPath(cgPath)
-                    cgCtx.setFillColor(annotation.resolvedCGColor.copy(alpha: 0.35) ?? annotation.resolvedCGColor)
-                    cgCtx.fillPath()
-                } else if annotation.type == .arrow {
+                if annotation.type == .arrow {
+                    // Solid polygon arrow — fill only
                     cgCtx.addPath(cgPath)
                     cgCtx.setFillColor(annotation.resolvedCGColor)
                     cgCtx.fillPath()
+                } else if annotation.isFilled {
+                    cgCtx.addPath(cgPath)
+                    cgCtx.setFillColor(annotation.resolvedCGColor.copy(alpha: 0.35) ?? annotation.resolvedCGColor)
+                    cgCtx.fillPath()
+                    cgCtx.addPath(cgPath)
+                    cgCtx.setStrokeColor(annotation.resolvedCGColor)
+                    let lw = annotation.lineWidth.rawValue * strokeScale
+                    cgCtx.setLineWidth(lw)
+                    cgCtx.setLineCap(.round)
+                    cgCtx.setLineJoin(.round)
+                    cgCtx.strokePath()
+                } else {
+                    cgCtx.addPath(cgPath)
+                    cgCtx.setStrokeColor(annotation.resolvedCGColor)
+                    let lw = annotation.lineWidth.rawValue * strokeScale
+                    cgCtx.setLineWidth(lw)
+                    cgCtx.setLineCap(.round)
+                    cgCtx.setLineJoin(.round)
+                    switch annotation.lineStyle {
+                    case .dashed: cgCtx.setLineDash(phase: 0, lengths: [lw * 3, lw * 2])
+                    case .dotted: cgCtx.setLineDash(phase: 0, lengths: [0.01, lw * 2])
+                    case .solid:  break
+                    }
+                    cgCtx.strokePath()
                 }
-                cgCtx.addPath(cgPath)
-                cgCtx.setStrokeColor(annotation.resolvedCGColor)
-                let lw = annotation.lineWidth.rawValue * strokeScale
-                cgCtx.setLineWidth(lw)
-                cgCtx.setLineCap(.round)
-                cgCtx.setLineJoin(.round)
-                switch annotation.lineStyle {
-                case .dashed: cgCtx.setLineDash(phase: 0, lengths: [lw * 3, lw * 2])
-                case .dotted: cgCtx.setLineDash(phase: 0, lengths: [0.01, lw * 2])
-                case .solid:  break
-                }
-                cgCtx.strokePath()
             }
             cgCtx.restoreGState()
         }

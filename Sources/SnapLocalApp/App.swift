@@ -53,7 +53,7 @@ private struct ZoomNotificationHandler: ViewModifier {
                 let fitW = canvasSize.width / sz.width
                 let fitH = canvasSize.height / sz.height
                 withAnimation(.easeOut(duration: 0.2)) {
-                    zoom = max(0.25, min(8.0, min(fitW, fitH))); baseZoom = zoom
+                    zoom = max(0.25, min(4.0, min(fitW, fitH) * 0.9)); baseZoom = zoom
                     panOffset = .zero; basePan = .zero
                 }
             }
@@ -2052,7 +2052,10 @@ struct HistoryRail: View {
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
     @State private var hoveredItemID: UUID? = nil
+    @State private var popoverItemID: UUID? = nil   // delayed popover — avoids flicker on fast scroll
+    @State private var popoverTask: Task<Void, Never>? = nil
     @State private var renamingItemID: UUID? = nil
+    @State private var quickLookItem: VaultItem? = nil
     @State private var renameText: String = ""
     @State private var showDeleteAllConfirm = false
     @State private var showOnlyStarred = false
@@ -2141,187 +2144,40 @@ struct HistoryRail: View {
                             .padding(.bottom, 2)
                         VStack(spacing: 6) {
                         ForEach(items) { item in
-                        let isSelected = item.id == selectedID
-                        Button(action: { onSelect(item) }) {
-                            VStack(spacing: 3) {
-                                Group {
-                                    if let nsImage = thumbCache[item.id]
-                                        ?? NSImage(data: item.thumbnailData) {
-                                        Image(nsImage: nsImage)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .onAppear {
-                                                if thumbCache[item.id] == nil {
-                                                    thumbCache[item.id] = nsImage
-                                                }
-                                            }
+                            HistoryItemRow(
+                                item: item,
+                                isSelected: item.id == selectedID,
+                                isHovered: hoveredItemID == item.id,
+                                showPopover: popoverItemID == item.id,
+                                isRenaming: renamingItemID == item.id,
+                                renameText: $renameText,
+                                searchQuery: searchQuery,
+                                thumbW: thumbW, thumbH: thumbH,
+                                thumbCache: $thumbCache,
+                                onSelect: { onSelect(item) },
+                                onToggleStar: { onToggleStar?(item) },
+                                onDelete: { onDelete(item) },
+                                onDuplicate: { onDuplicate?(item) },
+                                onExport: { onExport(item) },
+                                onRename: { name in onRename?(item, name); renamingItemID = nil },
+                                onRenameBegin: { renameText = item.title ?? ""; renamingItemID = item.id },
+                                onRenameCancelled: { renamingItemID = nil },
+                                onPopoverDismiss: { popoverItemID = nil },
+                                onUpdateNotes: onUpdateNotes,
+                                historyItemLabel: historyItemLabel,
+                                onHoverChanged: { hovering in
+                                    hoveredItemID = hovering ? item.id : nil
+                                    popoverTask?.cancel()
+                                    if hovering {
+                                        popoverTask = Task {
+                                            try? await Task.sleep(nanoseconds: 400_000_000)
+                                            if hoveredItemID == item.id { popoverItemID = item.id }
+                                        }
                                     } else {
-                                        Image(systemName: "photo")
-                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                            .foregroundStyle(.secondary)
+                                        popoverItemID = nil
                                     }
                                 }
-                                .frame(width: thumbW, height: thumbH)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                                .overlay(alignment: .topTrailing) {
-                                    let count = item.annotations.count
-                                    if count > 0 {
-                                        Text("\(count)")
-                                            .font(.system(size: 7, weight: .bold))
-                                            .foregroundStyle(.white)
-                                            .padding(.horizontal, 3)
-                                            .padding(.vertical, 1)
-                                            .background(Color.accentColor, in: Capsule())
-                                            .padding(2)
-                                    }
-                                }
-                                .overlay(alignment: .bottomLeading) {
-                                    let dim = item.dimensionLabel
-                                    if !dim.isEmpty {
-                                        Text(dim)
-                                            .font(.system(size: 6, weight: .medium, design: .monospaced))
-                                            .foregroundStyle(.white)
-                                            .padding(.horizontal, 3)
-                                            .padding(.vertical, 1)
-                                            .background(Color.black.opacity(0.55))
-                                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                                            .padding(2)
-                                    }
-                                }
-                                .overlay(alignment: .topLeading) {
-                                    if item.isStarred || hoveredItemID == item.id {
-                                        Button(action: { onToggleStar?(item) }) {
-                                            Image(systemName: item.isStarred ? "star.fill" : "star")
-                                                .font(.system(size: 8))
-                                                .foregroundStyle(item.isStarred ? Color.yellow : Color.white.opacity(0.8))
-                                                .padding(2)
-                                                .background(Color.black.opacity(0.45))
-                                                .clipShape(Circle())
-                                        }
-                                        .buttonStyle(.plain)
-                                        .padding(2)
-                                    }
-                                }
-                                .overlay(alignment: .topTrailing) {
-                                    if item.notes != nil {
-                                        Image(systemName: "note.text")
-                                            .font(.system(size: 7))
-                                            .foregroundStyle(.white)
-                                            .padding(2)
-                                            .background(Color.black.opacity(0.55))
-                                            .clipShape(Circle())
-                                            .padding(2)
-                                    }
-                                }
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                                )
-
-                                if renamingItemID == item.id {
-                                    TextField("名前", text: $renameText)
-                                        .font(.system(size: 8))
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(width: thumbW)
-                                        .onSubmit {
-                                            onRename?(item, renameText.isEmpty ? nil : renameText)
-                                            renamingItemID = nil
-                                        }
-                                        .onExitCommand { renamingItemID = nil }
-                                } else {
-                                    VStack(spacing: 1) {
-                                        if let title = item.title {
-                                            Text(title)
-                                                .font(.system(size: 8, weight: .medium))
-                                                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                                                .lineLimit(1)
-                                                .frame(width: thumbW, alignment: .leading)
-                                        }
-                                        Text(historyItemLabel(item.createdAt))
-                                            .font(.system(size: 8))
-                                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                                            .lineLimit(1)
-                                    }
-                                }
-
-                                if !item.ocrText.isEmpty && !searchQuery.isEmpty {
-                                    Text(item.ocrText)
-                                        .font(.system(size: 7))
-                                        .lineLimit(2)
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: thumbW, alignment: .leading)
-                                }
-                            }
-                        }
-                        .id(item.id)
-                        .buttonStyle(.plain)
-                        .onDrag { NSItemProvider(contentsOf: item.imageURL) ?? NSItemProvider() }
-                        .onHover { hovering in hoveredItemID = hovering ? item.id : nil }
-                        .popover(isPresented: Binding(
-                            get: { hoveredItemID == item.id },
-                            set: { if !$0 { hoveredItemID = nil } }
-                        ), arrowEdge: .leading) {
-                            HistoryItemPopover(item: item, onUpdateNotes: onUpdateNotes)
-                        }
-                        .contextMenu {
-                            Button(item.isStarred ? "スターを外す" : "スターを付ける") { onToggleStar?(item) }
-                            Divider()
-                            Button("開く") { onSelect(item) }
-                            Button("複製") { onDuplicate?(item) }
-                            Button("名前を変更…") {
-                                renameText = item.title ?? ""
-                                renamingItemID = item.id
-                            }
-                            Divider()
-                            Button("ファイルに保存…") { onExport(item) }
-                            Button("Finderで表示") {
-                                NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
-                            }
-                            Button("Previewで開く") {
-                                NSWorkspace.shared.open([item.imageURL], withAppBundleIdentifier: "com.apple.Preview",
-                                                        options: [], additionalEventParamDescriptor: nil, launchIdentifiers: nil)
-                            }
-                            Button("ファイルパスをコピー") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(item.imageURL.path, forType: .string)
-                            }
-                            Button("Markdownリンクをコピー") {
-                                let alt = item.title ?? "screenshot"
-                                let md = "![\(alt)](\(item.imageURL.path))"
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(md, forType: .string)
-                            }
-                            Button("Data URLをコピー") {
-                                guard let data = try? Data(contentsOf: item.imageURL),
-                                      let ext = item.imageURL.pathExtension.isEmpty ? "png" : item.imageURL.pathExtension as String?,
-                                      let mime = UTType(filenameExtension: ext)?.preferredMIMEType else { return }
-                                let b64 = data.base64EncodedString()
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString("data:\(mime);base64,\(b64)", forType: .string)
-                            }
-                            Button("クリップボードにコピー") {
-                                if let nsImage = NSImage(contentsOf: item.imageURL) {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.writeObjects([nsImage])
-                                }
-                            }
-                            Button("共有…") {
-                                let picker = NSSharingServicePicker(items: [item.imageURL])
-                                if let btn = NSApp.keyWindow?.contentView?.subviews.first {
-                                    picker.show(relativeTo: .zero, of: btn, preferredEdge: .minY)
-                                }
-                            }
-                            if !item.ocrText.isEmpty {
-                                Button("OCRテキストをコピー") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(item.ocrText, forType: .string)
-                                }
-                            }
-                            Divider()
-                            Button("削除", role: .destructive) { onDelete(item) }
-                        }
-                        .help(item.createdAt.formatted(date: .complete, time: .shortened)
-                              + (item.ocrText.isEmpty ? "" : "\n" + String(item.ocrText.prefix(80))))
+                            )
                         }   // ForEach(items)
                         }   // VStack for items
                         .padding(.horizontal, 6)
@@ -2335,6 +2191,17 @@ struct HistoryRail: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                 }
+            }
+            .onKeyPress(.space) {
+                if let id = hoveredItemID, let item = displayedHistory.first(where: { $0.id == id }) {
+                    if quickLookItem?.id == item.id {
+                        quickLookItem = nil
+                    } else {
+                        quickLookItem = item
+                    }
+                    return .handled
+                }
+                return .ignored
             }
             } // ScrollViewReader
 
@@ -2391,6 +2258,215 @@ struct HistoryRail: View {
         }
         .frame(width: 88)
         .background(.regularMaterial)
+        .onKeyPress(.escape) {
+            if quickLookItem != nil {
+                HistoryQuickLook.shared.dismiss()
+                quickLookItem = nil
+                return .handled
+            }
+            return .ignored
+        }
+        .onChange(of: quickLookItem?.id) { _, newID in
+            if let item = quickLookItem {
+                HistoryQuickLook.shared.show(item: item)
+            } else {
+                HistoryQuickLook.shared.dismiss()
+            }
+        }
+    }
+}
+
+// MARK: - History Item Row
+
+private struct HistoryItemRow: View {
+    let item: VaultItem
+    let isSelected: Bool
+    let isHovered: Bool
+    let showPopover: Bool
+    let isRenaming: Bool
+    @Binding var renameText: String
+    let searchQuery: String
+    let thumbW: CGFloat
+    let thumbH: CGFloat
+    @Binding var thumbCache: [UUID: NSImage]
+    let onSelect: () -> Void
+    let onToggleStar: () -> Void
+    let onDelete: () -> Void
+    let onDuplicate: () -> Void
+    let onExport: () -> Void
+    let onRename: (String?) -> Void
+    let onRenameBegin: () -> Void
+    let onRenameCancelled: () -> Void
+    let onPopoverDismiss: () -> Void
+    var onUpdateNotes: ((VaultItem, String?) -> Void)?
+    let historyItemLabel: (Date) -> String
+    let onHoverChanged: (Bool) -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 3) {
+                thumbnailView
+                labelView
+                if !item.ocrText.isEmpty && !searchQuery.isEmpty {
+                    Text(item.ocrText)
+                        .font(.system(size: 7))
+                        .lineLimit(2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: thumbW, alignment: .leading)
+                }
+            }
+        }
+        .id(item.id)
+        .buttonStyle(.plain)
+        .onDrag { NSItemProvider(contentsOf: item.imageURL) ?? NSItemProvider() }
+        .onHover(perform: onHoverChanged)
+        .popover(isPresented: Binding(get: { showPopover }, set: { if !$0 { onPopoverDismiss() } }), arrowEdge: .leading) {
+            HistoryItemPopover(item: item, onUpdateNotes: onUpdateNotes)
+        }
+        .contextMenu { contextMenuContent }
+        .help(makeHelp())
+    }
+
+    private func makeHelp() -> String {
+        var s = item.createdAt.formatted(date: .complete, time: .shortened)
+        if item.width > 0 { s += "  \(item.width)×\(item.height)" }
+        s += "  Space: クイックルック"
+        if !item.ocrText.isEmpty { s += "\n" + String(item.ocrText.prefix(80)) }
+        return s
+    }
+
+    @ViewBuilder private var thumbnailView: some View {
+        Group {
+            if let nsImage = thumbCache[item.id] ?? NSImage(data: item.thumbnailData) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .onAppear { if thumbCache[item.id] == nil { thumbCache[item.id] = nsImage } }
+            } else {
+                Image(systemName: "photo")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: thumbW, height: thumbH)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(alignment: .topTrailing) {
+            if item.annotations.count > 0 {
+                Text("\(item.annotations.count)")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 3).padding(.vertical, 1)
+                    .background(Color.accentColor, in: Capsule())
+                    .padding(2)
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            let dim = item.dimensionLabel
+            if !dim.isEmpty {
+                Text(dim)
+                    .font(.system(size: 6, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 3).padding(.vertical, 1)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .padding(2)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if item.isStarred || isHovered {
+                let icon = item.isStarred ? "star.fill" : "star"
+                let color: Color = item.isStarred ? .yellow : .white.opacity(0.8)
+                Button(action: onToggleStar) {
+                    Image(systemName: icon)
+                        .font(.system(size: 8))
+                        .foregroundStyle(color)
+                        .padding(2)
+                        .background(Color.black.opacity(0.45))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(2)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if item.notes != nil {
+                Image(systemName: "note.text")
+                    .font(.system(size: 7))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(2)
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+    }
+
+    @ViewBuilder private var labelView: some View {
+        if isRenaming {
+            TextField("名前", text: $renameText)
+                .font(.system(size: 8))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: thumbW)
+                .onSubmit { onRename(renameText.isEmpty ? nil : renameText) }
+                .onExitCommand { onRenameCancelled() }
+        } else {
+            VStack(spacing: 1) {
+                if let title = item.title {
+                    Text(title)
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        .lineLimit(1)
+                        .frame(width: thumbW, alignment: .leading)
+                }
+                Text(historyItemLabel(item.createdAt))
+                    .font(.system(size: 8))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder private var contextMenuContent: some View {
+        Button(item.isStarred ? "スターを外す" : "スターを付ける") { onToggleStar() }
+        Divider()
+        Button("開く") { onSelect() }
+        Button("複製") { onDuplicate() }
+        Button("名前を変更…") { onRenameBegin() }
+        Divider()
+        Button("ファイルに保存…") { onExport() }
+        Button("Finderで表示") { NSWorkspace.shared.activateFileViewerSelecting([item.imageURL]) }
+        Button("Previewで開く") {
+            NSWorkspace.shared.open([item.imageURL], withAppBundleIdentifier: "com.apple.Preview",
+                                    options: [], additionalEventParamDescriptor: nil, launchIdentifiers: nil)
+        }
+        Button("ファイルパスをコピー") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.imageURL.path, forType: .string)
+        }
+        Button("Markdownリンクをコピー") {
+            let alt = item.title ?? "screenshot"
+            let md = "![" + alt + "](" + item.imageURL.path + ")"
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(md, forType: .string)
+        }
+        Button("クリップボードにコピー") {
+            if let nsImage = NSImage(contentsOf: item.imageURL) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([nsImage])
+            }
+        }
+        Button("共有…") {
+            let picker = NSSharingServicePicker(items: [item.imageURL])
+            if let btn = NSApp.keyWindow?.contentView?.subviews.first {
+                picker.show(relativeTo: .zero, of: btn, preferredEdge: .minY)
+            }
+        }
+        if !item.ocrText.isEmpty {
+            Button("OCRテキストをコピー") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.ocrText, forType: .string)
+            }
+        }
+        Divider()
+        Button("削除", role: .destructive) { onDelete() }
     }
 }
 
@@ -2688,6 +2764,14 @@ struct HelpPopoverContent: View {
             ("⌘V", "クリップボードから貼り付け"),
             ("⌘⇧P", "画面にピン留め"),
             ("⌘F", "フィット表示"),
+        ]),
+        ("範囲選択モード（⌘⇧4）", [
+            ("ドラッグ", "範囲を選択（ウィンドウ自動スナップ対応）"),
+            ("Shift+ドラッグ", "正方形に制約"),
+            ("Space+ドラッグ中", "選択範囲を移動（サイズ固定）"),
+            ("矢印キー", "1px微調整（Shift=10px）"),
+            ("↵ / ダブルクリック", "確定して撮影"),
+            ("Esc", "キャンセル / やり直し"),
         ]),
         ("ツール", [
             ("V", "選択ツール"),
@@ -3562,6 +3646,28 @@ struct AnnotationCanvasView: View {
                     }
                 }
             }
+            // Selected annotation size indicator (bottom-right)
+            .overlay(alignment: .bottomTrailing) {
+                if viewModel.currentTool == .select,
+                   let id = viewModel.selectedAnnotationID,
+                   let ann = viewModel.annotations.first(where: { $0.id == id }) {
+                    let b = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
+                    let img = viewModel.backgroundImage
+                    let sx = img.map { CGFloat($0.width) / viewModel.canvasSize.width } ?? 1
+                    let sy = img.map { CGFloat($0.height) / viewModel.canvasSize.height } ?? 1
+                    let pw = Int(b.width * sx), ph = Int(b.height * sy)
+                    if pw > 0 && ph > 0 {
+                        Text("\(pw) × \(ph)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3))
+                            .padding(6)
+                            .transition(.opacity)
+                    }
+                }
+            }
             .focusable()
             .focused($canvasFocused)
             // Tool shortcut keys (only when text field not focused)
@@ -3923,14 +4029,15 @@ struct AnnotationCanvasView: View {
                 }
             }
             .onChange(of: viewModel.loadToken) { _, _ in
-                // Auto-fit: if image is larger than canvas, scale down; never zoom in past 100%
+                // Auto-fit: zoom to fill the canvas view, capped at 4x (good for small region captures)
                 if let img = viewModel.backgroundImage,
                    viewModel.canvasSize.width > 0, viewModel.canvasSize.height > 0 {
                     let iw = CGFloat(img.width), ih = CGFloat(img.height)
                     let fitW = viewModel.canvasSize.width / iw
                     let fitH = viewModel.canvasSize.height / ih
-                    let fitZoom = min(1.0, min(fitW, fitH))
-                    zoom = max(0.25, fitZoom); baseZoom = zoom
+                    // Fit image to canvas with 10% margin, cap zoom at 4x to avoid excessive upscaling
+                    let fitZoom = min(fitW, fitH) * 0.9
+                    zoom = max(0.25, min(4.0, fitZoom)); baseZoom = zoom
                 } else {
                     zoom = 1.0; baseZoom = 1.0
                 }
@@ -4168,6 +4275,19 @@ struct AnnotationCanvasView: View {
                         context.stroke(Path(bounds.insetBy(dx: -3, dy: -3)), with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
                     }
+                } else if annotation.type == .arrow {
+                    // Solid polygon arrow — fill only, no outline stroke
+                    let path = annotation.path(in: canvasRect)
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        context.fill(path, with: .color(.white))
+                    }
+                    context.fill(path, with: .color(annotation.resolvedColor.opacity(annotationOpacity)))
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        let bounds = annotation.bounds(in: canvasRect).insetBy(dx: -5, dy: -5)
+                        context.stroke(Path(bounds.insetBy(dx: -1, dy: -1)),
+                                       with: .color(.white.opacity(0.4)), lineWidth: 3)
+                        context.stroke(Path(bounds), with: .color(.accentColor.opacity(0.9)), lineWidth: 1.5)
+                    }
                 } else {
                     let path = annotation.path(in: canvasRect)
                     let lw = annotation.lineWidth.rawValue
@@ -4175,25 +4295,17 @@ struct AnnotationCanvasView: View {
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.stroke(path, with: .color(.white),
                                        style: StrokeStyle(lineWidth: lw + 4, lineCap: .round, lineJoin: .round))
-                        if annotation.type == .arrow {
-                            context.fill(path, with: .color(.white))
-                        }
                     }
                     if annotation.isFilled {
                         context.fill(path, with: .color(annotation.resolvedColor.opacity(0.35 * annotationOpacity)))
                         context.stroke(path, with: .color(annotation.resolvedColor.opacity(annotationOpacity)), style: strokeStyle)
                     } else {
                         context.stroke(path, with: .color(annotation.resolvedColor.opacity(annotationOpacity)), style: strokeStyle)
-                        if annotation.type == .arrow {
-                            context.fill(path, with: .color(annotation.resolvedColor.opacity(annotationOpacity)))
-                        }
                     }
                     if annotation.id == viewModel.selectedAnnotationID {
                         let bounds = annotation.bounds(in: canvasRect).insetBy(dx: -5, dy: -5)
-                        // White halo for contrast against any background
                         context.stroke(Path(bounds.insetBy(dx: -1, dy: -1)),
                                        with: .color(.white.opacity(0.4)), lineWidth: 3)
-                        // Solid accent border
                         context.stroke(Path(bounds), with: .color(.accentColor.opacity(0.9)), lineWidth: 1.5)
                     }
                 }
@@ -4295,27 +4407,13 @@ struct AnnotationCanvasView: View {
                 let previewColor = viewModel.currentColor.color.opacity(viewModel.currentOpacity * 0.85)
                 let lw = viewModel.currentLineWidth.rawValue
                 if viewModel.currentTool == .arrow {
-                    let dx = end.x - start.x, dy = end.y - start.y
-                    let length = hypot(dx, dy)
-                    if length > 1 {
-                        let angle = atan2(dy, dx)
-                        let headLen: CGFloat = lw * 4 + 12
-                        let headAngle: CGFloat = .pi / 5.5
-                        let shaftEnd = length > headLen
-                            ? CGPoint(x: end.x - headLen * cos(angle), y: end.y - headLen * sin(angle))
-                            : start
-                        var p = Path()
-                        p.move(to: start)
-                        p.addLine(to: shaftEnd)
-                        p.move(to: end)
-                        p.addLine(to: CGPoint(x: end.x - headLen * cos(angle - headAngle),
-                                              y: end.y - headLen * sin(angle - headAngle)))
-                        p.addLine(to: CGPoint(x: end.x - headLen * cos(angle + headAngle),
-                                              y: end.y - headLen * sin(angle + headAngle)))
-                        p.closeSubpath()
-                        context.stroke(p, with: .color(previewColor), lineWidth: lw)
-                        context.fill(p, with: .color(previewColor))
-                    }
+                    // Live preview: solid polygon arrow matching final rendering
+                    var preview = ArrowAnnotation(
+                        color: viewModel.currentColor, lineWidth: viewModel.currentLineWidth,
+                        startPoint: start, endPoint: end)
+                    preview.doubleSided = viewModel.currentArrowDoubleSided
+                    let p = preview.path(in: canvasRect)
+                    context.fill(p, with: .color(previewColor))
                 } else {
                     var preview = Path()
                     switch viewModel.currentTool {

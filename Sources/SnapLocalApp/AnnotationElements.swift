@@ -54,36 +54,52 @@ struct ArrowAnnotation: AnnotationElement {
         let dx = e.x - s.x, dy = e.y - s.y
         let length = hypot(dx, dy)
         guard length > 1 else { return Path() }
-        let angle = atan2(dy, dx)
         let lw = lineWidth.rawValue
-        let headLen: CGFloat = lw * 4 + 12
-        let headAngle: CGFloat = .pi / 5.5
-        let shaftStart = doubleSided && length > headLen * 2
-            ? CGPoint(x: s.x + headLen * cos(angle), y: s.y + headLen * sin(angle))
-            : s
-        let shaftEnd = length > headLen
-            ? CGPoint(x: e.x - headLen * cos(angle), y: e.y - headLen * sin(angle))
-            : s
-        var p = Path()
-        p.move(to: shaftStart)
-        p.addLine(to: shaftEnd)
-        // Forward arrowhead at end
-        p.move(to: e)
-        p.addLine(to: CGPoint(x: e.x - headLen * cos(angle - headAngle),
-                               y: e.y - headLen * sin(angle - headAngle)))
-        p.addLine(to: CGPoint(x: e.x - headLen * cos(angle + headAngle),
-                               y: e.y - headLen * sin(angle + headAngle)))
-        p.closeSubpath()
-        // Backward arrowhead at start (only if double-sided)
-        if doubleSided {
-            p.move(to: s)
-            p.addLine(to: CGPoint(x: s.x + headLen * cos(angle - headAngle),
-                                   y: s.y + headLen * sin(angle - headAngle)))
-            p.addLine(to: CGPoint(x: s.x + headLen * cos(angle + headAngle),
-                                   y: s.y + headLen * sin(angle + headAngle)))
+        // Unit vectors: forward (ux,uy) and perpendicular left (px,py)
+        let ux = dx / length, uy = dy / length
+        let px = -uy, py = ux
+        // Arrow proportions
+        let headLen = min(lw * 3.5 + 12, length * 0.65)
+        let halfHead = headLen * 0.55          // half-width of arrowhead base
+        let halfShaft = max(lw * 0.45, 1.5)   // half-width of shaft
+        // Build as a single solid polygon (shaft + head unified)
+        if doubleSided && length > headLen * 2.2 {
+            // Double-sided: head-tail-shaft-head polygon
+            let tailBase = CGPoint(x: s.x + headLen * ux, y: s.y + headLen * uy)
+            let tipBase   = CGPoint(x: e.x - headLen * ux, y: e.y - headLen * uy)
+            var p = Path()
+            p.move(to: e)
+            p.addLine(to: CGPoint(x: tipBase.x + halfHead * px, y: tipBase.y + halfHead * py))
+            p.addLine(to: CGPoint(x: tipBase.x + halfShaft * px, y: tipBase.y + halfShaft * py))
+            p.addLine(to: CGPoint(x: tailBase.x + halfShaft * px, y: tailBase.y + halfShaft * py))
+            p.addLine(to: CGPoint(x: tailBase.x + halfHead * px, y: tailBase.y + halfHead * py))
+            p.addLine(to: s)
+            p.addLine(to: CGPoint(x: tailBase.x - halfHead * px, y: tailBase.y - halfHead * py))
+            p.addLine(to: CGPoint(x: tailBase.x - halfShaft * px, y: tailBase.y - halfShaft * py))
+            p.addLine(to: CGPoint(x: tipBase.x - halfShaft * px, y: tipBase.y - halfShaft * py))
+            p.addLine(to: CGPoint(x: tipBase.x - halfHead * px, y: tipBase.y - halfHead * py))
             p.closeSubpath()
+            return p
+        } else {
+            // Single-sided: tip→left-wing→shaft-left→shaft-start-left→shaft-start-right→shaft-right→right-wing
+            let shaftStart = doubleSided ? CGPoint(x: s.x + headLen * ux, y: s.y + headLen * uy) : s
+            let tipBase = CGPoint(x: e.x - headLen * ux, y: e.y - headLen * uy)
+            var p = Path()
+            p.move(to: e)
+            p.addLine(to: CGPoint(x: tipBase.x + halfHead * px, y: tipBase.y + halfHead * py))
+            p.addLine(to: CGPoint(x: tipBase.x + halfShaft * px, y: tipBase.y + halfShaft * py))
+            p.addLine(to: CGPoint(x: shaftStart.x + halfShaft * px, y: shaftStart.y + halfShaft * py))
+            if doubleSided {
+                p.addLine(to: CGPoint(x: shaftStart.x + halfHead * px, y: shaftStart.y + halfHead * py))
+                p.addLine(to: s)
+                p.addLine(to: CGPoint(x: shaftStart.x - halfHead * px, y: shaftStart.y - halfHead * py))
+            }
+            p.addLine(to: CGPoint(x: shaftStart.x - halfShaft * px, y: shaftStart.y - halfShaft * py))
+            p.addLine(to: CGPoint(x: tipBase.x - halfShaft * px, y: tipBase.y - halfShaft * py))
+            p.addLine(to: CGPoint(x: tipBase.x - halfHead * px, y: tipBase.y - halfHead * py))
+            p.closeSubpath()
+            return p
         }
-        return p
     }
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {

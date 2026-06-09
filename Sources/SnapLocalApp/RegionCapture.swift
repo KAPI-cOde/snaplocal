@@ -791,6 +791,22 @@ private final class RegionView: NSView {
                 ctx.stroke(insetSel.insetBy(dx: -0.25, dy: -0.25))
                 ctx.restoreGState()
 
+                // Rule-of-thirds grid (dashed, subtle — only visible when selection is large enough)
+                if localSel.width > 60 && localSel.height > 60 {
+                    ctx.saveGState()
+                    ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.2).cgColor)
+                    ctx.setLineWidth(0.5)
+                    ctx.setLineDash(phase: 0, lengths: [4, 3])
+                    for i in [1, 2] {
+                        let x = localSel.minX + localSel.width * CGFloat(i) / 3
+                        let y = localSel.minY + localSel.height * CGFloat(i) / 3
+                        ctx.move(to: CGPoint(x: x, y: localSel.minY)); ctx.addLine(to: CGPoint(x: x, y: localSel.maxY))
+                        ctx.move(to: CGPoint(x: localSel.minX, y: y)); ctx.addLine(to: CGPoint(x: localSel.maxX, y: y))
+                    }
+                    ctx.strokePath()
+                    ctx.restoreGState()
+                }
+
                 // Draw size label inside selection
                 drawSizeLabel(ctx: ctx, inRect: localSel, size: ow.selectionRect.size, spaceHeld: ow.spaceHeldDuringDrag)
 
