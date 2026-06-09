@@ -1027,6 +1027,8 @@ struct CompactToolbar: View {
     @State private var showSettings = false
     @State private var showAdjustments = false
     @State private var showDecoration = false
+    @State private var showSaveTemplate = false
+    @State private var templateNameInput = ""
     @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
@@ -1541,6 +1543,50 @@ struct CompactToolbar: View {
                         }
                     }
                 }
+            }
+
+            // Annotation templates
+            Menu {
+                if !canvas.annotations.isEmpty {
+                    Button("現在のアノテーションをテンプレートとして保存…") {
+                        templateNameInput = ""
+                        showSaveTemplate = true
+                    }
+                    if !settings.annotationTemplates.isEmpty { Divider() }
+                }
+                if settings.annotationTemplates.isEmpty {
+                    Text("テンプレートなし").foregroundStyle(.secondary)
+                } else {
+                    ForEach(settings.annotationTemplates) { t in
+                        Menu(t.name) {
+                            Button("適用（追加）") {
+                                for var ann in t.annotations {
+                                    ann.id = UUID()
+                                    canvas.addAnnotation(ann)
+                                }
+                            }
+                            Button("削除", role: .destructive) {
+                                settings.deleteTemplate(id: t.id)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "square.on.square.dashed")
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 22)
+            .help("アノテーションテンプレート")
+            .alert("テンプレート名を入力", isPresented: $showSaveTemplate) {
+                TextField("テンプレート名", text: $templateNameInput)
+                Button("保存") {
+                    let name = templateNameInput.trimmingCharacters(in: .whitespaces)
+                    guard !name.isEmpty else { return }
+                    settings.saveTemplate(name: name, annotations: canvas.annotations)
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("現在の\(canvas.annotations.count)個のアノテーションを保存します")
             }
 
             Button(action: { showHelp.toggle() }) {

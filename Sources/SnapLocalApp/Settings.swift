@@ -10,6 +10,14 @@ import SwiftUI
 import ServiceManagement
 #endif
 
+// MARK: - Annotation Template
+
+struct AnnotationTemplate: Codable, Identifiable {
+    var id: UUID = UUID()
+    var name: String
+    var annotations: [AnyAnnotation]
+}
+
 // MARK: - Settings Keys
 
 enum SettingsKey: String {
@@ -23,6 +31,7 @@ enum SettingsKey: String {
     case filenameTemplate = "filename.template"
     case captureWithCursor = "capture.withCursor"
     case autoCopyOnCapture = "capture.autoCopy"
+    case annotationTemplates = "annotation.templates"
 }
 
 // MARK: - Settings Manager
@@ -162,6 +171,34 @@ final class SettingsManager: ObservableObject {
         if recent.count > 5 { recent = Array(recent.prefix(5)) }
         recentCustomColors = recent
         objectWillChange.send()
+    }
+
+    // MARK: - Annotation Templates
+
+    var annotationTemplates: [AnnotationTemplate] {
+        get {
+            guard let data = defaults.data(forKey: SettingsKey.annotationTemplates.rawValue),
+                  let templates = try? JSONDecoder().decode([AnnotationTemplate].self, from: data) else { return [] }
+            return templates
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: SettingsKey.annotationTemplates.rawValue)
+            }
+            objectWillChange.send()
+        }
+    }
+
+    func saveTemplate(name: String, annotations: [AnyAnnotation]) {
+        let t = AnnotationTemplate(name: name, annotations: annotations)
+        var templates = annotationTemplates
+        templates.removeAll { $0.name == name }
+        templates.insert(t, at: 0)
+        annotationTemplates = templates
+    }
+
+    func deleteTemplate(id: UUID) {
+        annotationTemplates.removeAll { $0.id == id }
     }
     
     private func setLaunchAtLogin(_ enabled: Bool) {
