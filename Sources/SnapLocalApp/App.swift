@@ -71,6 +71,7 @@ struct SnapLocalApp: App {
                 Button("別名で保存…") { appState.saveAnnotatedImageAs() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                 Button("履歴をZIPで書き出し") { appState.exportHistoryAsZip() }
+                Button("履歴をPDFで書き出し") { appState.exportHistoryAsPDF() }
             }
 
             // Capture menu
@@ -692,6 +693,67 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 } catch {
                     showStatus("ZIP作成失敗: \(error.localizedDescription)")
                 }
+            }
+        }
+    }
+
+    func exportHistoryAsPDF() {
+        guard !history.isEmpty else { showStatus("エクスポートする履歴がありません"); return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.pdf]
+        let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmmss"
+        panel.nameFieldStringValue = "SnapLocal-\(df.string(from: Date())).pdf"
+        panel.begin { [self] response in
+            guard response == .OK, let url = panel.url else { return }
+            showStatus("PDF作成中…")
+            Task.detached(priority: .userInitiated) { [history = history] in
+                let pagePt = CGSize(width: 595.0, height: 842.0)   // A4 @72 dpi
+                let margin: CGFloat = 36.0
+                var mediaBox = CGRect(origin: .zero, size: pagePt)
+                guard let ctx = CGContext(url as CFURL, mediaBox: &mediaBox, nil) else {
+                    await MainActor.run { self.showStatus("PDF作成失敗") }
+                    return
+                }
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateStyle = .short
+                dateFormatter.timeStyle = .short
+
+                for (idx, item) in history.enumerated() {
+                    ctx.beginPDFPage(nil)
+                    // White background
+                    ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+                    ctx.fill(CGRect(origin: .zero, size: pagePt))
+
+                    // Load image
+                    if let nsImg = NSImage(contentsOf: item.imageURL),
+                       let cgImg = nsImg.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        let maxW = pagePt.width - margin * 2
+                        let maxH = pagePt.height - margin * 2 - 40
+                        let iw = CGFloat(cgImg.width), ih = CGFloat(cgImg.height)
+                        let scale = min(maxW / iw, maxH / ih, 1.0)
+                        let dw = iw * scale, dh = ih * scale
+                        let x = (pagePt.width - dw) / 2
+                        let y = pagePt.height - margin - dh
+                        ctx.draw(cgImg, in: CGRect(x: x, y: y, width: dw, height: dh))
+                    }
+
+                    // Footer: index + date + title
+                    let title = item.title ?? item.imageURL.deletingPathExtension().lastPathComponent
+                    let dateStr = dateFormatter.string(from: item.createdAt)
+                    let footer = "\(idx + 1) / \(history.count)   \(dateStr)   \(title)"
+                    let attrs: [NSAttributedString.Key: Any] = [
+                        .font: NSFont.systemFont(ofSize: 9),
+                        .foregroundColor: NSColor.gray
+                    ]
+                    let str = NSAttributedString(string: footer, attributes: attrs)
+                    let line = CTLineCreateWithAttributedString(str)
+                    ctx.textPosition = CGPoint(x: margin, y: 14)
+                    CTLineDraw(line, ctx)
+
+                    ctx.endPDFPage()
+                }
+                ctx.closePDF()
+                await MainActor.run { self.showStatus("PDFを保存しました: \(url.lastPathComponent) (\(history.count)ページ)") }
             }
         }
     }
@@ -1611,6 +1673,7 @@ struct HistoryRail: View {
     var onDuplicate: ((VaultItem) -> Void)? = nil
     var onDeleteAll: (() -> Void)? = nil
     var onExportZip: (() -> Void)? = nil
+    var onExportPDF: (() -> Void)? = nil
     var onUpdateNotes: ((VaultItem, String?) -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
@@ -1900,6 +1963,14 @@ struct HistoryRail: View {
                     }
                     .buttonStyle(.borderless)
                     .help("すべての履歴をZIPでエクスポート")
+                }
+                if let onExportPDF {
+                    Button(action: onExportPDF) {
+                        Image(systemName: "doc.richtext")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("すべての履歴をPDFでエクスポート")
                 }
                 if let onDeleteAll {
                     Button(action: { showDeleteAllConfirm = true }) {
@@ -2543,6 +2614,7 @@ struct ContentView: View {
                         onDuplicate: state.duplicateHistoryItem,
                         onDeleteAll: state.deleteAllHistory,
                         onExportZip: state.exportHistoryAsZip,
+                        onExportPDF: state.exportHistoryAsPDF,
                         onUpdateNotes: state.updateNotesForItem
                     )
                     .transition(.move(edge: .trailing))
