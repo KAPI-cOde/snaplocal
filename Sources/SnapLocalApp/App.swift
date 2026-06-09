@@ -2804,11 +2804,12 @@ struct HelpPopoverContent: View {
             ("⌘F", "フィット表示"),
         ]),
         ("範囲選択モード（⌘⇧4）", [
+            ("スクリーンフリーズ", "起動時に画面を静止画として固定 — ツールチップやメニューも撮影可能"),
             ("ドラッグ", "範囲を選択（ウィンドウ自動スナップ対応）"),
             ("Shift+ドラッグ", "正方形に制約"),
             ("Space+ドラッグ中", "選択範囲を移動（サイズ固定）"),
             ("矢印キー", "1px微調整（Shift=10px）"),
-            ("↵ / ダブルクリック", "確定して撮影"),
+            ("↵ / ダブルクリック", "確定して撮影（即時反映 — 再キャプチャ不要）"),
             ("Esc", "キャンセル / やり直し"),
         ]),
         ("ツール", [
@@ -3388,8 +3389,8 @@ struct AnnotationCanvasView: View {
         case .select:
             if let hi = hoverHandleIndex {
                 switch hi {
-                case 0, 3: NSCursor.crosshair.set()       // TL, BR corners → diagonal ↖↘
-                case 1, 2: NSCursor.crosshair.set()       // TR, BL corners → diagonal ↗↙
+                case 0, 3: cursorNWSE.set()               // TL, BR corners → ↖↘
+                case 1, 2: cursorNESW.set()               // TR, BL corners → ↗↙
                 case 4, 5: NSCursor.resizeUpDown.set()    // Top/Bottom mid
                 case 6, 7: NSCursor.resizeLeftRight.set() // Left/Right mid
                 default:   NSCursor.crosshair.set()
@@ -4691,3 +4692,36 @@ struct AnnotationCanvasView: View {
         }
     }
 }
+
+// MARK: - Diagonal resize cursor
+
+private func makeDiagonalCursor(nwse: Bool) -> NSCursor {
+    let size: CGFloat = 16
+    let img = NSImage(size: NSSize(width: size, height: size))
+    img.lockFocus()
+    let ctx = NSGraphicsContext.current!.cgContext
+    for (color, lineWidth) in [(NSColor.white.cgColor, CGFloat(3.0)), (NSColor.black.cgColor, CGFloat(1.5))] {
+        ctx.setStrokeColor(color)
+        ctx.setLineWidth(lineWidth)
+        ctx.setLineCap(.round)
+        if nwse {
+            ctx.move(to: CGPoint(x: 3, y: 13)); ctx.addLine(to: CGPoint(x: 13, y: 3))
+            ctx.move(to: CGPoint(x: 3, y: 13)); ctx.addLine(to: CGPoint(x: 3, y: 8))
+            ctx.move(to: CGPoint(x: 3, y: 13)); ctx.addLine(to: CGPoint(x: 8, y: 13))
+            ctx.move(to: CGPoint(x: 13, y: 3)); ctx.addLine(to: CGPoint(x: 13, y: 8))
+            ctx.move(to: CGPoint(x: 13, y: 3)); ctx.addLine(to: CGPoint(x: 8, y: 3))
+        } else {
+            ctx.move(to: CGPoint(x: 13, y: 13)); ctx.addLine(to: CGPoint(x: 3, y: 3))
+            ctx.move(to: CGPoint(x: 13, y: 13)); ctx.addLine(to: CGPoint(x: 8, y: 13))
+            ctx.move(to: CGPoint(x: 13, y: 13)); ctx.addLine(to: CGPoint(x: 13, y: 8))
+            ctx.move(to: CGPoint(x: 3, y: 3)); ctx.addLine(to: CGPoint(x: 3, y: 8))
+            ctx.move(to: CGPoint(x: 3, y: 3)); ctx.addLine(to: CGPoint(x: 8, y: 3))
+        }
+        ctx.strokePath()
+    }
+    img.unlockFocus()
+    return NSCursor(image: img, hotSpot: NSPoint(x: size / 2, y: size / 2))
+}
+
+@MainActor private let cursorNWSE = makeDiagonalCursor(nwse: true)
+@MainActor private let cursorNESW = makeDiagonalCursor(nwse: false)
