@@ -19,6 +19,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var isFilled: Bool
     var stepNumber: Int?
     var hasStrokeRepresentation: Bool
+    var opacity: Double = 1.0
 
     // Captures base path with .identity transform; AnyAnnotation.transform applied on top in path(in:)
     private let _basePath: (CGRect) -> Path
@@ -79,7 +80,14 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         _applyFilter(image, transform)
     }
 
-    func encode(to encoder: Encoder) throws { try _encode(encoder) }
+    func encode(to encoder: Encoder) throws {
+        try _encode(encoder)
+        // Write opacity alongside concrete annotation keys (shared keyed container)
+        if opacity != 1.0 {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(opacity, forKey: .opacity)
+        }
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -125,12 +133,13 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.isFilled = wrapped.isFilled
         self.stepNumber = wrapped.stepNumber
         self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation
+        self.opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         self._basePath = wrapped._basePath
         self._applyFilter = wrapped._applyFilter
         self._encode = wrapped._encode
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, color, lineWidth, transform
+        case id, type, color, lineWidth, transform, opacity
     }
 }

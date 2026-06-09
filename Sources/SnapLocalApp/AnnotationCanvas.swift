@@ -212,6 +212,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentBlurRadius: Float = 20
     @Published var currentFontSize: CGFloat = 18
     @Published var currentFilled: Bool = false
+    @Published var currentOpacity: Double = 1.0
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
@@ -256,6 +257,16 @@ final class CanvasViewModel: ObservableObject {
                   ann.hasStrokeRepresentation, ann.lineWidth != currentLineWidth else { continue }
             ann.lineWidth = currentLineWidth
             updateAnnotation(ann)
+        }
+    }
+
+    func applyCurrentOpacityToSelection() {
+        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        for id in ids {
+            guard var ann = annotations.first(where: { $0.id == id }), ann.opacity != currentOpacity else { continue }
+            ann.opacity = currentOpacity
+            updateAnnotation(ann)
+            if !ann.hasStrokeRepresentation { updateFilterPreview(for: ann) }
         }
     }
 
@@ -397,6 +408,7 @@ final class CanvasViewModel: ObservableObject {
                 if annotation.type == .rectangle || annotation.type == .ellipse || annotation.type == .roundedRect {
                     currentFilled = annotation.isFilled
                 }
+                currentOpacity = annotation.opacity
                 return
             }
         }
@@ -967,10 +979,12 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
-        addAnnotation(annotation)
-        selectedAnnotationID = annotation.id
+        var mutableAnnotation = annotation
+        mutableAnnotation.opacity = currentOpacity
+        addAnnotation(mutableAnnotation)
+        selectedAnnotationID = mutableAnnotation.id
     }
-    
+
     func beginEditingSelectedText() {
         guard let id = selectedAnnotationID,
               let annotation = annotations.first(where: { $0.id == id }),
@@ -1146,6 +1160,7 @@ final class CanvasViewModel: ObservableObject {
         for annotation in annotations {
             guard annotation.hasStrokeRepresentation else { continue }
             cgCtx.saveGState()
+            cgCtx.setAlpha(annotation.opacity)
             if annotation.type == .step, let n = annotation.stepNumber {
                 let rect = annotation.bounds(in: viewRect).applying(toImage)
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath

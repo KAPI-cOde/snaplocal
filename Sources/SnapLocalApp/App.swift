@@ -666,6 +666,18 @@ struct CompactToolbar: View {
                 .help("テキストサイズ")
             }
 
+            // Opacity slider — always visible
+            HStack(spacing: 2) {
+                Image(systemName: "circle.lefthalf.filled")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Slider(value: $canvas.currentOpacity, in: 0.1...1.0, step: 0.05)
+                    .frame(width: 56)
+                    .controlSize(.mini)
+                    .onChange(of: canvas.currentOpacity) { _, _ in canvas.applyCurrentOpacityToSelection() }
+            }
+            .help("不透明度 \(Int(canvas.currentOpacity * 100))%")
+
             Divider().frame(height: 18)
 
             ForEach(AnnotationColor.allCases, id: \.self) { color in
@@ -1798,9 +1810,10 @@ struct AnnotationCanvasView: View {
                 ? viewModel.selectedAnnotationID : nil
 
             for annotation in viewModel.annotations {
+                let annotationOpacity = annotation.opacity
                 if annotation.type == .highlight {
                     let path = annotation.path(in: canvasRect)
-                    context.fill(path, with: .color(annotation.color.color.opacity(0.38)))
+                    context.fill(path, with: .color(annotation.color.color.opacity(0.38 * annotationOpacity)))
                     if annotation.id == viewModel.selectedAnnotationID || viewModel.selectedAnnotationIDs.contains(annotation.id) {
                         context.stroke(path, with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
@@ -1811,7 +1824,7 @@ struct AnnotationCanvasView: View {
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.fill(circlePath, with: .color(.white.opacity(0.5)))
                     }
-                    context.fill(circlePath, with: .color(annotation.color.color))
+                    context.fill(circlePath, with: .color(annotation.color.color.opacity(annotationOpacity)))
                     let textColor: Color = annotation.color == .yellow || annotation.color == .white ? .black : .white
                     let fs = min(bounds.width, bounds.height) * 0.5
                     context.draw(
@@ -1830,7 +1843,7 @@ struct AnnotationCanvasView: View {
                     context.draw(
                         Text(text)
                             .font(.system(size: fontSize, weight: .semibold))
-                            .foregroundColor(annotation.color.color),
+                            .foregroundColor(annotation.color.color.opacity(annotationOpacity)),
                         in: bounds
                     )
                     if annotation.id == viewModel.selectedAnnotationID {
@@ -1867,12 +1880,12 @@ struct AnnotationCanvasView: View {
                         }
                     }
                     if annotation.isFilled {
-                        context.fill(path, with: .color(annotation.color.color.opacity(0.35)))
-                        context.stroke(path, with: .color(annotation.color.color), style: strokeStyle)
+                        context.fill(path, with: .color(annotation.color.color.opacity(0.35 * annotationOpacity)))
+                        context.stroke(path, with: .color(annotation.color.color.opacity(annotationOpacity)), style: strokeStyle)
                     } else {
-                        context.stroke(path, with: .color(annotation.color.color), style: strokeStyle)
+                        context.stroke(path, with: .color(annotation.color.color.opacity(annotationOpacity)), style: strokeStyle)
                         if annotation.type == .arrow {
-                            context.fill(path, with: .color(annotation.color.color))
+                            context.fill(path, with: .color(annotation.color.color.opacity(annotationOpacity)))
                         }
                     }
                     if annotation.id == viewModel.selectedAnnotationID {
