@@ -2341,16 +2341,22 @@ struct AnnotationCanvasView: View {
                 viewModel.updateUndoRedoState()
                 return .handled
             }
-            .onKeyPress(characters: .init(charactersIn: "[]"), phases: .down) { press in
+            .onKeyPress(characters: .init(charactersIn: "[]{}"), phases: .down) { press in
                 guard !viewModel.showTextInput else { return .ignored }
+                let ch = press.key.character
                 if press.modifiers.contains(.command) {
-                    if press.key.character == "[" { viewModel.sendSelectedToBack() }
-                    else { viewModel.bringSelectedToFront() }
+                    if ch == "[" { viewModel.sendSelectedToBack() }
+                    else if ch == "]" { viewModel.bringSelectedToFront() }
+                } else if press.modifiers.contains(.shift) {
+                    // Shift+[ = { and Shift+] = } → adjust opacity ±10%
+                    let delta: Double = (ch == "{") ? -0.1 : 0.1
+                    viewModel.currentOpacity = max(0.1, min(1.0, viewModel.currentOpacity + delta))
+                    viewModel.applyCurrentOpacityToSelection()
                 } else {
                     let all = LineWidth.allCases
-                    if press.key.character == "[" {
+                    if ch == "[" {
                         if let i = all.firstIndex(of: viewModel.currentLineWidth), i > 0 { viewModel.currentLineWidth = all[i - 1] }
-                    } else {
+                    } else if ch == "]" {
                         if let i = all.firstIndex(of: viewModel.currentLineWidth), i < all.count - 1 { viewModel.currentLineWidth = all[i + 1] }
                     }
                 }
