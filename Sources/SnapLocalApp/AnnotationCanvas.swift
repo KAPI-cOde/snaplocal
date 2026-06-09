@@ -247,6 +247,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
+    @Published var loadToken: UUID = UUID()
     @Published var showTextInput = false
     @Published var textInputRect: CGRect = .zero
     @Published var textInputString = ""
@@ -1432,6 +1433,7 @@ final class CanvasViewModel: ObservableObject {
         undoManager.removeAllActions()
         updateUndoRedoState()
         recomputeAllFilterPreviews()
+        loadToken = UUID()
     }
     
     // MARK: - Export

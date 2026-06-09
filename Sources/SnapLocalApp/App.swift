@@ -1944,6 +1944,9 @@ struct AnnotationCanvasView: View {
                 }
             }
             .onChange(of: viewModel.currentTool) { _, _ in updateCursor() }
+            .onChange(of: viewModel.loadToken) { _, _ in
+                zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero
+            }
         }
     }
 
