@@ -1026,6 +1026,32 @@ struct CompactToolbar: View {
                 }
             }
 
+            if canvas.currentTool == .colorPicker {
+                Button {
+                    let sampler = NSColorSampler()
+                    sampler.show { color in
+                        guard let color else { return }
+                        let r = UInt8(color.redComponent * 255)
+                        let g = UInt8(color.greenComponent * 255)
+                        let b = UInt8(color.blueComponent * 255)
+                        let hex = String(format: "%02X%02X%02XFF", r, g, b)
+                        canvas.currentCustomColorHex = hex
+                        SettingsManager.shared.addRecentCustomColor(hex)
+                        canvas.applyCustomColorToSelection(hex: hex)
+                        canvas.currentTool = canvas.colorPickerPreviousTool
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "eyedropper.full")
+                        Text("画面全体")
+                            .font(.system(size: 10))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .help("画面全体から色をサンプリング (NSColorSampler)")
+            }
+
             if canvas.currentTool == .spotlight {
                 Picker("", selection: $canvas.currentSpotlightShape) {
                     ForEach(SpotlightShape.allCases, id: \.self) { s in
