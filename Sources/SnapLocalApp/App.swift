@@ -316,6 +316,14 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         showStatus("クリップボードにコピーしました")
     }
 
+    func copyOriginalToClipboard() {
+        guard let image = canvas.backgroundImage else {
+            showStatus("コピーする画像がありません"); return
+        }
+        copyImageToClipboard(image)
+        showStatus("オリジナル（アノテーションなし）をコピーしました")
+    }
+
     private func copyImageToClipboard(_ image: CGImage) {
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         NSPasteboard.general.clearContents()
@@ -848,16 +856,6 @@ struct CompactToolbar: View {
 
             Spacer()
 
-            // Image dimensions
-            if let img = canvas.backgroundImage {
-                Text("\(img.width) × \(img.height)")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .help("画像サイズ（ピクセル）")
-            }
-
-            Divider().frame(height: 14)
-
             Button(action: { canvas.undo() }) {
                 Image(systemName: "arrow.uturn.backward")
             }
@@ -1304,7 +1302,8 @@ struct HelpPopoverContent: View {
             ("⌘K", "切り取りモード"),
             ("⌘⌥← / ⌘⌥→", "90°回転（左/右）"),
             ("⌘⇧R", "前回範囲を再撮影"),
-            ("⌘C", "クリップボードにコピー"),
+            ("⌘C", "クリップボードにコピー（アノテーション込み）"),
+            ("⌘⌥C", "オリジナルをコピー（アノテーションなし）"),
             ("⌘S", "ファイルに保存"),
         ]),
     ]
@@ -1611,7 +1610,8 @@ struct ContentView: View {
                     onCapture: state.captureNow,
                     onOpenPermissions: state.openScreenRecordingSettings,
                     onFocusSearch: { state.searchFocusTrigger.toggle() },
-                    onNavigateHistory: { delta in state.navigateHistory(by: delta) }
+                    onNavigateHistory: { delta in state.navigateHistory(by: delta) },
+                    onCopyOriginal: state.copyOriginalToClipboard
                 )
                     .frame(minWidth: 600, minHeight: 400)
                     .background(Color(nsColor: .windowBackgroundColor))
@@ -1674,6 +1674,7 @@ struct AnnotationCanvasView: View {
     var onOpenPermissions: (() -> Void)? = nil
     var onFocusSearch: (() -> Void)? = nil
     var onNavigateHistory: ((Int) -> Void)? = nil
+    var onCopyOriginal: (() -> Void)? = nil
 
     @FocusState private var textFieldFocused: Bool
     @FocusState private var canvasFocused: Bool
@@ -1831,6 +1832,10 @@ struct AnnotationCanvasView: View {
             .onKeyPress("h") { if !viewModel.showTextInput { viewModel.currentTool = .highlight }; return .handled }
             .onKeyPress("p") { if !viewModel.showTextInput { viewModel.currentTool = .pencil }; return .handled }
             .onKeyPress("g") { if !viewModel.showTextInput { viewModel.currentTool = .stamp }; return .handled }
+            .onKeyPress("c", phases: .down) { press in
+                guard press.modifiers.contains([.command, .option]) else { return .ignored }
+                onCopyOriginal?(); return .handled
+            }
             .onKeyPress("a", phases: .down) { press in
                 guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
                 viewModel.selectedAnnotationIDs = Set(viewModel.annotations.map { $0.id })
