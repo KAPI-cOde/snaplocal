@@ -988,19 +988,27 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             return
         }
         let image = canvas.applyDecoration(to: raw)
-        guard let data = pngData(from: image) else {
-            showStatus("保存できる画像がありません")
-            return
-        }
 
         if let id = currentVaultID {
             Task {
                 await vault.updateAnnotations(id: id, annotations: canvas.annotations)
-                // Update thumbnail to show annotated version
                 if !canvas.annotations.isEmpty, let annotatedRaw = canvas.renderAnnotations() {
                     await vault.updateThumbnail(id: id, annotatedImage: annotatedRaw)
                 }
             }
+        }
+
+        let fmt = SettingsManager.shared.exportFormat
+        let quality = SettingsManager.shared.jpegQuality
+        let data: Data?
+        if fmt == .jpeg {
+            data = NSBitmapImageRep(cgImage: image).representation(using: .jpeg,
+                properties: [.compressionFactor: quality])
+        } else {
+            data = pngData(from: image)
+        }
+        guard let data else {
+            showStatus("保存できる画像がありません"); return
         }
 
         do {
@@ -1010,9 +1018,10 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             let title = history.first(where: { $0.id == currentVaultID })?.title
             let baseName = SettingsManager.shared.filename(
                 for: now, width: image.width, height: image.height, title: title)
-            let url = directory.appendingPathComponent("\(baseName).png")
+            let url = directory.appendingPathComponent("\(baseName).\(fmt.fileExtension)")
             try data.write(to: url, options: .atomic)
-            showStatus("保存しました: \(url.lastPathComponent)")
+            let px = "\(image.width)×\(image.height)"
+            showStatus("保存しました: \(url.lastPathComponent) (\(px))")
             refreshHistory()
         } catch {
             showStatus("保存失敗: \(error.localizedDescription)")
@@ -1948,27 +1957,44 @@ struct CompactToolbar: View {
             Divider()
 
             // Live mini-preview
-            let bgColor: Color = {
-                switch canvas.decorationBackgroundStyle {
-                case 0: return .white
-                case 1: return Color(white: 0.15)
-                case 2: return Color(red: 0.45, green: 0.55, blue: 0.95)
-                case 3: return Color.clear
-                default: return Color(white: 0.5)
-                }
-            }()
             let isEnabled = canvas.decorationEnabled
             let padFrac = isEnabled ? min(canvas.decorationPadding / 120, 1.0) : 0.0
             let cornerR = isEnabled ? canvas.decorationCornerRadius * 2 : 0.0
             let showShadow = isEnabled && canvas.decorationShadow
+            let gradIdx = max(0, min(CanvasViewModel.gradientPresets.count - 1, canvas.decorationGradientIndex))
+            let (gc1, gc2) = CanvasViewModel.gradientPresets[gradIdx]
 
             HStack {
                 Spacer()
                 ZStack {
-                    // Outer bg (what the padding area shows)
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(bgColor)
-                        .frame(width: 160 + padFrac * 30, height: 90 + padFrac * 20)
+                    // Outer bg
+                    let outerW = 160 + padFrac * 30
+                    let outerH = 90 + padFrac * 20
+                    Group {
+                        switch canvas.decorationBackgroundStyle {
+                        case 1:
+                            RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.15))
+                        case 2:
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(LinearGradient(
+                                    colors: [Color(cgColor: gc1), Color(cgColor: gc2)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                        case 3:
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.secondary.opacity(0.12))
+                                .overlay(RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4,2]))
+                                    .foregroundStyle(.secondary.opacity(0.4)))
+                        case 4:
+                            RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.3))
+                                .overlay(Image(systemName: "photo.fill")
+                                    .font(.system(size: 18)).foregroundStyle(.secondary.opacity(0.5)))
+                        default:
+                            RoundedRectangle(cornerRadius: 6).fill(Color.white)
+                        }
+                    }
+                    .frame(width: outerW, height: outerH)
+
                     // Inner image representation
                     RoundedRectangle(cornerRadius: cornerR)
                         .fill(Color.accentColor.opacity(0.15))
@@ -1994,6 +2020,7 @@ struct CompactToolbar: View {
             .animation(.easeOut(duration: 0.2), value: canvas.decorationCornerRadius)
             .animation(.easeOut(duration: 0.15), value: canvas.decorationShadow)
             .animation(.easeOut(duration: 0.15), value: canvas.decorationBackgroundStyle)
+            .animation(.easeOut(duration: 0.15), value: canvas.decorationGradientIndex)
             .opacity(isEnabled ? 1 : 0.4)
 
             Divider()
@@ -2010,6 +2037,9 @@ struct CompactToolbar: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 210)
+                }
+                if canvas.decorationBackgroundStyle == 2 {
+                    gradientSwatchRow
                 }
                 HStack {
                     Text("パディング").frame(width: 70, alignment: .trailing)
@@ -2032,6 +2062,36 @@ struct CompactToolbar: View {
         }
         .padding(14)
         .frame(width: 320)
+    }
+
+    @ViewBuilder
+    private var gradientSwatchRow: some View {
+        HStack {
+            Text("色").frame(width: 70, alignment: .trailing)
+            HStack(spacing: 5) {
+                ForEach(CanvasViewModel.gradientPresets.indices, id: \.self) { idx in
+                    gradientSwatch(idx: idx)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func gradientSwatch(idx: Int) -> some View {
+        let (c1, c2) = CanvasViewModel.gradientPresets[idx]
+        let isSelected = canvas.decorationGradientIndex == idx
+        ZStack {
+            LinearGradient(colors: [Color(cgColor: c1), Color(cgColor: c2)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .clipShape(Circle())
+            if isSelected {
+                Circle().strokeBorder(Color.white, lineWidth: 2)
+                Circle().strokeBorder(Color.accentColor, lineWidth: 1.5).padding(1)
+            }
+        }
+        .frame(width: 22, height: 22)
+        .onTapGesture { canvas.decorationGradientIndex = idx }
+        .shadow(color: .black.opacity(0.2), radius: 2)
     }
 
     @ViewBuilder
@@ -3003,6 +3063,31 @@ struct SettingsSheet: View {
                         get: { settings.openEditorOnCapture },
                         set: { settings.openEditorOnCapture = $0 }
                     ))
+                }
+
+                Section("書き出し形式") {
+                    Picker("形式", selection: Binding(
+                        get: { settings.exportFormat },
+                        set: { settings.exportFormat = $0 }
+                    )) {
+                        ForEach(ExportFormat.allCases, id: \.self) { fmt in
+                            Text(fmt.displayName).tag(fmt)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    if settings.exportFormat == .jpeg {
+                        HStack {
+                            Text("JPEG品質")
+                                .foregroundStyle(.secondary)
+                            Slider(value: Binding(
+                                get: { settings.jpegQuality },
+                                set: { settings.jpegQuality = $0 }
+                            ), in: 0.4...1.0, step: 0.05)
+                            Text("\(Int(settings.jpegQuality * 100))%")
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 36)
+                        }
+                    }
                 }
 
                 Section("通知") {

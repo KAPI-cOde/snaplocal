@@ -2075,8 +2075,21 @@ final class CanvasViewModel: ObservableObject {
     @Published var decorationPadding: CGFloat = 40     // px per side in output image
     @Published var decorationCornerRadius: CGFloat = 12
     @Published var decorationShadow: Bool = true
-    // 0=white 1=dark 2=wallpaper-gradient 3=transparent
+    // 0=white 1=dark 2=gradient 3=transparent 4=wallpaper
     @Published var decorationBackgroundStyle: Int = 0
+    @Published var decorationGradientIndex: Int = 0
+
+    // Curated gradient presets: [(colorA, colorB), diagonal top-left → bottom-right]
+    static let gradientPresets: [(CGColor, CGColor)] = [
+        (CGColor(red: 0.40, green: 0.49, blue: 0.92, alpha: 1), CGColor(red: 0.46, green: 0.29, blue: 0.64, alpha: 1)), // Indigo→Violet
+        (CGColor(red: 0.10, green: 0.69, blue: 0.84, alpha: 1), CGColor(red: 0.16, green: 0.42, blue: 0.80, alpha: 1)), // Cyan→Blue
+        (CGColor(red: 0.25, green: 0.80, blue: 0.65, alpha: 1), CGColor(red: 0.08, green: 0.55, blue: 0.45, alpha: 1)), // Mint→Teal
+        (CGColor(red: 1.00, green: 0.58, blue: 0.30, alpha: 1), CGColor(red: 0.93, green: 0.22, blue: 0.35, alpha: 1)), // Peach→Rose
+        (CGColor(red: 0.97, green: 0.78, blue: 0.24, alpha: 1), CGColor(red: 0.97, green: 0.44, blue: 0.14, alpha: 1)), // Yellow→Orange
+        (CGColor(red: 0.97, green: 0.48, blue: 0.69, alpha: 1), CGColor(red: 0.75, green: 0.30, blue: 0.80, alpha: 1)), // Pink→Purple
+        (CGColor(red: 0.20, green: 0.75, blue: 0.40, alpha: 1), CGColor(red: 0.04, green: 0.50, blue: 0.65, alpha: 1)), // Green→Teal
+        (CGColor(red: 0.18, green: 0.18, blue: 0.22, alpha: 1), CGColor(red: 0.08, green: 0.08, blue: 0.12, alpha: 1)), // Charcoal dark
+    ]
 
     func applyDecoration(to image: CGImage) -> CGImage {
         guard decorationEnabled else { return image }
@@ -2096,9 +2109,11 @@ final class CanvasViewModel: ObservableObject {
         case 1: // dark
             ctx.setFillColor(CGColor(gray: 0.12, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
-        case 2: // gradient (top-left #667eea → bottom-right #764ba2)
-            let colors = [CGColor(red: 0.40, green: 0.49, blue: 0.92, alpha: 1),
-                          CGColor(red: 0.46, green: 0.29, blue: 0.64, alpha: 1)] as CFArray
+        case 2: // gradient
+            let presets = CanvasViewModel.gradientPresets
+            let idx = max(0, min(presets.count - 1, decorationGradientIndex))
+            let (c1, c2) = presets[idx]
+            let colors = [c1, c2] as CFArray
             if let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                      colors: colors, locations: [0.0, 1.0]) {
                 ctx.drawLinearGradient(grad,

@@ -33,6 +33,15 @@ enum SettingsKey: String {
     case autoCopyOnCapture = "capture.autoCopy"
     case openEditorOnCapture = "capture.openEditor"
     case annotationTemplates = "annotation.templates"
+    case exportFormat = "export.format"        // "png" | "jpeg"
+    case jpegQuality = "export.jpegQuality"    // 0.0-1.0
+}
+
+enum ExportFormat: String, CaseIterable {
+    case png = "png"
+    case jpeg = "jpeg"
+    var displayName: String { self == .png ? "PNG" : "JPEG" }
+    var fileExtension: String { rawValue }
 }
 
 // MARK: - Settings Manager
@@ -164,6 +173,21 @@ final class SettingsManager: ObservableObject {
     var openEditorOnCapture: Bool {
         get { defaults.bool(forKey: SettingsKey.openEditorOnCapture.rawValue) }
         set { defaults.set(newValue, forKey: SettingsKey.openEditorOnCapture.rawValue) }
+    }
+
+    // MARK: - Export Format
+
+    var exportFormat: ExportFormat {
+        get { ExportFormat(rawValue: defaults.string(forKey: SettingsKey.exportFormat.rawValue) ?? "png") ?? .png }
+        set { defaults.set(newValue.rawValue, forKey: SettingsKey.exportFormat.rawValue) }
+    }
+
+    var jpegQuality: Double {
+        get {
+            let v = defaults.double(forKey: SettingsKey.jpegQuality.rawValue)
+            return v == 0 ? 0.90 : v
+        }
+        set { defaults.set(newValue, forKey: SettingsKey.jpegQuality.rawValue) }
     }
 
     // MARK: - Recent Custom Colors (up to 5 hex strings "RRGGBBAA")
