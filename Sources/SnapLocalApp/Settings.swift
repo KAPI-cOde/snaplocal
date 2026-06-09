@@ -20,6 +20,7 @@ enum SettingsKey: String {
     case notificationsEnabled = "notifications.enabled"
     case launchAtLogin = "launch.atLogin"
     case recentCustomColors = "color.recentCustomColors"
+    case filenameTemplate = "filename.template"
 }
 
 // MARK: - Settings Manager
@@ -104,6 +105,31 @@ final class SettingsManager: ObservableObject {
             defaults.set(newValue, forKey: SettingsKey.launchAtLogin.rawValue)
             setLaunchAtLogin(newValue)
         }
+    }
+
+    // MARK: - Filename Template
+    // Supported tokens: {date}, {time}, {width}, {height}, {title}
+
+    var filenameTemplate: String {
+        get { defaults.string(forKey: SettingsKey.filenameTemplate.rawValue) ?? "SnapLocal-{date}-{time}" }
+        set { defaults.set(newValue, forKey: SettingsKey.filenameTemplate.rawValue) }
+    }
+
+    func filename(for date: Date, width: Int, height: Int, title: String?) -> String {
+        let df = DateFormatter()
+        df.dateFormat = "yyyyMMdd"
+        let tf = DateFormatter()
+        tf.dateFormat = "HHmmss"
+        var result = filenameTemplate
+        result = result.replacingOccurrences(of: "{date}", with: df.string(from: date))
+        result = result.replacingOccurrences(of: "{time}", with: tf.string(from: date))
+        result = result.replacingOccurrences(of: "{width}", with: "\(width)")
+        result = result.replacingOccurrences(of: "{height}", with: "\(height)")
+        result = result.replacingOccurrences(of: "{title}", with: title?.replacingOccurrences(of: "/", with: "-") ?? "")
+        // Sanitize: remove characters illegal in filenames
+        let illegal = CharacterSet(charactersIn: ":/\\?%*|\"<>")
+        result = result.components(separatedBy: illegal).joined(separator: "-")
+        return result.isEmpty ? "SnapLocal-\(df.string(from: date))-\(tf.string(from: date))" : result
     }
 
     // MARK: - Recent Custom Colors (up to 5 hex strings "RRGGBBAA")

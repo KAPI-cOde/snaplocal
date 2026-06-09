@@ -568,9 +568,11 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         do {
             let directory = SettingsManager.shared.saveDirectoryURL
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyyMMdd-HHmmss"
-            let url = directory.appendingPathComponent("SnapLocal-\(formatter.string(from: Date())).png")
+            let now = Date()
+            let title = history.first(where: { $0.id == currentVaultID })?.title
+            let baseName = SettingsManager.shared.filename(
+                for: now, width: image.width, height: image.height, title: title)
+            let url = directory.appendingPathComponent("\(baseName).png")
             try data.write(to: url, options: .atomic)
             showStatus("保存しました: \(url.lastPathComponent)")
             refreshHistory()
@@ -586,8 +588,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png, .jpeg, .pdf]
-        let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd-HHmmss"
-        panel.nameFieldStringValue = "SnapLocal-\(formatter.string(from: Date())).png"
+        let baseName = SettingsManager.shared.filename(for: Date(), width: image.width, height: image.height, title: nil)
+        panel.nameFieldStringValue = "\(baseName).png"
 
         // Accessory view: scale factor selector
         let scales: [String] = ["0.5x", "1x", "2x"]
@@ -1707,6 +1709,7 @@ struct HelpPopoverContent: View {
 struct SettingsSheet: View {
     @StateObject private var settings = SettingsManager.shared
     @State private var saveDirectoryPath: String = ""
+    @State private var filenameTemplate: String = ""
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1734,6 +1737,18 @@ struct SettingsSheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Button("変更…") { chooseSaveDirectory() }
                             .controlSize(.small)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("ファイル名テンプレート")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("{date}, {time}, {width}, {height}, {title}", text: $filenameTemplate)
+                            .font(.system(.caption, design: .monospaced))
+                            .onSubmit { settings.filenameTemplate = filenameTemplate }
+                            .onChange(of: filenameTemplate) { settings.filenameTemplate = filenameTemplate }
+                        Text("例: SnapLocal-{date}-{time}  →  \(settings.filename(for: Date(), width: 1920, height: 1080, title: nil))")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
 
@@ -1768,7 +1783,10 @@ struct SettingsSheet: View {
             .formStyle(.grouped)
         }
         .frame(width: 380)
-        .onAppear { saveDirectoryPath = settings.saveDirectoryURL.path }
+        .onAppear {
+            saveDirectoryPath = settings.saveDirectoryURL.path
+            filenameTemplate = settings.filenameTemplate
+        }
     }
 
     private func chooseSaveDirectory() {
