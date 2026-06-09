@@ -433,6 +433,14 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func duplicateHistoryItem(_ item: VaultItem) {
+        Task {
+            _ = await vault.duplicate(id: item.id)
+            await loadHistory()
+            showStatus("複製しました")
+        }
+    }
+
     func exportHistoryItem(_ item: VaultItem) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
@@ -1090,6 +1098,7 @@ struct HistoryRail: View {
     let onSearch: () -> Void
     let onExport: (VaultItem) -> Void
     var onRename: ((VaultItem, String?) -> Void)? = nil
+    var onDuplicate: ((VaultItem) -> Void)? = nil
     var onDeleteAll: (() -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
@@ -1274,6 +1283,7 @@ struct HistoryRail: View {
                         }
                         .contextMenu {
                             Button("開く") { onSelect(item) }
+                            Button("複製") { onDuplicate?(item) }
                             Button("名前を変更…") {
                                 renameText = item.title ?? ""
                                 renamingItemID = item.id
@@ -1885,6 +1895,7 @@ struct ContentView: View {
                         onSearch: state.applySearch,
                         onExport: state.exportHistoryItem,
                         onRename: state.renameHistoryItem,
+                        onDuplicate: state.duplicateHistoryItem,
                         onDeleteAll: state.deleteAllHistory
                     )
                     .transition(.move(edge: .trailing))

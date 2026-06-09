@@ -157,6 +157,36 @@ actor PersistentVault {
         saveManifest()
     }
 
+    /// Duplicate an item (copy files, new UUID, current timestamp)
+    func duplicate(id: UUID) -> VaultItem? {
+        guard let src = manifest[id] else { return nil }
+        let newID = UUID()
+        let newFilename = "\(newID.uuidString).png"
+        let newThumb = "thumbnails/\(newID.uuidString).jpg"
+        let srcURL = baseDirectory.appendingPathComponent(src.filename)
+        let dstURL = baseDirectory.appendingPathComponent(newFilename)
+        let srcThumb = baseDirectory.appendingPathComponent(src.thumbFilename)
+        let dstThumb = baseDirectory.appendingPathComponent(newThumb)
+        do {
+            try FileManager.default.copyItem(at: srcURL, to: dstURL)
+            try FileManager.default.copyItem(at: srcThumb, to: dstThumb)
+        } catch { return nil }
+        var entry = src
+        entry.id = newID
+        entry.createdAt = Date()
+        entry.filename = newFilename
+        entry.thumbFilename = newThumb
+        manifest[newID] = entry
+        orderedIDs.insert(newID, at: 0)
+        saveManifest()
+        let thumbData = (try? Data(contentsOf: dstThumb)) ?? Data()
+        let annotations = entry.annotationsData
+            .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
+        return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
+                         thumbnailData: thumbData, ocrText: entry.ocrText,
+                         annotations: annotations, level: .permanent, title: entry.title)
+    }
+
     /// All items, newest first
     func allItems() -> [VaultItem] {
         orderedIDs.compactMap { id -> VaultItem? in
