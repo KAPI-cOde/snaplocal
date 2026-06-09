@@ -1126,9 +1126,11 @@ final class CanvasViewModel: ObservableObject {
                 createAnnotation(type: .highlight, from: start, to: end)
             }
         case .pencil:
-            let pts = currentPencilPoints
+            let raw = currentPencilPoints
             currentPencilPoints = []
-            if pts.count >= 2 {
+            if raw.count >= 2 {
+                let epsilon: CGFloat = max(currentLineWidth.rawValue * 0.25, 1.0)
+                let pts = simplifyPoints(raw, epsilon: epsilon)
                 var annotation = AnyAnnotation(PencilAnnotation(
                     color: currentColor,
                     lineWidth: currentLineWidth,
@@ -1162,6 +1164,29 @@ final class CanvasViewModel: ObservableObject {
         objectWillChange.send()
     }
     
+    // Douglas-Peucker line simplification: reduces point count while preserving shape
+    private func simplifyPoints(_ points: [CGPoint], epsilon: CGFloat) -> [CGPoint] {
+        guard points.count > 2 else { return points }
+        var maxDist: CGFloat = 0
+        var maxIdx = 0
+        let first = points.first!, last = points.last!
+        let dx = last.x - first.x, dy = last.y - first.y
+        let len = hypot(dx, dy)
+        for i in 1..<(points.count - 1) {
+            let p = points[i]
+            let dist = len < 1e-6
+                ? hypot(p.x - first.x, p.y - first.y)
+                : abs(dy * p.x - dx * p.y + last.x * first.y - last.y * first.x) / len
+            if dist > maxDist { maxDist = dist; maxIdx = i }
+        }
+        if maxDist > epsilon {
+            let left = simplifyPoints(Array(points[...maxIdx]), epsilon: epsilon)
+            let right = simplifyPoints(Array(points[maxIdx...]), epsilon: epsilon)
+            return left.dropLast() + right
+        }
+        return [first, last]
+    }
+
     private func createAnnotation(type: AnnotationType, from start: CGPoint, to end: CGPoint) {
         let color = currentColor
         let lineWidth = currentLineWidth
