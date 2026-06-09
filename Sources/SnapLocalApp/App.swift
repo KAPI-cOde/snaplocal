@@ -8,6 +8,7 @@ import OSLog
 import UserNotifications
 import UniformTypeIdentifiers
 import ScreenCaptureKit
+import PDFKit
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
 
@@ -423,7 +424,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             return
         }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg]
+        panel.allowedContentTypes = [.png, .jpeg, .pdf]
         let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd-HHmmss"
         panel.nameFieldStringValue = "SnapLocal-\(formatter.string(from: Date())).png"
 
@@ -457,10 +458,20 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 guard let scaled = ctx.makeImage() else { self.showStatus("スケール変換失敗"); return }
                 targetImage = scaled
             }
-            let isJPEG = url.pathExtension.lowercased() == "jpg" || url.pathExtension.lowercased() == "jpeg"
-            let data: Data? = isJPEG
-                ? NSBitmapImageRep(cgImage: targetImage).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
-                : NSBitmapImageRep(cgImage: targetImage).representation(using: .png, properties: [:])
+            let ext = url.pathExtension.lowercased()
+            let data: Data?
+            if ext == "pdf" {
+                let pdfDoc = PDFDocument()
+                let nsImg = NSImage(cgImage: targetImage, size: NSSize(width: targetImage.width, height: targetImage.height))
+                if let pdfPage = PDFPage(image: nsImg) {
+                    pdfDoc.insert(pdfPage, at: 0)
+                    data = pdfDoc.dataRepresentation()
+                } else { data = nil }
+            } else if ext == "jpg" || ext == "jpeg" {
+                data = NSBitmapImageRep(cgImage: targetImage).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+            } else {
+                data = NSBitmapImageRep(cgImage: targetImage).representation(using: .png, properties: [:])
+            }
             guard let data else { self.showStatus("エンコード失敗"); return }
             do {
                 try data.write(to: url, options: .atomic)
