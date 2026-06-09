@@ -9,6 +9,7 @@ import UserNotifications
 import UniformTypeIdentifiers
 import ScreenCaptureKit
 import PDFKit
+import Combine
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
 
@@ -113,6 +114,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private let vault: PersistentVault
     private var captureEngine: CaptureEngine?
     private var statusTask: Task<Void, Never>?
+    private var autoSaveTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
     // ID of the VaultItem currently shown on canvas (for annotation save-back)
     private var currentVaultID: UUID?
 
@@ -129,6 +132,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
         captureEngine?.registerHotkey()
         refreshHistory()
+
+        // Auto-save annotations 3 seconds after last change
+        canvas.$annotations
+            .dropFirst()
+            .sink { [weak self] _ in self?.scheduleAutoSave() }
+            .store(in: &cancellables)
 
         // Save annotations on quit
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
@@ -154,6 +163,18 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             do {
                 try await Task.sleep(nanoseconds: 3_000_000_000)
                 statusVisible = false
+            } catch {}
+        }
+    }
+
+    private func scheduleAutoSave() {
+        autoSaveTask?.cancel()
+        autoSaveTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let id = currentVaultID else { return }
+                let anns = canvas.annotations
+                await vault.updateAnnotations(id: id, annotations: anns)
             } catch {}
         }
     }
