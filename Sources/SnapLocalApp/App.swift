@@ -7,6 +7,7 @@ import AppKit
 import OSLog
 import UserNotifications
 import UniformTypeIdentifiers
+import ScreenCaptureKit
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
 
@@ -73,6 +74,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     @Published var history: [VaultItem] = []
     @Published var searchQuery = ""
     @Published var isRegionCapturing = false
+    @Published var showWindowPicker = false
+    @Published var windowPickerItems: [SCWindow] = []
     @Published var selectedHistoryID: UUID? = nil
     @Published var searchFocusTrigger: Bool = false
 
@@ -114,6 +117,26 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     func captureNow() {
         showStatus("撮影中…")
         captureEngine?.captureScreen()
+    }
+
+    func captureWindowMode() {
+        showStatus("ウィンドウ一覧を取得中…")
+        Task {
+            do {
+                let windows = try await CaptureEngine.availableWindows()
+                windowPickerItems = windows
+                showWindowPicker = true
+                showStatus("ウィンドウを選択してください")
+            } catch {
+                showStatus("ウィンドウ一覧の取得に失敗しました")
+            }
+        }
+    }
+
+    func captureWindowNow(_ window: SCWindow) {
+        showWindowPicker = false
+        showStatus("ウィンドウを撮影中…")
+        captureEngine?.captureWindow(window)
     }
 
     func captureRegion() {
@@ -359,6 +382,7 @@ struct CompactToolbar: View {
     @ObservedObject var canvas: CanvasViewModel
     let onCapture: () -> Void
     let onCaptureRegion: () -> Void
+    let onCaptureWindow: () -> Void
     let onSave: () -> Void
     let onSaveAs: () -> Void
     let onCopy: () -> Void
@@ -412,6 +436,12 @@ struct CompactToolbar: View {
             }
             .help("範囲選択撮影 (⌘⇧4)")
             .keyboardShortcut("4", modifiers: [.command, .shift])
+
+            Button(action: onCaptureWindow) {
+                Image(systemName: "macwindow.on.rectangle")
+            }
+            .help("ウィンドウ撮影 (⌘⇧3)")
+            .keyboardShortcut("3", modifiers: [.command, .shift])
 
             Button(action: onPaste) {
                 Image(systemName: "doc.on.clipboard.fill")
@@ -969,6 +999,126 @@ struct StatusChip: View {
     }
 }
 
+// MARK: - Window Picker Sheet
+
+struct WindowPickerSheet: View {
+    let windows: [SCWindow]
+    let onSelect: (SCWindow) -> Void
+    let onCancel: () -> Void
+
+    @State private var hovered: CGWindowID? = nil
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("ウィンドウを選択")
+                    .font(.headline)
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            if windows.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "macwindow.badge.plus")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.tertiary)
+                    Text("キャプチャ可能なウィンドウが見つかりません")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+                .padding()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(windows, id: \.windowID) { win in
+                            WindowPickerRow(window: win, isHovered: hovered == win.windowID)
+                                .onHover { hovering in
+                                    hovered = hovering ? win.windowID : nil
+                                }
+                                .onTapGesture {
+                                    onSelect(win)
+                                }
+                        }
+                    }
+                    .padding(8)
+                }
+                .frame(minHeight: 200, maxHeight: 480)
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("キャンセル", action: onCancel)
+                    .keyboardShortcut(.escape)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .frame(width: 480)
+    }
+}
+
+struct WindowPickerRow: View {
+    let window: SCWindow
+    let isHovered: Bool
+
+    var appIcon: NSImage? {
+        guard let bundleID = window.owningApplication?.bundleIdentifier,
+              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+        return NSWorkspace.shared.icon(forFile: appURL.path)
+    }
+
+    var appName: String {
+        window.owningApplication?.applicationName ?? "不明なアプリ"
+    }
+
+    var windowTitle: String {
+        let t = window.title ?? ""
+        return t.isEmpty ? appName : t
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let icon = appIcon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 32, height: 32)
+            } else {
+                Image(systemName: "macwindow")
+                    .frame(width: 32, height: 32)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(windowTitle)
+                    .lineLimit(1)
+                    .font(.body)
+                Text(appName)
+                    .lineLimit(1)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text("\(Int(window.frame.width))×\(Int(window.frame.height))")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(isHovered ? Color.accentColor.opacity(0.12) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+    }
+}
+
 // MARK: - Content View
 
 struct ContentView: View {
@@ -988,11 +1138,22 @@ struct ContentView: View {
                 canvas: state.canvas,
                 onCapture: state.captureNow,
                 onCaptureRegion: state.captureRegion,
+                onCaptureWindow: state.captureWindowMode,
                 onSave: state.saveAnnotatedImage,
                 onSaveAs: state.saveAnnotatedImageAs,
                 onCopy: state.copyToClipboard,
                 onPaste: state.pasteFromClipboard
             )
+            .sheet(isPresented: $state.showWindowPicker) {
+                WindowPickerSheet(
+                    windows: state.windowPickerItems,
+                    onSelect: { state.captureWindowNow($0) },
+                    onCancel: {
+                        state.showWindowPicker = false
+                        state.showStatus("キャンセルしました")
+                    }
+                )
+            }
             .navigationTitle(windowTitle)
             Divider()
             HStack(spacing: 0) {

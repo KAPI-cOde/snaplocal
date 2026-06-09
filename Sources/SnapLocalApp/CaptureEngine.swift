@@ -142,6 +142,59 @@ final class CaptureEngine: @unchecked Sendable {
         }
     }
 
+    /// Fetch list of capturable windows (excludes our own app and wallpaper).
+    static func availableWindows() async throws -> [SCWindow] {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let ourBundleID = Bundle.main.bundleIdentifier ?? "com.snaplocal.app"
+        return content.windows.filter { w in
+            w.owningApplication?.bundleIdentifier != ourBundleID &&
+            w.frame.width > 50 && w.frame.height > 50 &&
+            w.isOnScreen
+        }
+    }
+
+    /// Capture a specific SCWindow.
+    nonisolated func captureWindow(_ window: SCWindow) {
+        Task {
+            do {
+                guard CGPreflightScreenCaptureAccess() else {
+                    _ = CGRequestScreenCaptureAccess()
+                    throw CaptureError.permissionDenied
+                }
+                let image = try await captureWindowImage(window)
+                await MainActor.run { self.completion(.success(image)) }
+            } catch {
+                await MainActor.run { self.completion(.failure(error)) }
+            }
+        }
+    }
+
+    private func captureWindowImage(_ window: SCWindow) async throws -> CGImage {
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let config = SCStreamConfiguration()
+        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        config.width = max(1, Int(window.frame.width * scale))
+        config.height = max(1, Int(window.frame.height * scale))
+        config.showsCursor = false
+        config.capturesAudio = false
+        config.scalesToFit = false
+
+        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        let output = CaptureStreamOutput()
+        let cgImage: CGImage = try await withCheckedThrowingContinuation { continuation in
+            output.continuation = continuation
+            do {
+                try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
+                stream.startCapture()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        try? await stream.stopCapture()
+        try? stream.removeStreamOutput(output, type: .screen)
+        return cgImage
+    }
+
     private func captureWithScreenCaptureKit() async throws -> CGImage {
         logger.debug("Getting shareable content...")
         let content: SCShareableContent
@@ -184,29 +237,25 @@ final class CaptureEngine: @unchecked Sendable {
         let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
         let output = CaptureStreamOutput()
 
-        let sampleBuffer: CMSampleBuffer
+        let cgImage: CGImage
         do {
-            sampleBuffer = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CMSampleBuffer, Error>) in
+            cgImage = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CGImage, Error>) in
                 output.continuation = continuation
                 do {
                     try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
                     logger.debug("Starting screen capture stream...")
                     stream.startCapture()
-                    // FIX: Add small delay to ensure stream is ready
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        logger.debug("Stream started, waiting for first frame...")
-                    }
                 } catch {
                     logger.error("stream.addStreamOutput/startCapture failed: \(String(describing: error))")
                     continuation.resume(throwing: error)
                 }
             }
         } catch {
-            logger.error("Failed to get sampleBuffer: \(String(describing: error))")
+            logger.error("Failed to get CGImage from stream: \(String(describing: error))")
             throw error
         }
 
-        logger.debug("Got sample buffer, stopping stream...")
+        logger.debug("Got CGImage, stopping stream...")
         do {
             try await stream.stopCapture()
             try stream.removeStreamOutput(output, type: .screen)
@@ -215,21 +264,7 @@ final class CaptureEngine: @unchecked Sendable {
             throw error
         }
 
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            logger.error("CMSampleBufferGetImageBuffer returned nil")
-            throw CaptureError.noImageBuffer
-        }
-
-        logger.debug("Got imageBuffer, converting with Core Image...")
-        // Use Core Image for robust pixel format handling
-        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-        let context = CIContext(options: [.useSoftwareRenderer: false])
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
-            logger.error("ERROR: Core Image conversion failed")
-            throw CaptureError.contextCreationFailed
-        }
-
-        logger.info("Screenshot captured successfully via Core Image: \(cgImage.width)x\(cgImage.height)")
+        logger.info("Screenshot captured successfully: \(cgImage.width)x\(cgImage.height)")
         return cgImage
     }
 }
@@ -237,7 +272,7 @@ final class CaptureEngine: @unchecked Sendable {
 // MARK: - Capture Stream Output
 
 private final class CaptureStreamOutput: NSObject, SCStreamOutput {
-    var continuation: CheckedContinuation<CMSampleBuffer, Error>?
+    var continuation: CheckedContinuation<CGImage, Error>?
     private var hasReceived = false
 
     override init() {}
@@ -246,10 +281,18 @@ private final class CaptureStreamOutput: NSObject, SCStreamOutput {
         guard type == .screen, let continuation, !hasReceived else { return }
         hasReceived = true
         self.continuation = nil
-        
-        // FIX: Capture sampleBuffer in a local var to satisfy sendable checking
-        let buffer = sampleBuffer
-        continuation.resume(returning: buffer)
+
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            continuation.resume(throwing: CaptureError.noImageBuffer)
+            return
+        }
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            continuation.resume(throwing: CaptureError.contextCreationFailed)
+            return
+        }
+        continuation.resume(returning: cgImage)
     }
 }
 
