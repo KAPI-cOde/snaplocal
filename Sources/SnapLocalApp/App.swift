@@ -299,17 +299,21 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     func saveAnnotatedImageAs() {
-        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
-              let data = pngData(from: image) else {
+        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage else {
             showStatus("保存できる画像がありません")
             return
         }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
+        panel.allowedContentTypes = [.png, .jpeg]
         let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd-HHmmss"
         panel.nameFieldStringValue = "SnapLocal-\(formatter.string(from: Date())).png"
-        panel.begin { response in
+        panel.begin { [self] response in
             guard response == .OK, let url = panel.url else { return }
+            let isJPEG = url.pathExtension.lowercased() == "jpg" || url.pathExtension.lowercased() == "jpeg"
+            let data: Data? = isJPEG
+                ? NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+                : NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+            guard let data else { self.showStatus("エンコード失敗"); return }
             do {
                 try data.write(to: url, options: .atomic)
                 self.showStatus("保存しました: \(url.lastPathComponent)")
@@ -1604,11 +1608,16 @@ struct AnnotationCanvasView: View {
     @ViewBuilder
     private var textInputOverlay: some View {
         if viewModel.showTextInput {
+            let cx = viewModel.canvasSize.width / 2
+            let cy = viewModel.canvasSize.height / 2
+            let r = viewModel.textInputRect
+            let viewX = cx + (r.midX - cx) * zoom + panOffset.width
+            let viewY = cy + (r.midY - cy) * zoom + panOffset.height
             TextField("テキスト", text: $viewModel.textInputString)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: viewModel.currentFontSize, weight: .semibold))
-                .frame(width: viewModel.textInputRect.width)
-                .position(x: viewModel.textInputRect.midX, y: viewModel.textInputRect.midY)
+                .font(.system(size: viewModel.currentFontSize * zoom, weight: .semibold))
+                .frame(width: r.width * zoom)
+                .position(x: viewX, y: viewY)
                 .focused($textFieldFocused)
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
