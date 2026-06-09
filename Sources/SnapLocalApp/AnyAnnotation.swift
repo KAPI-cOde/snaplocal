@@ -36,7 +36,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.textFontSize = (annotation as? TextAnnotation)?.fontSize
         self.isFilled = (annotation as? RectangleAnnotation)?.isFilled
             ?? (annotation as? EllipseAnnotation)?.isFilled
-            ?? (annotation as? RoundedRectAnnotation)?.isFilled ?? false
+            ?? (annotation as? RoundedRectAnnotation)?.isFilled
+            ?? (annotation as? CalloutAnnotation)?.isFilled ?? false
         self.stepNumber = (annotation as? StepAnnotation)?.stepNumber
         self.hasStrokeRepresentation = annotation.hasStrokeRepresentation
 
@@ -108,6 +109,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
             wrapped = AnyAnnotation(try StepAnnotation(from: decoder))
         case .roundedRect:
             wrapped = AnyAnnotation(try RoundedRectAnnotation(from: decoder))
+        case .callout:
+            wrapped = AnyAnnotation(try CalloutAnnotation(from: decoder))
         }
 
         self.id = decodedID

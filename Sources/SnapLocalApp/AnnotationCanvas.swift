@@ -47,6 +47,7 @@ enum AnnotationType: String, Codable, CaseIterable {
     case blur = "blur"
     case step = "step"
     case roundedRect = "roundedRect"
+    case callout = "callout"
 }
 
 enum AnnotationColor: String, Codable, CaseIterable {
@@ -96,6 +97,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     case text = "text"
     case step = "step"
     case roundedRect = "roundedRect"
+    case callout = "callout"
     case redact = "redact"   // unified mosaic/blur
 
     var systemImage: String {
@@ -108,6 +110,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .text: return "textformat"
         case .step: return "number.circle"
         case .roundedRect: return "rectangle.roundedtop"
+        case .callout: return "bubble.left"
         case .redact: return "eye.slash"
         }
     }
@@ -122,6 +125,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .text: return "テキスト"
         case .step: return "ステップ"
         case .roundedRect: return "角丸"
+        case .callout: return "吹き出し"
         case .redact: return "隠す"
         }
     }
@@ -136,12 +140,13 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .text: return .text
         case .step: return .step
         case .roundedRect: return .roundedRect
+        case .callout: return .callout
         }
     }
 
     var usesLineWidth: Bool {
         switch self {
-        case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect: return true
+        case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout: return true
         case .select, .redact: return false
         }
     }
@@ -419,7 +424,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     static func isResizable(_ type: AnnotationType) -> Bool {
-        [.rectangle, .ellipse, .mosaic, .blur, .text, .step, .roundedRect].contains(type)
+        [.rectangle, .ellipse, .mosaic, .blur, .text, .step, .roundedRect, .callout].contains(type)
     }
 
     func handleCorners(for bounds: CGRect) -> [CGPoint] {
@@ -774,6 +779,11 @@ final class CanvasViewModel: ObservableObject {
             if w > 4 || h > 4 {
                 createAnnotation(type: .roundedRect, from: start, to: end)
             }
+        case .callout:
+            let w = abs(end.x - start.x), h = abs(end.y - start.y)
+            if w > 8 || h > 8 {
+                createAnnotation(type: .callout, from: start, to: end)
+            }
         default:
             if let type = currentTool.annotationType {
                 let dist = hypot(end.x - start.x, end.y - start.y)
@@ -868,6 +878,16 @@ final class CanvasViewModel: ObservableObject {
             let stepNum = annotations.filter { $0.type == .step }.count + 1
             let rect = CGRect(x: start.x - size / 2, y: start.y - size / 2, width: size, height: size)
             let a = StepAnnotation(color: color, lineWidth: lineWidth, rect: rect, stepNumber: stepNum)
+            annotation = AnyAnnotation(a)
+        case .callout:
+            let rect = CGRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: abs(end.x - start.x),
+                height: abs(end.y - start.y)
+            )
+            var a = CalloutAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            a.isFilled = currentFilled
             annotation = AnyAnnotation(a)
         case .text:
             return

@@ -525,7 +525,7 @@ struct CompactToolbar: View {
                 }
             }
 
-            if canvas.currentTool == .rectangle || canvas.currentTool == .ellipse || canvas.currentTool == .roundedRect {
+            if canvas.currentTool == .rectangle || canvas.currentTool == .ellipse || canvas.currentTool == .roundedRect || canvas.currentTool == .callout {
                 Toggle(isOn: $canvas.currentFilled) {
                     Image(systemName: canvas.currentFilled ? "square.fill" : "square")
                 }
@@ -1391,6 +1391,7 @@ struct AnnotationCanvasView: View {
             .onKeyPress("m") { if !viewModel.showTextInput { viewModel.currentTool = .redact }; return .handled }
             .onKeyPress("n") { if !viewModel.showTextInput { viewModel.currentTool = .step }; return .handled }
             .onKeyPress("u") { if !viewModel.showTextInput { viewModel.currentTool = .roundedRect }; return .handled }
+            .onKeyPress("b") { if !viewModel.showTextInput { viewModel.currentTool = .callout }; return .handled }
             .onKeyPress("a", phases: .down) { press in
                 guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
                 viewModel.selectedAnnotationIDs = Set(viewModel.annotations.map { $0.id })

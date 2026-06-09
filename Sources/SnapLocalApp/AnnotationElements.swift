@@ -257,3 +257,61 @@ struct StepAnnotation: AnnotationElement {
         self.transform = transform.concatenating(self.transform)
     }
 }
+
+// MARK: - Callout Annotation (speech bubble)
+
+struct CalloutAnnotation: AnnotationElement {
+    var id = UUID()
+    let type: AnnotationType = .callout
+    var color: AnnotationColor
+    var lineWidth: LineWidth
+    var transform: CGAffineTransform = .identity
+    var rect: CGRect
+    var isFilled: Bool = false
+
+    func path(in rect: CGRect) -> Path {
+        let r = self.rect.applying(transform)
+        let cr: CGFloat = min(r.width, r.height) * 0.15
+        let tailW: CGFloat = max(12, min(r.width * 0.2, 24))
+        let tailH: CGFloat = max(10, min(r.height * 0.25, 20))
+        let tailCX = r.minX + r.width * 0.28
+
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + cr, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - cr, y: r.minY))
+        p.addArc(center: CGPoint(x: r.maxX - cr, y: r.minY + cr), radius: cr,
+                 startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - cr))
+        p.addArc(center: CGPoint(x: r.maxX - cr, y: r.maxY - cr), radius: cr,
+                 startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        // Bottom edge: right part, then tail, then left part
+        p.addLine(to: CGPoint(x: tailCX + tailW / 2, y: r.maxY))
+        p.addLine(to: CGPoint(x: tailCX, y: r.maxY + tailH))
+        p.addLine(to: CGPoint(x: tailCX - tailW / 2, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX + cr, y: r.maxY))
+        p.addArc(center: CGPoint(x: r.minX + cr, y: r.maxY - cr), radius: cr,
+                 startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + cr))
+        p.addArc(center: CGPoint(x: r.minX + cr, y: r.minY + cr), radius: cr,
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.closeSubpath()
+        return p
+    }
+
+    func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
+        let p = self.path(in: rect)
+        if isFilled && p.contains(point) { return true }
+        let tol = max(lineWidth.rawValue + 8, 12)
+        return p.strokedPath(StrokeStyle(lineWidth: tol)).contains(point)
+    }
+
+    func bounds(in rect: CGRect) -> CGRect {
+        let r = self.rect.applying(transform)
+        let tailH: CGFloat = max(10, min(r.height * 0.25, 20))
+        return r.insetBy(dx: 0, dy: 0).union(CGRect(x: r.minX, y: r.maxY, width: r.width * 0.28 + 12, height: tailH))
+    }
+
+    mutating func applyTransform(_ transform: CGAffineTransform) {
+        self.transform = transform.concatenating(self.transform)
+    }
+}
