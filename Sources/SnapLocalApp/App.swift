@@ -2605,9 +2605,20 @@ struct ContentView: View {
                         if let img = state.canvas.backgroundImage {
                             let zoomPct = Int(state.canvas.currentZoom * 100)
                             let annCount = state.canvas.annotations.count
-                            let info = "\(img.width) × \(img.height)"
-                                + "  \(zoomPct)%"
+                            let selInfo: String = {
+                                guard let selID = state.canvas.selectedAnnotationID,
+                                      let ann = state.canvas.annotations.first(where: { $0.id == selID }),
+                                      state.canvas.canvasSize.width > 0 else { return "" }
+                                let b = ann.bounds(in: CGRect(origin: .zero, size: state.canvas.canvasSize))
+                                let sx = CGFloat(img.width) / state.canvas.canvasSize.width
+                                let sy = CGFloat(img.height) / state.canvas.canvasSize.height
+                                let pw = Int(b.width * sx), ph = Int(b.height * sy)
+                                let px = Int(b.minX * sx), py = Int(b.minY * sy)
+                                return "  [\(pw)×\(ph) @\(px),\(py)]"
+                            }()
+                            let info = "\(img.width) × \(img.height)  \(zoomPct)%"
                                 + (annCount > 0 ? "  ✎\(annCount)" : "")
+                                + selInfo
                             Text(info)
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
