@@ -1658,6 +1658,24 @@ final class CanvasViewModel: ObservableObject {
             }
         case 3: // transparent — nothing
             break
+        case 4: // desktop wallpaper, tiled/scaled to fill
+            let wallpaperURL = NSWorkspace.shared.desktopImageURL(for: NSScreen.main ?? NSScreen.screens[0])
+            if let wpURL = wallpaperURL,
+               let wpImg = NSImage(contentsOf: wpURL),
+               let cgWp = wpImg.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                let destRect = CGRect(x: 0, y: 0, width: outW, height: outH)
+                let srcW = CGFloat(cgWp.width), srcH = CGFloat(cgWp.height)
+                let scale = max(outW / srcW, outH / srcH)
+                let drawW = srcW * scale, drawH = srcH * scale
+                let drawRect = CGRect(x: (outW - drawW) / 2, y: (outH - drawH) / 2, width: drawW, height: drawH)
+                ctx.saveGState()
+                ctx.clip(to: destRect)
+                ctx.draw(cgWp, in: drawRect)
+                ctx.restoreGState()
+            } else {
+                ctx.setFillColor(CGColor(gray: 0.18, alpha: 1))
+                ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
+            }
         default: // white
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))

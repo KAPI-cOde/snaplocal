@@ -1672,9 +1672,10 @@ struct CompactToolbar: View {
                         Text("暗").tag(1)
                         Text("グラデ").tag(2)
                         Text("透明").tag(3)
+                        Text("壁紙").tag(4)
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 170)
+                    .frame(width: 210)
                 }
                 HStack {
                     Text("パディング").frame(width: 70, alignment: .trailing)

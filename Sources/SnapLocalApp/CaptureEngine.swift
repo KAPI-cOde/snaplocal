@@ -269,8 +269,13 @@ final class CaptureEngine: @unchecked Sendable {
         }
         logger.debug("Shareable content: \(content.displays.count) displays, \(content.windows.count) windows")
 
-        // Prefer main display
-        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
+        // Prefer display where mouse cursor is; fall back to main display
+        let mouseLocation = NSEvent.mouseLocation
+        let cursorDisplayID = NSScreen.screens.first(where: { NSPointInRect(mouseLocation, $0.frame) })
+            .flatMap { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID }
+        guard let display = content.displays.first(where: { $0.displayID == cursorDisplayID })
+            ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
+            ?? content.displays.first else {
             logger.error("No display found")
             throw CaptureError.noDisplay
         }
