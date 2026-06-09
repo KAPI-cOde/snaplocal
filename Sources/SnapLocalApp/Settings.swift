@@ -19,6 +19,7 @@ enum SettingsKey: String {
     case saveDirectory = "save.directory"
     case notificationsEnabled = "notifications.enabled"
     case launchAtLogin = "launch.atLogin"
+    case recentCustomColors = "color.recentCustomColors"
 }
 
 // MARK: - Settings Manager
@@ -103,6 +104,21 @@ final class SettingsManager: ObservableObject {
             defaults.set(newValue, forKey: SettingsKey.launchAtLogin.rawValue)
             setLaunchAtLogin(newValue)
         }
+    }
+
+    // MARK: - Recent Custom Colors (up to 5 hex strings "RRGGBBAA")
+
+    var recentCustomColors: [String] {
+        get { defaults.stringArray(forKey: SettingsKey.recentCustomColors.rawValue) ?? [] }
+        set { defaults.set(newValue, forKey: SettingsKey.recentCustomColors.rawValue) }
+    }
+
+    func addRecentCustomColor(_ hex: String) {
+        var recent = recentCustomColors.filter { $0 != hex }
+        recent.insert(hex, at: 0)
+        if recent.count > 5 { recent = Array(recent.prefix(5)) }
+        recentCustomColors = recent
+        objectWillChange.send()
     }
     
     private func setLaunchAtLogin(_ enabled: Bool) {

@@ -235,6 +235,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     func acceptCapture(_ image: CGImage) {
         canvas.backgroundImage = image
         canvas.annotations.removeAll()
+        canvas.loadToken = UUID()
         currentVaultID = nil
         selectedHistoryID = nil
         copyImageToClipboard(image)
@@ -529,6 +530,7 @@ struct CompactToolbar: View {
     let onPaste: () -> Void
     @State private var showHelp = false
     @State private var showSettings = false
+    @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
         HStack(spacing: 6) {
@@ -763,10 +765,40 @@ struct CompactToolbar: View {
             ColorWellView(colorHex: $canvas.currentCustomColorHex) { hex in
                 canvas.currentCustomColorHex = hex
                 canvas.applyCustomColorToSelection(hex: hex)
+                if let hex { settings.addRecentCustomColor(hex) }
             }
             .frame(width: 18, height: 18)
             .cornerRadius(3)
             .help("カスタムカラー（クリックで色を選択）")
+
+            // Recent custom colors (up to 5)
+            ForEach(settings.recentCustomColors.prefix(5), id: \.self) { hex in
+                Button(action: {
+                    canvas.currentCustomColorHex = hex
+                    canvas.applyCustomColorToSelection(hex: hex)
+                }) {
+                    ZStack {
+                        if let c = ColorWellView.hexToNSColor(hex) {
+                            Circle()
+                                .fill(Color(nsColor: c))
+                                .frame(width: 12, height: 12)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.primary.opacity(0.2), lineWidth: 0.5)
+                                        .frame(width: 12, height: 12)
+                                )
+                        }
+                        if canvas.currentCustomColorHex == hex {
+                            Circle()
+                                .stroke(Color.primary.opacity(0.8), lineWidth: 2)
+                                .frame(width: 17, height: 17)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .frame(width: 18, height: 18)
+                .help("最近使ったカラー: #\(hex.prefix(6))")
+            }
 
             Divider().frame(height: 18)
 
