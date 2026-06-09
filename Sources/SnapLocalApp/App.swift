@@ -1061,6 +1061,7 @@ struct HelpPopoverContent: View {
             ("⌫", "選択削除"),
             ("⌘A", "全アノテーション選択"),
             ("⌘D", "アノテーション複製"),
+            ("⌘L", "ロック / ロック解除"),
             ("矢印キー", "1px移動（Shift=10px）"),
             ("⌘] / ⌘[", "前面へ / 背面へ"),
             ("1〜8", "色を選択"),
@@ -1665,6 +1666,11 @@ struct AnnotationCanvasView: View {
                 guard !viewModel.showTextInput,
                       press.modifiers.contains(.command) && press.modifiers.contains(.shift) else { return .ignored }
                 viewModel.clearAllAnnotations()
+                return .handled
+            }
+            .onKeyPress("l", phases: .down) { press in
+                guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
+                viewModel.toggleLockSelected()
                 return .handled
             }
             // Arrow key nudge for selected annotation (⌘↑/⌘↓ = history navigation)
