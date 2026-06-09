@@ -240,6 +240,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     // MARK: - Clipboard
 
     func pasteFromClipboard() {
+        // Try annotation paste first
+        if canvas.pasteAnnotationFromClipboard() {
+            showStatus("アノテーションを貼り付けました")
+            return
+        }
+        // Fall back to image paste
         guard let nsImage = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
               let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             showStatus("クリップボードに画像がありません")
@@ -284,7 +290,11 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             showStatus("コピーする画像がありません")
             return
         }
-        copyImageToClipboard(image)
+        let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([nsImage])
+        // Also copy annotation data if one is selected (allows cross-screenshot paste)
+        canvas.copySelectedAnnotationToClipboard()
         showStatus("クリップボードにコピーしました")
     }
 

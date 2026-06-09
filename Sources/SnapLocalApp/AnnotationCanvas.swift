@@ -465,6 +465,30 @@ final class CanvasViewModel: ObservableObject {
         objectWillChange.send()
     }
 
+    static let annotationPasteboardType = NSPasteboard.PasteboardType("com.snaplocal.annotation.v1")
+
+    func copySelectedAnnotationToClipboard() {
+        guard let id = selectedAnnotationID,
+              let annotation = annotations.first(where: { $0.id == id }),
+              let data = try? JSONEncoder().encode(annotation) else { return }
+        NSPasteboard.general.addTypes([Self.annotationPasteboardType], owner: nil)
+        NSPasteboard.general.setData(data, forType: Self.annotationPasteboardType)
+    }
+
+    /// Returns true if annotation was pasted from clipboard.
+    @discardableResult
+    func pasteAnnotationFromClipboard() -> Bool {
+        guard let data = NSPasteboard.general.data(forType: Self.annotationPasteboardType),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        json["id"] = UUID().uuidString
+        guard let newData = try? JSONSerialization.data(withJSONObject: json),
+              var newAnnotation = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) else { return false }
+        newAnnotation.applyTransform(CGAffineTransform(translationX: 10, y: 10))
+        addAnnotation(newAnnotation)
+        selectedAnnotationID = newAnnotation.id
+        return true
+    }
+
     func duplicateSelectedAnnotation() {
         guard let id = selectedAnnotationID,
               let annotation = annotations.first(where: { $0.id == id }),
