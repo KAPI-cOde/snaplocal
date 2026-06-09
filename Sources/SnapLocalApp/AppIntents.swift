@@ -58,6 +58,33 @@ struct OpenSnapLocalIntent: AppIntent {
     }
 }
 
+// MARK: - Get Latest Screenshot
+
+struct GetLatestScreenshotIntent: AppIntent {
+    static let title: LocalizedStringResource = "最新のスクリーンショットを取得"
+    static let description = IntentDescription("SnapLocal の履歴から最新のスクリーンショット画像を返します。Shortcuts ワークフローで使用できます。")
+    static let openAppWhenRun: Bool = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> {
+        let dir: URL = {
+            let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first!
+            return pictures.appendingPathComponent("SnapLocal", isDirectory: true)
+        }()
+        let indexURL = dir.appendingPathComponent("index.json")
+        struct Entry: Decodable { let id: String; let filename: String; let createdAt: Date }
+        guard let data = try? Data(contentsOf: indexURL),
+              let entries = try? JSONDecoder().decode([Entry].self, from: data),
+              let latest = entries.sorted(by: { $0.createdAt > $1.createdAt }).first else {
+            struct NoHistoryError: LocalizedError { var errorDescription: String? = "履歴が見つかりません" }
+            throw NoHistoryError()
+        }
+        let fileURL = dir.appendingPathComponent(latest.filename)
+        let file = IntentFile(fileURL: fileURL, filename: latest.filename)
+        return .result(value: file)
+    }
+}
+
 // MARK: - App Shortcuts Provider
 
 struct SnapLocalShortcuts: AppShortcutsProvider {
@@ -89,6 +116,15 @@ struct SnapLocalShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "SnapLocal を開く",
             systemImageName: "photo.stack"
+        )
+        AppShortcut(
+            intent: GetLatestScreenshotIntent(),
+            phrases: [
+                "\(.applicationName) の最新スクリーンショットを取得",
+                "Get latest screenshot from \(.applicationName)"
+            ],
+            shortTitle: "最新スクリーンショット取得",
+            systemImageName: "photo.on.rectangle"
         )
     }
 }
