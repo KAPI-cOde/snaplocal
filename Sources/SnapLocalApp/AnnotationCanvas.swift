@@ -186,6 +186,29 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .select, .redact, .highlight, .stamp, .colorPicker, .measure, .spotlight: return false
         }
     }
+
+    var shortcutKey: String {
+        switch self {
+        case .select: return "V"
+        case .line: return "L"
+        case .arrow: return "A"
+        case .rectangle: return "R"
+        case .ellipse: return "E"
+        case .text: return "T"
+        case .step: return "N"
+        case .roundedRect: return "U"
+        case .callout: return "B"
+        case .highlight: return "H"
+        case .redact: return "X"
+        case .pencil: return "P"
+        case .stamp: return "G"
+        case .colorPicker: return "I"
+        case .measure: return "Q"
+        case .spotlight: return "O"
+        }
+    }
+
+    var helpText: String { "\(displayName) (\(shortcutKey))" }
 }
 
 enum RedactMode: String, Codable, CaseIterable {
@@ -200,6 +223,69 @@ enum SpotlightShape: String, Codable, CaseIterable {
     case ellipse, rectangle
 
     var systemImage: String { self == .ellipse ? "circle" : "rectangle" }
+}
+
+// MARK: - Crop Handle
+
+enum CropHandle {
+    case topLeft, top, topRight, left, right, bottomLeft, bottom, bottomRight, move
+
+    static let hitRadius: CGFloat = 16
+
+    func apply(delta: CGSize, to rect: CGRect) -> CGRect {
+        var r = rect
+        switch self {
+        case .topLeft:
+            r.origin.x += delta.width; r.size.width -= delta.width
+            r.size.height += delta.height
+        case .top:
+            r.size.height += delta.height
+        case .topRight:
+            r.size.width += delta.width; r.size.height += delta.height
+        case .left:
+            r.origin.x += delta.width; r.size.width -= delta.width
+        case .right:
+            r.size.width += delta.width
+        case .bottomLeft:
+            r.origin.x += delta.width; r.size.width -= delta.width
+            r.origin.y += delta.height; r.size.height -= delta.height
+        case .bottom:
+            r.origin.y += delta.height; r.size.height -= delta.height
+        case .bottomRight:
+            r.size.width += delta.width
+            r.origin.y += delta.height; r.size.height -= delta.height
+        case .move:
+            r.origin.x += delta.width; r.origin.y += delta.height
+        }
+        if r.size.width < 4  { r.size.width = 4 }
+        if r.size.height < 4 { r.size.height = 4 }
+        return r
+    }
+
+    func point(in rect: CGRect) -> CGPoint {
+        switch self {
+        case .topLeft:     return CGPoint(x: rect.minX, y: rect.minY)
+        case .top:         return CGPoint(x: rect.midX, y: rect.minY)
+        case .topRight:    return CGPoint(x: rect.maxX, y: rect.minY)
+        case .left:        return CGPoint(x: rect.minX, y: rect.midY)
+        case .right:       return CGPoint(x: rect.maxX, y: rect.midY)
+        case .bottomLeft:  return CGPoint(x: rect.minX, y: rect.maxY)
+        case .bottom:      return CGPoint(x: rect.midX, y: rect.maxY)
+        case .bottomRight: return CGPoint(x: rect.maxX, y: rect.maxY)
+        case .move:        return CGPoint(x: rect.midX, y: rect.midY)
+        }
+    }
+
+    static let allHandles: [CropHandle] = [.topLeft, .top, .topRight, .left, .right, .bottomLeft, .bottom, .bottomRight]
+
+    static func handle(at point: CGPoint, in rect: CGRect) -> CropHandle? {
+        for h in allHandles {
+            let c = h.point(in: rect)
+            if hypot(point.x - c.x, point.y - c.y) <= hitRadius { return h }
+        }
+        if rect.contains(point) { return .move }
+        return nil
+    }
 }
 
 // MARK: - Snap Guides
@@ -281,9 +367,16 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentPencilPoints: [CGPoint] = []
     @Published var currentStamp: String = "✅"
     @Published var dragState = DragState()
+    // Live mosaic/blur preview while dragging redact tool
+    @Published var redactDragPreview: CGImage? = nil
+    @Published var redactDragPreviewBounds: CGRect = .zero
+    private var redactPreviewThrottle = 0
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
     @Published var loadToken: UUID = UUID()
+    // Placement ripple: canvas-space center of the most recently placed annotation
+    @Published var lastPlacedCenter: CGPoint = .zero
+    @Published var lastPlacedAt: CFAbsoluteTime = 0
     @Published var currentZoom: CGFloat = 1.0
     // Non-destructive image adjustments (pending until baked)
     @Published var adjustBrightness: Double = 0.0   // -0.5 … 0.5
@@ -311,6 +404,11 @@ final class CanvasViewModel: ObservableObject {
     @Published var cropStart: CGPoint?
     @Published var cropEnd: CGPoint?
     @Published var cropAspectRatio: CGFloat? = nil  // nil = free, else width/height
+    @Published var cropAnimToken: UUID = UUID()  // changes when crop is confirmed (triggers fade)
+    // Crop handle editing
+    private var cropHandleActive: CropHandle? = nil
+    private var cropHandleStartRect: CGRect = .zero
+    private var cropHandleDragOrigin: CGPoint = .zero
 
     // Measure tool (transient, not saved)
     @Published var measureStart: CGPoint?
@@ -425,6 +523,47 @@ final class CanvasViewModel: ObservableObject {
         }
     }
 
+    // Generate a live mosaic/blur preview image during redact drag (view-space coords)
+    func updateRedactDragPreview(start: CGPoint, end: CGPoint) {
+        guard let bgImage = backgroundImage, canvasSize.width > 0, canvasSize.height > 0 else {
+            redactDragPreview = nil; return
+        }
+        let vr = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                        width: abs(end.x - start.x), height: abs(end.y - start.y))
+        guard vr.width > 4, vr.height > 4 else { redactDragPreview = nil; return }
+        let imgW = CGFloat(bgImage.width), imgH = CGFloat(bgImage.height)
+        let scaleX = imgW / canvasSize.width, scaleY = imgH / canvasSize.height
+        let ciRect = CGRect(
+            x: vr.minX * scaleX,
+            y: imgH - vr.maxY * scaleY,
+            width: max(vr.width * scaleX, 2),
+            height: max(vr.height * scaleY, 2)
+        ).intersection(CGRect(x: 0, y: 0, width: imgW, height: imgH))
+        guard !ciRect.isNull, ciRect.width > 0, ciRect.height > 0 else { redactDragPreview = nil; return }
+        let ciSource = CIImage(cgImage: bgImage)
+        var filtered: CIImage?
+        switch currentRedactMode {
+        case .mosaic:
+            let f = CIFilter.pixellate()
+            f.inputImage = ciSource.cropped(to: ciRect)
+            f.scale = Float(currentMosaicScale)
+            filtered = f.outputImage?.cropped(to: ciRect)
+        case .blur:
+            let f = CIFilter.gaussianBlur()
+            f.inputImage = ciSource.cropped(to: ciRect)
+            f.radius = Float(currentBlurRadius)
+            filtered = f.outputImage?.cropped(to: ciRect)
+        }
+        if let out = filtered, let cg = ciPreviewCtx.createCGImage(out, from: ciRect) {
+            redactDragPreview = cg
+            redactDragPreviewBounds = vr
+        } else {
+            redactDragPreview = nil
+        }
+    }
+
+    func clearRedactDragPreview() { redactDragPreview = nil }
+
     // MARK: - Color Sampling
 
     func sampleColor(at canvasPoint: CGPoint) -> String? {
@@ -457,6 +596,12 @@ final class CanvasViewModel: ObservableObject {
         annotations.append(annotation)
         if !annotation.hasStrokeRepresentation {
             updateFilterPreview(for: annotation)
+        }
+        // Record placement for ripple animation
+        let b = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
+        if b.width > 0 || b.height > 0 {
+            lastPlacedCenter = CGPoint(x: b.midX, y: b.midY)
+            lastPlacedAt = CFAbsoluteTimeGetCurrent()
         }
         objectWillChange.send()
         updateUndoRedoState()
@@ -587,15 +732,26 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func handleCorners(for bounds: CGRect) -> [CGPoint] {
-        [CGPoint(x: bounds.minX, y: bounds.minY),   // 0 TL
-         CGPoint(x: bounds.maxX, y: bounds.minY),   // 1 TR
-         CGPoint(x: bounds.minX, y: bounds.maxY),   // 2 BL
-         CGPoint(x: bounds.maxX, y: bounds.maxY)]   // 3 BR
+        [CGPoint(x: bounds.minX,  y: bounds.minY),   // 0 TL
+         CGPoint(x: bounds.maxX,  y: bounds.minY),   // 1 TR
+         CGPoint(x: bounds.minX,  y: bounds.maxY),   // 2 BL
+         CGPoint(x: bounds.maxX,  y: bounds.maxY),   // 3 BR
+         CGPoint(x: bounds.midX,  y: bounds.minY),   // 4 Top-mid
+         CGPoint(x: bounds.midX,  y: bounds.maxY),   // 5 Bottom-mid
+         CGPoint(x: bounds.minX,  y: bounds.midY),   // 6 Left-mid
+         CGPoint(x: bounds.maxX,  y: bounds.midY)]   // 7 Right-mid
     }
 
     func hitTestHandle(at point: CGPoint, corners: [CGPoint]) -> Int? {
         let r: CGFloat = 8
-        for (i, c) in corners.enumerated() {
+        // Check corners first (priority)
+        for i in 0..<4 where i < corners.count {
+            let c = corners[i]
+            if abs(point.x - c.x) <= r && abs(point.y - c.y) <= r { return i }
+        }
+        // Then mid-edge handles
+        for i in 4..<corners.count {
+            let c = corners[i]
             if abs(point.x - c.x) <= r && abs(point.y - c.y) <= r { return i }
         }
         return nil
@@ -792,6 +948,22 @@ final class CanvasViewModel: ObservableObject {
         }
 
         if isCropMode {
+            // If a selection exists, check for handle/move interaction
+            if let cs = cropStart, let ce = cropEnd {
+                let sel = CGRect(
+                    x: min(cs.x, ce.x), y: min(cs.y, ce.y),
+                    width: abs(ce.x - cs.x), height: abs(ce.y - cs.y)
+                )
+                if let handle = CropHandle.handle(at: localPoint, in: sel) {
+                    cropHandleActive = handle
+                    cropHandleStartRect = sel
+                    cropHandleDragOrigin = localPoint
+                    dragState.start(at: localPoint)
+                    return
+                }
+            }
+            // No selection or click outside → start a new crop drag
+            cropHandleActive = nil
             dragState.start(at: localPoint)
             cropStart = localPoint
             cropEnd = localPoint
@@ -959,14 +1131,36 @@ final class CanvasViewModel: ObservableObject {
 
         dragState.update(to: localPoint)
 
+        // Live redact drag preview (throttled to every 2nd event for performance)
+        if currentTool == .redact, dragState.isDrawing,
+           let dragStart = dragState.startPoint {
+            redactPreviewThrottle += 1
+            if redactPreviewThrottle % 2 == 0 {
+                updateRedactDragPreview(start: dragStart, end: localPoint)
+            }
+        }
+
         if isCropMode {
+            // Handle-based resize/move
+            if let handle = cropHandleActive {
+                let delta = CGSize(
+                    width: localPoint.x - cropHandleDragOrigin.x,
+                    height: localPoint.y - cropHandleDragOrigin.y
+                )
+                let newRect = handle.apply(delta: delta, to: cropHandleStartRect)
+                cropHandleStartRect = newRect
+                cropHandleDragOrigin = localPoint
+                cropStart = CGPoint(x: newRect.minX, y: newRect.minY)
+                cropEnd = CGPoint(x: newRect.maxX, y: newRect.maxY)
+                objectWillChange.send()
+                return
+            }
+            // Normal drag: create new selection with optional ratio constraint
             var cropPt = localPoint
             if let start = cropStart {
                 let dx = cropPt.x - start.x, dy = cropPt.y - start.y
-                // Preset ratio takes priority; Shift overrides with square
                 let ratio = NSEvent.modifierFlags.contains(.shift) ? 1.0 : cropAspectRatio
                 if let r = ratio {
-                    // Constrain to ratio: expand whichever dimension is larger
                     let absDx = abs(dx), absDy = abs(dy)
                     if absDx / r >= absDy {
                         let constrainedDy = absDx / r * (dy < 0 ? -1 : 1)
@@ -1004,17 +1198,40 @@ final class CanvasViewModel: ObservableObject {
                let startBounds = resizingStartBounds,
                let startTransform = resizingStartTransform,
                var annotation = annotations.first(where: { $0.id == id }) {
-                // Compute fixed corner and new bounds
-                let fixedCorners: [CGPoint] = [
-                    CGPoint(x: startBounds.maxX, y: startBounds.maxY), // 0-TL dragging → BR is fixed
-                    CGPoint(x: startBounds.minX, y: startBounds.maxY), // 1-TR → BL is fixed
-                    CGPoint(x: startBounds.maxX, y: startBounds.minY), // 2-BL → TR is fixed
-                    CGPoint(x: startBounds.minX, y: startBounds.minY), // 3-BR → TL is fixed
-                ]
-                let fx = fixedCorners[handleIdx]
-                let nx = min(localPoint.x, fx.x), ny = min(localPoint.y, fx.y)
-                let nw = max(abs(localPoint.x - fx.x), 4), nh = max(abs(localPoint.y - fx.y), 4)
-                let newBounds = CGRect(x: nx, y: ny, width: nw, height: nh)
+                let newBounds: CGRect
+                if handleIdx < 4 {
+                    // Corner handles: both axes change
+                    let fixedCorners: [CGPoint] = [
+                        CGPoint(x: startBounds.maxX, y: startBounds.maxY), // 0-TL → BR fixed
+                        CGPoint(x: startBounds.minX, y: startBounds.maxY), // 1-TR → BL fixed
+                        CGPoint(x: startBounds.maxX, y: startBounds.minY), // 2-BL → TR fixed
+                        CGPoint(x: startBounds.minX, y: startBounds.minY), // 3-BR → TL fixed
+                    ]
+                    let fx = fixedCorners[handleIdx]
+                    let nx = min(localPoint.x, fx.x), ny = min(localPoint.y, fx.y)
+                    let nw = max(abs(localPoint.x - fx.x), 4), nh = max(abs(localPoint.y - fx.y), 4)
+                    newBounds = CGRect(x: nx, y: ny, width: nw, height: nh)
+                } else {
+                    // Mid-edge handles: one axis changes, other stays fixed
+                    switch handleIdx {
+                    case 4: // Top-mid: only top edge moves, bottom fixed
+                        let newY = min(localPoint.y, startBounds.maxY - 4)
+                        newBounds = CGRect(x: startBounds.minX, y: newY, width: startBounds.width,
+                                           height: max(startBounds.maxY - newY, 4))
+                    case 5: // Bottom-mid: only bottom edge moves, top fixed
+                        let newMaxY = max(localPoint.y, startBounds.minY + 4)
+                        newBounds = CGRect(x: startBounds.minX, y: startBounds.minY, width: startBounds.width,
+                                           height: newMaxY - startBounds.minY)
+                    case 6: // Left-mid: only left edge moves, right fixed
+                        let newX = min(localPoint.x, startBounds.maxX - 4)
+                        newBounds = CGRect(x: newX, y: startBounds.minY, width: max(startBounds.maxX - newX, 4),
+                                           height: startBounds.height)
+                    default: // 7: Right-mid: only right edge moves, left fixed
+                        let newMaxX = max(localPoint.x, startBounds.minX + 4)
+                        newBounds = CGRect(x: startBounds.minX, y: startBounds.minY,
+                                           width: newMaxX - startBounds.minX, height: startBounds.height)
+                    }
+                }
                 let sx = newBounds.width / max(startBounds.width, 1)
                 let sy = newBounds.height / max(startBounds.height, 1)
                 let tx = newBounds.minX - startBounds.minX * sx
@@ -1134,9 +1351,12 @@ final class CanvasViewModel: ObservableObject {
             return
         }
 
+        clearRedactDragPreview()
+
         guard let (start, end) = dragState.end() else { return }
 
         if isCropMode {
+            cropHandleActive = nil
             cropEnd = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
             objectWillChange.send()
             return
@@ -1379,6 +1599,7 @@ final class CanvasViewModel: ObservableObject {
                 height: abs(end.y - start.y)
             )
             var a = CalloutAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            a.tailPoint = start  // drag start becomes the pointer/tail tip
             a.isFilled = currentFilled
             annotation = AnyAnnotation(a)
         case .highlight:
@@ -1422,8 +1643,14 @@ final class CanvasViewModel: ObservableObject {
         showTextInput = true
     }
 
+    func updateTextInputHeight(_ viewHeight: CGFloat) {
+        // Convert overlay height back to canvas space (divide by zoom approximation via stored rect width ratio)
+        textInputRect.size.height = max(textInputRect.size.height, viewHeight)
+    }
+
     func confirmTextInput() {
-        let trimmed = textInputString.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Trim only leading/trailing whitespace, preserve internal newlines for multiline text
+        let trimmed = textInputString.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         defer {
             showTextInput = false
             textInputString = ""
@@ -1495,15 +1722,15 @@ final class CanvasViewModel: ObservableObject {
         backgroundImage = cropped
         annotations.removeAll()
         selectedAnnotationID = nil
+        cropAnimToken = UUID()
         registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
         recomputeAllFilterPreviews()
     }
 
     func cancelCrop() {
         isCropMode = false
-        cropStart = nil
-        cropEnd = nil
-        cropAspectRatio = nil
+        cropStart = nil; cropEnd = nil; cropAspectRatio = nil
+        cropHandleActive = nil
     }
 
     // Crop directly to a canvas-space rect (from annotation bounds)
@@ -1923,14 +2150,30 @@ final class CanvasViewModel: ObservableObject {
     @Published var canUndo: Bool = false
     @Published var canRedo: Bool = false
 
+    @Published var undoRedoToast: String? = nil
+    private var undoRedoToastTask: Task<Void, Never>?
+
     func undo() {
+        guard canUndo else { return }
         undoManager.undo()
         updateUndoRedoState()
+        showUndoRedoToast("元に戻した")
     }
 
     func redo() {
+        guard canRedo else { return }
         undoManager.redo()
         updateUndoRedoState()
+        showUndoRedoToast("やり直した")
+    }
+
+    private func showUndoRedoToast(_ message: String) {
+        undoRedoToastTask?.cancel()
+        withAnimation(.easeOut(duration: 0.15)) { undoRedoToast = message }
+        undoRedoToastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            withAnimation(.easeIn(duration: 0.2)) { self.undoRedoToast = nil }
+        }
     }
 
     func updateUndoRedoState() {
@@ -2057,14 +2300,17 @@ final class CanvasViewModel: ObservableObject {
                 NSAttributedString(string: text, attributes: attrs).draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
             } else if annotation.type == .spotlight {
-                // Spotlight: dark overlay with ellipse punched out
+                // Spotlight: dark overlay with spotlight area showing the original image
+                let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
                 cgCtx.setFillColor(CGColor(gray: 0, alpha: 0.6 * annotation.opacity))
                 cgCtx.fill(fullRect)
-                cgCtx.setBlendMode(.clear)
-                let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
+                // Redraw original image clipped to the spotlight ellipse (punch-through)
+                cgCtx.saveGState()
                 cgCtx.addPath(cgPath)
-                cgCtx.fillPath()
-                cgCtx.setBlendMode(.normal)
+                cgCtx.clip()
+                cgCtx.draw(filteredCGImage ?? bgImage, in: fullRect)
+                cgCtx.restoreGState()
+                // Bright ring around spotlight
                 cgCtx.setStrokeColor(CGColor(gray: 1, alpha: 0.6 * annotation.opacity))
                 cgCtx.setLineWidth(2 * strokeScale)
                 cgCtx.addPath(cgPath)

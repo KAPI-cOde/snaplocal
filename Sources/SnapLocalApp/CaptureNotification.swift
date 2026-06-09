@@ -35,7 +35,7 @@ final class CaptureNotificationWindow {
         hosting.translatesAutoresizingMaskIntoConstraints = false
 
         let newPanel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 76),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -48,16 +48,20 @@ final class CaptureNotificationWindow {
         newPanel.contentView = hosting
 
         // Fit panel to hosting view's intrinsic size
-        hosting.frame = NSRect(x: 0, y: 0, width: 300, height: 76)
+        hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 80)
 
         positionPanel(newPanel, on: onScreen)
         newPanel.alphaValue = 0
         newPanel.orderFrontRegardless()
 
-        // Animate in
+        // Slide in from bottom-right
+        let finalFrame = newPanel.frame
+        newPanel.setFrameOrigin(NSPoint(x: finalFrame.minX + 20, y: finalFrame.minY - 20))
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.25
+            ctx.duration = 0.3
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             newPanel.animator().alphaValue = 1
+            newPanel.animator().setFrame(finalFrame, display: true)
         }
 
         panel = newPanel
@@ -104,30 +108,64 @@ struct CaptureNotificationView: View {
     let onDismiss: () -> Void
 
     @State private var timerProgress: CGFloat = 1.0
+    @State private var thumbnailHovered = false
+    @State private var copiedFeedback = false
+
+    private var aspectRatio: CGFloat {
+        guard image.height > 0 else { return 1 }
+        return CGFloat(image.width) / CGFloat(image.height)
+    }
+
+    private var thumbWidth: CGFloat { min(80, max(48, 52 * aspectRatio)) }
 
     var body: some View {
         HStack(spacing: 10) {
-            // Thumbnail
-            Image(nsImage: NSImage(cgImage: image,
-                                   size: NSSize(width: image.width, height: image.height)))
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 60, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-                )
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text("撮影しました")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                HStack(spacing: 2) {
-                    actionBtn("doc.on.clipboard", label: "コピー") {
-                        actions.copy(); onDismiss()
+            // Thumbnail — click to open editor
+            Button {
+                actions.annotate(); onDismiss()
+            } label: {
+                Image(nsImage: NSImage(cgImage: image,
+                                       size: NSSize(width: image.width, height: image.height)))
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: thumbWidth, height: 50)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(thumbnailHovered ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.15),
+                                    lineWidth: thumbnailHovered ? 1.5 : 0.5)
+                    )
+                    .overlay(alignment: .bottom) {
+                        if thumbnailHovered {
+                            Text("編集")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(.ultraThinMaterial)
+                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                                .padding(.bottom, 3)
+                        }
                     }
+                    .scaleEffect(thumbnailHovered ? 1.03 : 1.0)
+                    .animation(.easeInOut(duration: 0.15), value: thumbnailHovered)
+                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain)
+            .onHover { thumbnailHovered = $0 }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    Text("撮影しました")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("\(image.width) × \(image.height)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 3) {
+                    copyActionBtn
                     actionBtn("square.and.arrow.down", label: "保存") {
                         actions.save(); onDismiss()
                     }
@@ -157,20 +195,19 @@ struct CaptureNotificationView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .frame(width: 300, height: 76)
+        .frame(width: 320, height: 80)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(alignment: .bottom) {
-            // Auto-dismiss countdown bar
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.accentColor.opacity(0.5))
-                    .frame(width: geo.size.width * timerProgress, height: 2)
+                    .frame(width: geo.size.width * timerProgress, height: 2.5)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 2)
+            .frame(height: 2.5)
             .padding(.horizontal, 14)
-            .padding(.bottom, 4)
+            .padding(.bottom, 3)
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14)
@@ -184,17 +221,40 @@ struct CaptureNotificationView: View {
     }
 
     @ViewBuilder
+    private var copyActionBtn: some View {
+        Button {
+            actions.copy()
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { copiedFeedback = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { onDismiss() }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: copiedFeedback ? "checkmark" : "doc.on.clipboard")
+                    .font(.system(size: 12))
+                    .foregroundStyle(copiedFeedback ? Color.green : Color.primary)
+                Text(copiedFeedback ? "完了" : "コピー")
+                    .font(.system(size: 8))
+                    .foregroundStyle(copiedFeedback ? Color.green : Color.primary)
+            }
+            .frame(width: 40, height: 32)
+            .background(copiedFeedback ? Color.green.opacity(0.12) : Color.primary.opacity(0.06),
+                        in: RoundedRectangle(cornerRadius: 7))
+            .scaleEffect(copiedFeedback ? 1.05 : 1.0)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
     private func actionBtn(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Image(systemName: icon)
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                 Text(label)
                     .font(.system(size: 8))
             }
             .foregroundStyle(.primary)
-            .frame(width: 42, height: 30)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            .frame(width: 40, height: 32)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
     }

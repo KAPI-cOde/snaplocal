@@ -34,20 +34,28 @@ private struct ZoomNotificationHandler: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomIn)) { _ in
-                zoom = min(8.0, zoom * 1.25); baseZoom = zoom
+                withAnimation(.easeOut(duration: 0.15)) {
+                    zoom = min(8.0, zoom * 1.25); baseZoom = zoom
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomOut)) { _ in
-                zoom = max(0.25, zoom / 1.25); baseZoom = zoom
+                withAnimation(.easeOut(duration: 0.15)) {
+                    zoom = max(0.25, zoom / 1.25); baseZoom = zoom
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomReset)) { _ in
-                zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero
+                withAnimation(.easeOut(duration: 0.2)) {
+                    zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomFit)) { _ in
                 guard let sz = imageSize, sz.width > 0, sz.height > 0 else { return }
                 let fitW = canvasSize.width / sz.width
                 let fitH = canvasSize.height / sz.height
-                zoom = max(0.25, min(8.0, min(fitW, fitH))); baseZoom = zoom
-                panOffset = .zero; basePan = .zero
+                withAnimation(.easeOut(duration: 0.2)) {
+                    zoom = max(0.25, min(8.0, min(fitW, fitH))); baseZoom = zoom
+                    panOffset = .zero; basePan = .zero
+                }
             }
     }
 }
@@ -1152,6 +1160,26 @@ struct CompactToolbar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.ultraThinMaterial)
+        // Hidden keyboard shortcut buttons that were moved to menus
+        .background {
+            Group {
+                Button(action: onPaste) { EmptyView() }
+                    .keyboardShortcut("v", modifiers: .command)
+                Button(action: onRepeatRegion) { EmptyView() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button(action: onSaveAs) { EmptyView() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                Button(action: onShare) { EmptyView() }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                Button { canvas.rotateImage(clockwise: false) } label: { EmptyView() }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                    .disabled(canvas.backgroundImage == nil)
+                Button { canvas.rotateImage(clockwise: true) } label: { EmptyView() }
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                    .disabled(canvas.backgroundImage == nil)
+            }
+            .frame(width: 0, height: 0).opacity(0)
+        }
     }
 
     private var cropModeControls: some View {
@@ -1189,6 +1217,7 @@ struct CompactToolbar: View {
 
     private var normalControls: some View {
         HStack(spacing: 6) {
+            // ─ キャプチャ ─
             Button(action: onCapture) {
                 Image(systemName: "camera.viewfinder")
             }
@@ -1200,12 +1229,6 @@ struct CompactToolbar: View {
             }
             .help("範囲選択撮影 (⌘⇧4)")
             .keyboardShortcut("4", modifiers: [.command, .shift])
-
-            Button(action: onRepeatRegion) {
-                Image(systemName: "arrow.counterclockwise.circle")
-            }
-            .help("前回の範囲を再撮影 (⌘⇧R)")
-            .keyboardShortcut("r", modifiers: [.command, .shift])
 
             Button(action: onCaptureWindow) {
                 Image(systemName: "macwindow.on.rectangle")
@@ -1221,96 +1244,37 @@ struct CompactToolbar: View {
             .keyboardShortcut("p", modifiers: [.command, .shift])
 
             Menu {
+                Button("前回の範囲を再撮影 (⌘⇧R)") { onRepeatRegion() }
+                Divider()
                 Section("遅延撮影") {
                     Button("3秒後") { onCaptureWithDelay(3) }
                     Button("5秒後") { onCaptureWithDelay(5) }
                     Button("10秒後") { onCaptureWithDelay(10) }
                 }
                 Divider()
-                Section("クリップボードのみ（履歴に保存しない）") {
+                Section("クリップボードのみ") {
                     Button("全画面→クリップボード (⌘⌃2)") { onCaptureToClipboard?() }
                     Button("範囲選択→クリップボード (⌘⌃4)") { onCaptureRegionToClipboard?() }
                 }
+                Divider()
+                Button("クリップボードから貼り付け (⌘V)") { onPaste() }
             } label: {
-                Image(systemName: "timer")
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
             }
-            .help("遅延撮影 / クリップボードのみ")
             .menuStyle(.borderlessButton)
-            .frame(width: 22)
+            .frame(width: 18)
+            .help("その他のキャプチャ")
 
-            Button(action: onPaste) {
-                Image(systemName: "doc.on.clipboard.fill")
-            }
-            .help("クリップボードから貼り付け (⌘V)")
-            .keyboardShortcut("v", modifiers: .command)
+            Divider().frame(height: 18)
 
-            Button(action: { canvas.enterCropMode() }) {
+            // ─ 画像編集 ─
+            Button { canvas.enterCropMode() } label: {
                 Image(systemName: "scissors")
             }
-            .help("画像を切り取り (⌘K)")
+            .help("切り取り (⌘K)")
             .disabled(canvas.backgroundImage == nil)
             .keyboardShortcut("k", modifiers: .command)
-
-            Button(action: { canvas.rotateImage(clockwise: false) }) {
-                Image(systemName: "rotate.left")
-            }
-            .help("90°左に回転 (⌘⌥←)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-
-            Button(action: { canvas.rotateImage(clockwise: true) }) {
-                Image(systemName: "rotate.right")
-            }
-            .help("90°右に回転 (⌘⌥→)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-
-            Menu {
-                Text("現在: \(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—")")
-                    .font(.caption)
-                Divider()
-                Button("左右反転") { canvas.flipImage(horizontal: true) }
-                Button("上下反転") { canvas.flipImage(horizontal: false) }
-                Divider()
-                Button("余白を自動トリミング") { canvas.trimWhitespace() }
-                Divider()
-                Group {
-                    Button("クリップボードの画像を下に結合") {
-                        if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
-                           let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                            canvas.stitch(with: cg, vertical: true)
-                        }
-                    }
-                    Button("クリップボードの画像を右に結合") {
-                        if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
-                           let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                            canvas.stitch(with: cg, vertical: false)
-                        }
-                    }
-                }
-                .disabled(canvas.backgroundImage == nil)
-                Divider()
-                Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
-                Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
-                Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
-                Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
-                Divider()
-                Button("1920×1080 (FHD)") { canvas.resizeToFit(width: 1920, height: 1080) }
-                Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
-                Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
-                Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
-                Divider()
-                Button("余白を追加…") { showExtendCanvas = true }
-            } label: {
-                Image(systemName: "aspectratio")
-            }
-            .help("反転 / リサイズ")
-            .disabled(canvas.backgroundImage == nil)
-            .menuStyle(.borderlessButton)
-            .frame(width: 22)
-            .sheet(isPresented: $showExtendCanvas) {
-                extendCanvasSheet
-            }
 
             Button { showAdjustments.toggle() } label: {
                 Image(systemName: "slider.horizontal.3")
@@ -1331,45 +1295,93 @@ struct CompactToolbar: View {
                 decorationPopover
             }
 
-            Button(action: onCopy) {
-                Image(systemName: "doc.on.clipboard")
+            Menu {
+                Section("回転・反転") {
+                    Button("90°左に回転 (⌘⌥←)") { canvas.rotateImage(clockwise: false) }
+                    Button("90°右に回転 (⌘⌥→)") { canvas.rotateImage(clockwise: true) }
+                    Button("左右反転") { canvas.flipImage(horizontal: true) }
+                    Button("上下反転") { canvas.flipImage(horizontal: false) }
+                }
+                Divider()
+                Section("リサイズ (\(canvas.backgroundImage.map { "\($0.width)×\($0.height)" } ?? "—"))") {
+                    Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
+                    Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
+                    Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
+                    Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
+                    Divider()
+                    Button("1920×1080 (FHD)") { canvas.resizeToFit(width: 1920, height: 1080) }
+                    Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
+                    Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
+                    Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
+                }
+                Divider()
+                Button("余白を追加…") { showExtendCanvas = true }
+                Button("余白を自動トリミング") { canvas.trimWhitespace() }
+                Divider()
+                Button("クリップボードの画像を下に結合") {
+                    if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                       let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        canvas.stitch(with: cg, vertical: true)
+                    }
+                }
+                Button("クリップボードの画像を右に結合") {
+                    if let ns = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+                       let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        canvas.stitch(with: cg, vertical: false)
+                    }
+                }
+            } label: {
+                Image(systemName: "photo")
             }
-            .help("クリップボードにコピー (⌘C)")
+            .menuStyle(.borderlessButton)
+            .frame(width: 22)
             .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("c", modifiers: .command)
-
-            Button(action: onSave) {
-                Image(systemName: "square.and.arrow.down")
+            .help("回転・反転・リサイズ・結合")
+            .sheet(isPresented: $showExtendCanvas) {
+                extendCanvasSheet
             }
-            .help("保存 (⌘S)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("s", modifiers: .command)
-
-            Button(action: onSaveAs) {
-                Image(systemName: "square.and.arrow.down.on.square")
-            }
-            .help("別名で保存… (⌘⇧S)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("s", modifiers: [.command, .shift])
-
-            Button(action: onShare) {
-                Image(systemName: "square.and.arrow.up")
-            }
-            .help("共有… (⌘⇧E)")
-            .disabled(canvas.backgroundImage == nil)
-            .keyboardShortcut("e", modifiers: [.command, .shift])
 
             Divider().frame(height: 18)
 
-            // Tool buttons: two logical groups separated by mini-divider
+            // ─ 描画ツール（主要5つ + もっと見る）─
             HStack(spacing: 2) {
-                ForEach([DrawingTool.select, .colorPicker, .measure, .line, .arrow, .rectangle, .ellipse, .roundedRect], id: \.self) { tool in
-                    toolButton(tool, canvas: canvas)
+                let moreTools: [DrawingTool] = [.arrow, .ellipse, .roundedRect, .callout, .step,
+                                                .highlight, .pencil, .stamp, .spotlight, .colorPicker, .measure]
+                toolButton(.select, canvas: canvas)
+                toolButton(.rectangle, canvas: canvas)
+                toolButton(.line, canvas: canvas)
+                toolButton(.text, canvas: canvas)
+                toolButton(.redact, canvas: canvas)
+
+                if moreTools.contains(canvas.currentTool) {
+                    Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
+                    toolButton(canvas.currentTool, canvas: canvas)
                 }
-                Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
-                ForEach([DrawingTool.text, .step, .callout, .highlight, .pencil, .stamp, .redact, .spotlight], id: \.self) { tool in
-                    toolButton(tool, canvas: canvas)
+
+                Menu {
+                    Section("描画") {
+                        ForEach([DrawingTool.arrow, .ellipse, .roundedRect, .callout,
+                                 .step, .highlight, .pencil, .stamp, .spotlight], id: \.self) { tool in
+                            Button(action: { canvas.currentTool = tool }) {
+                                Label(tool.helpText, systemImage: tool.systemImage)
+                            }
+                        }
+                    }
+                    Section("計測・色") {
+                        Button(action: { canvas.currentTool = .colorPicker }) {
+                            Label(DrawingTool.colorPicker.helpText, systemImage: DrawingTool.colorPicker.systemImage)
+                        }
+                        Button(action: { canvas.currentTool = .measure }) {
+                            Label(DrawingTool.measure.helpText, systemImage: DrawingTool.measure.systemImage)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(moreTools.contains(canvas.currentTool) ? Color.accentColor : Color.primary)
                 }
+                .menuStyle(.borderlessButton)
+                .frame(width: 22)
+                .help("その他のツール")
             }
 
             if canvas.currentTool == .arrow {
@@ -1378,7 +1390,7 @@ struct CompactToolbar: View {
                 }
                 .toggleStyle(.button)
                 .controlSize(.small)
-                .help("両方向矢印 (double-headed arrow)")
+                .help("両方向矢印")
             }
 
             if canvas.currentTool == .redact {
@@ -1485,7 +1497,7 @@ struct CompactToolbar: View {
                     Image(systemName: canvas.currentFilled ? "square.fill" : "square")
                 }
                 .toggleStyle(.button)
-                .help(canvas.currentFilled ? "塗りつぶし（クリックでアウトラインへ）" : "アウトライン（クリックで塗りつぶしへ）")
+                .help(canvas.currentFilled ? "塗りつぶし → アウトライン (F)" : "アウトライン → 塗りつぶし (F)")
                 .controlSize(.small)
                 .onChange(of: canvas.currentFilled) { _, _ in canvas.applyCurrentFilledToSelection() }
             }
@@ -1519,11 +1531,11 @@ struct CompactToolbar: View {
                     .controlSize(.mini)
                     .onChange(of: canvas.currentOpacity) { _, _ in canvas.applyCurrentOpacityToSelection() }
             }
-            .help("不透明度 \(Int(canvas.currentOpacity * 100))%")
+            .help("不透明度 \(Int(canvas.currentOpacity * 100))%  ({ } で±10%)")
 
             Divider().frame(height: 18)
 
-            ForEach(AnnotationColor.allCases, id: \.self) { color in
+            ForEach(Array(AnnotationColor.allCases.enumerated()), id: \.element) { idx, color in
                 Button(action: { canvas.currentColor = color; canvas.applyCurrentColorToSelection() }) {
                     ZStack {
                         Circle()
@@ -1543,7 +1555,7 @@ struct CompactToolbar: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 18, height: 18)
-                .help(color.rawValue)
+                .help("\(color.rawValue) (\(idx + 1))")
                 .simultaneousGesture(TapGesture().onEnded {
                     canvas.currentCustomColorHex = nil
                     canvas.applyCustomColorToSelection(hex: nil)
@@ -1600,14 +1612,15 @@ struct CompactToolbar: View {
             .frame(width: 76)
             .disabled(!canvas.currentTool.usesLineWidth)
             .opacity(canvas.currentTool.usesLineWidth ? 1.0 : 0.5)
+            .help("線の太さ  ([ ] で変更)")
             .onChange(of: canvas.currentLineWidth) { _, _ in
                 canvas.applyCurrentLineWidthToSelection()
             }
 
             Picker("", selection: $canvas.currentLineStyle) {
-                Image(systemName: "line.horizontal.3").tag(LineStyle.solid)
-                Image(systemName: "line.horizontal.3").tag(LineStyle.dashed)
-                Image(systemName: "circle.dotted").tag(LineStyle.dotted)
+                LineStylePreview(style: .solid).tag(LineStyle.solid)
+                LineStylePreview(style: .dashed).tag(LineStyle.dashed)
+                LineStylePreview(style: .dotted).tag(LineStyle.dotted)
             }
             .pickerStyle(.segmented)
             .frame(width: 76)
@@ -1619,6 +1632,35 @@ struct CompactToolbar: View {
             }
 
             Spacer()
+
+            // ─ エクスポート ─
+            Button(action: onCopy) {
+                Image(systemName: "doc.on.clipboard")
+            }
+            .help("クリップボードにコピー (⌘C)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("c", modifiers: .command)
+
+            Button(action: onSave) {
+                Image(systemName: "square.and.arrow.down")
+            }
+            .help("保存 (⌘S)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("s", modifiers: .command)
+
+            Menu {
+                Button("別名で保存… (⌘⇧S)") { onSaveAs() }
+                Divider()
+                Button("共有… (⌘⇧E)") { onShare() }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 22)
+            .disabled(canvas.backgroundImage == nil)
+            .help("別名保存 / 共有")
+
+            Divider().frame(height: 18)
 
             Button(action: { canvas.undo() }) {
                 Image(systemName: "arrow.uturn.backward")
@@ -1880,6 +1922,57 @@ struct CompactToolbar: View {
             .padding(.bottom, 2)
             Divider()
 
+            // Live mini-preview
+            let bgColor: Color = {
+                switch canvas.decorationBackgroundStyle {
+                case 0: return .white
+                case 1: return Color(white: 0.15)
+                case 2: return Color(red: 0.45, green: 0.55, blue: 0.95)
+                case 3: return Color.clear
+                default: return Color(white: 0.5)
+                }
+            }()
+            let isEnabled = canvas.decorationEnabled
+            let padFrac = isEnabled ? min(canvas.decorationPadding / 120, 1.0) : 0.0
+            let cornerR = isEnabled ? canvas.decorationCornerRadius * 2 : 0.0
+            let showShadow = isEnabled && canvas.decorationShadow
+
+            HStack {
+                Spacer()
+                ZStack {
+                    // Outer bg (what the padding area shows)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(bgColor)
+                        .frame(width: 160 + padFrac * 30, height: 90 + padFrac * 20)
+                    // Inner image representation
+                    RoundedRectangle(cornerRadius: cornerR)
+                        .fill(Color.accentColor.opacity(0.15))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: cornerR)
+                                .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                        )
+                        .frame(width: 160, height: 90)
+                        .shadow(color: showShadow ? .black.opacity(0.3) : .clear,
+                                radius: showShadow ? 8 : 0, y: showShadow ? 4 : 0)
+                        .overlay(
+                            Text("プレビュー")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        )
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(8)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                Spacer()
+            }
+            .animation(.easeOut(duration: 0.2), value: canvas.decorationPadding)
+            .animation(.easeOut(duration: 0.2), value: canvas.decorationCornerRadius)
+            .animation(.easeOut(duration: 0.15), value: canvas.decorationShadow)
+            .animation(.easeOut(duration: 0.15), value: canvas.decorationBackgroundStyle)
+            .opacity(isEnabled ? 1 : 0.4)
+
+            Divider()
+
             Group {
                 HStack {
                     Text("背景").frame(width: 70, alignment: .trailing)
@@ -1913,7 +2006,7 @@ struct CompactToolbar: View {
             .opacity(canvas.decorationEnabled ? 1 : 0.4)
         }
         .padding(14)
-        .frame(width: 300)
+        .frame(width: 320)
     }
 
     @ViewBuilder
@@ -1930,7 +2023,7 @@ struct CompactToolbar: View {
                 )
                 .contentShape(Rectangle())
         }
-        .help("\(tool.displayName)")
+        .help(tool.helpText)
         .buttonStyle(.plain)
         .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
     }
@@ -2412,7 +2505,8 @@ struct ColorWellView: NSViewRepresentable {
 // MARK: - Scroll Wheel Zoom/Pan Helper
 
 struct ScrollWheelHandler: NSViewRepresentable {
-    let onScroll: (CGFloat, CGFloat, Bool) -> Void  // dx, dy, isCommandDown
+    // dx, dy, isCommandDown, cursorInView (nil if not cmd)
+    let onScroll: (CGFloat, CGFloat, Bool, CGPoint?) -> Void
 
     func makeNSView(context: Context) -> NSView {
         let view = ScrollableNSView()
@@ -2425,15 +2519,142 @@ struct ScrollWheelHandler: NSViewRepresentable {
     }
 
     class ScrollableNSView: NSView {
-        var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?
+        var onScroll: ((CGFloat, CGFloat, Bool, CGPoint?) -> Void)?
 
         override var acceptsFirstResponder: Bool { false }
 
         override func scrollWheel(with event: NSEvent) {
             let cmd = event.modifierFlags.contains(.command)
-            onScroll?(event.scrollingDeltaX, event.scrollingDeltaY, cmd)
+            let cursor: CGPoint? = cmd ? convert(event.locationInWindow, from: nil) : nil
+            onScroll?(event.scrollingDeltaX, event.scrollingDeltaY, cmd, cursor)
             if !cmd { super.scrollWheel(with: event) }
         }
+    }
+}
+
+struct LineStylePreview: View {
+    let style: LineStyle
+    var body: some View {
+        Canvas { ctx, size in
+            let y = size.height / 2
+            var path = Path()
+            path.move(to: CGPoint(x: 3, y: y))
+            path.addLine(to: CGPoint(x: size.width - 3, y: y))
+            let dash: [CGFloat] = {
+                switch style {
+                case .solid: return []
+                case .dashed: return [4, 3]
+                case .dotted: return [1.5, 3]
+                }
+            }()
+            ctx.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: 1.5, lineCap: style == .dotted ? .round : .butt, dash: dash))
+        }
+        .frame(width: 22, height: 14)
+    }
+}
+
+// MARK: - Multiline text input (NSTextView wrapper)
+// Supports Return=commit, Shift/Option+Return=newline, Escape=cancel
+struct MultilineTextInput: NSViewRepresentable {
+    @Binding var text: String
+    var fontSize: CGFloat
+    var color: NSColor
+    var minWidth: CGFloat
+    var onCommit: () -> Void
+    var onCancel: () -> Void
+    var onHeightChange: ((CGFloat) -> Void)?
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let tv = NonScrollingTextView()
+        tv.delegate = context.coordinator
+        tv.isEditable = true
+        tv.isRichText = false
+        tv.drawsBackground = false
+        tv.textContainerInset = NSSize(width: 4, height: 4)
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.autoresizingMask = [.width]
+        tv.onHeightChange = onHeightChange
+
+        let sv = NSScrollView()
+        sv.hasVerticalScroller = false
+        sv.hasHorizontalScroller = false
+        sv.drawsBackground = false
+        sv.borderType = .noBorder
+        sv.documentView = tv
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }
+
+    func updateNSView(_ sv: NSScrollView, context: Context) {
+        guard let tv = sv.documentView as? NonScrollingTextView else { return }
+        context.coordinator.isUpdating = true
+        if tv.string != text { tv.string = text }
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
+        tv.font = font
+        tv.textColor = color
+        context.coordinator.isUpdating = false
+        // Become first responder on first appearance
+        if !context.coordinator.didBecomeFirstResponder {
+            context.coordinator.didBecomeFirstResponder = true
+            DispatchQueue.main.async { sv.window?.makeFirstResponder(tv) }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onCommit: onCommit, onCancel: onCancel, onHeightChange: onHeightChange)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var text: String
+        let onCommit: () -> Void
+        let onCancel: () -> Void
+        let onHeightChange: ((CGFloat) -> Void)?
+        var isUpdating = false
+        var didBecomeFirstResponder = false
+
+        init(text: Binding<String>, onCommit: @escaping () -> Void, onCancel: @escaping () -> Void, onHeightChange: ((CGFloat) -> Void)?) {
+            _text = text
+            self.onCommit = onCommit
+            self.onCancel = onCancel
+            self.onHeightChange = onHeightChange
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard !isUpdating, let tv = notification.object as? NSTextView else { return }
+            text = tv.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                let mods = NSApp.currentEvent?.modifierFlags ?? []
+                if mods.contains(.shift) || mods.contains(.option) {
+                    textView.insertNewlineIgnoringFieldEditor(nil)
+                    text = textView.string
+                    return true
+                }
+                onCommit()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                onCancel()
+                return true
+            }
+            return false
+        }
+    }
+}
+
+class NonScrollingTextView: NSTextView {
+    var onHeightChange: ((CGFloat) -> Void)?
+
+    override func didChangeText() {
+        super.didChangeText()
+        sizeToFit()
+        let h = frame.height
+        onHeightChange?(h + 8)
     }
 }
 
@@ -2489,9 +2710,11 @@ struct HelpPopoverContent: View {
         ]),
         ("描画", [
             ("Shift+ドラッグ", "45°制約 / 正方形/正円"),
+            ("F", "塗りつぶし切り替え（長方形・楕円・吹き出し）"),
             ("Option+クリック", "スポイト（色を拾う）"),
             ("Option+ドラッグ", "アノテーション複製"),
             ("[  /  ]", "線幅 細/太"),
+            ("{  /  }", "不透明度 -10% / +10%"),
         ]),
         ("編集", [
             ("⌘Z / ⌘⇧Z", "元に戻す / やり直し"),
@@ -2505,6 +2728,8 @@ struct HelpPopoverContent: View {
             ("1〜8", "色を選択"),
             ("Enter", "テキスト再編集"),
             ("ダブルクリック", "テキスト再編集"),
+            ("テキスト入力中⇧⏎", "テキストに改行を挿入（複数行対応）"),
+            ("⌘K → 矢印", "クロップ範囲を移動（⌥+矢印でリサイズ）"),
             ("Esc", "選択解除 / モード終了"),
         ]),
         ("ズーム/パン", [
@@ -2531,6 +2756,7 @@ struct HelpPopoverContent: View {
             ("変形メニュー", "余白自動トリミング・反転・リサイズ"),
             ("テンプレートアイコン", "アノテーションセットを名前付きで保存・適用"),
             ("右下ステータス", "選択アノテーションのpx座標 [幅×高さ @x,y]"),
+            ("左下座標", "カーソルのキャンバス座標をリアルタイム表示"),
         ]),
     ]
 
@@ -2888,16 +3114,27 @@ struct ContentView: View {
                     }
                     .overlay {
                         if isDropTargeted {
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
-                                .padding(4)
-                                .overlay(
-                                    Text("画像をドロップ")
-                                        .font(.title2)
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.accentColor.opacity(0.08))
+                                    .padding(4)
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, dash: [10, 5]))
+                                    .padding(4)
+                                VStack(spacing: 8) {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                        .font(.system(size: 36))
                                         .foregroundStyle(Color.accentColor)
-                                        .padding(12)
-                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                )
+                                    Text("画像をドロップして開く")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                .padding(16)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                                .shadow(color: Color.accentColor.opacity(0.2), radius: 12, y: 4)
+                            }
+                            .transition(.opacity)
+                            .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
                         }
                     }
                     .overlay(alignment: .bottom) {
@@ -3005,6 +3242,7 @@ struct AnnotationCanvasView: View {
 
     @FocusState private var textFieldFocused: Bool
     @FocusState private var canvasFocused: Bool
+    @State private var textInputHeight: CGFloat = 36
     @State private var isHovering = false
     @State private var zoom: CGFloat = 1.0
     @State private var baseZoom: CGFloat = 1.0
@@ -3013,6 +3251,10 @@ struct AnnotationCanvasView: View {
     @State private var isPanning = false
     @State private var hoverLocation: CGPoint? = nil
     @State private var hoverColorHex: String? = nil
+    @State private var hoverCanvasPoint: CGPoint? = nil
+    @State private var imageOpacity: Double = 1.0
+
+    @State private var hoverHandleIndex: Int? = nil
 
     private func updateCursor() {
         guard isHovering else { return }
@@ -3022,12 +3264,27 @@ struct AnnotationCanvasView: View {
         }
         switch viewModel.currentTool {
         case .select:
-            if viewModel.hoveredAnnotationID != nil {
-                NSCursor.pointingHand.set()
+            if let hi = hoverHandleIndex {
+                switch hi {
+                case 0, 3: NSCursor.crosshair.set()       // TL, BR corners → diagonal ↖↘
+                case 1, 2: NSCursor.crosshair.set()       // TR, BL corners → diagonal ↗↙
+                case 4, 5: NSCursor.resizeUpDown.set()    // Top/Bottom mid
+                case 6, 7: NSCursor.resizeLeftRight.set() // Left/Right mid
+                default:   NSCursor.crosshair.set()
+                }
+            } else if viewModel.hoveredAnnotationID != nil {
+                NSCursor.openHand.set()
             } else {
                 NSCursor.arrow.set()
             }
-        default: NSCursor.crosshair.set()
+        case .text:
+            NSCursor.iBeam.set()
+        case .colorPicker:
+            NSCursor.crosshair.set()
+        case .redact, .highlight:
+            NSCursor.crosshair.set()
+        default:
+            NSCursor.crosshair.set()
         }
     }
 
@@ -3069,11 +3326,19 @@ struct AnnotationCanvasView: View {
                 if let image = viewModel.backgroundImage {
                     Image(decorative: image, scale: 1.0, orientation: .up)
                         .resizable()
+                        .interpolation(zoom >= 3.0 ? .none : .high)
                         .scaledToFit()
                         .brightness(viewModel.adjustBrightness)
                         .contrast(viewModel.adjustContrast)
                         .saturation(viewModel.adjustSaturation)
+                        .opacity(imageOpacity)
+                        .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 4)
                     annotationLayer(size: proxy.size)
+                    // Animated crop overlay (TimelineView for marching ants)
+                    if viewModel.isCropMode {
+                        cropOverlayLayer(size: proxy.size)
+                            .allowsHitTesting(false)
+                    }
                     // Pixel grid overlay at zoom ≥ 4×
                     if zoom >= 4.0, let img = viewModel.backgroundImage {
                         let cellW = proxy.size.width / CGFloat(img.width)
@@ -3189,12 +3454,25 @@ struct AnnotationCanvasView: View {
             ))
             .overlay(textInputOverlay)
             .overlay(
-                ScrollWheelHandler { dx, dy, isCmd in
+                ScrollWheelHandler { dx, dy, isCmd, cursor in
                     if isCmd {
-                        // ⌘+scroll → zoom
-                        let factor = 1.0 + dy * 0.02
-                        zoom = max(0.25, min(8.0, zoom * factor))
-                        baseZoom = zoom
+                        // ⌘+scroll → zoom toward cursor
+                        let oldZoom = zoom
+                        let newZoom = max(0.25, min(8.0, zoom * (1.0 + dy * 0.02)))
+                        zoom = newZoom; baseZoom = newZoom
+                        // Adjust pan so the canvas point under the cursor stays fixed
+                        if let cur = cursor {
+                            let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                            let oldPan = panOffset
+                            let ptX = cur.x - viewCenter.x - oldPan.width
+                            let ptY = cur.y - viewCenter.y - oldPan.height
+                            let ratio = newZoom / oldZoom
+                            panOffset = CGSize(
+                                width: cur.x - viewCenter.x - ptX * ratio,
+                                height: cur.y - viewCenter.y - ptY * ratio
+                            )
+                            basePan = panOffset
+                        }
                     } else {
                         // scroll → pan
                         panOffset = CGSize(width: basePan.width - dx, height: basePan.height - dy)
@@ -3213,7 +3491,9 @@ struct AnnotationCanvasView: View {
                         .padding(.vertical, 2)
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
                         .padding(8)
-                        .onTapGesture { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.2)) { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
+                        }
                 }
             }
             .overlay {
@@ -3221,6 +3501,65 @@ struct AnnotationCanvasView: View {
                    let loc = hoverLocation,
                    let hex = hoverColorHex {
                     eyedropperSwatchView(hex: hex, viewSize: proxy.size, at: loc)
+                }
+            }
+            // Annotation placement ripple (brief expanding ring to confirm placement)
+            .overlay {
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { tl in
+                    let elapsed = tl.date.timeIntervalSinceReferenceDate - Double(viewModel.lastPlacedAt)
+                    if elapsed < 0.45, elapsed >= 0 {
+                        let t = CGFloat(elapsed / 0.45)
+                        let cx = proxy.size.width / 2
+                        let cy = proxy.size.height / 2
+                        let lp = viewModel.lastPlacedCenter
+                        let vx = cx + (lp.x - cx) * zoom + panOffset.width
+                        let vy = cy + (lp.y - cy) * zoom + panOffset.height
+                        let size = 24 + t * 48
+                        Circle()
+                            .stroke(Color.white.opacity((1 - t) * 0.6), lineWidth: max(0.5, 2 * (1 - t)))
+                            .frame(width: size, height: size)
+                            .position(x: vx, y: vy)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+            // Undo/redo toast (center-bottom)
+            .overlay(alignment: .bottom) {
+                if let msg = viewModel.undoRedoToast {
+                    Text(msg)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                        .padding(.bottom, 20)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            // Pixel coordinate display (bottom-left, shows when hovering over the canvas image)
+            .overlay(alignment: .bottomLeading) {
+                if let pt = hoverCanvasPoint,
+                   viewModel.backgroundImage != nil,
+                   !viewModel.dragState.isDrawing,
+                   !viewModel.isDraggingAnnotation,
+                   viewModel.currentTool != .colorPicker {
+                    let img = viewModel.backgroundImage!
+                    let sx = CGFloat(img.width) / viewModel.canvasSize.width
+                    let sy = CGFloat(img.height) / viewModel.canvasSize.height
+                    let px = Int(pt.x * sx), py = Int(pt.y * sy)
+                    let inBounds = px >= 0 && px < img.width && py >= 0 && py < img.height
+                    if inBounds {
+                        Text("\(px), \(py)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3))
+                            .padding(6)
+                            .transition(.opacity)
+                    }
                 }
             }
             .focusable()
@@ -3264,30 +3603,44 @@ struct AnnotationCanvasView: View {
             }
             .onKeyPress("=", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
-                zoom = min(8.0, zoom * 1.25); baseZoom = zoom; return .handled
+                withAnimation(.easeOut(duration: 0.15)) { zoom = min(8.0, zoom * 1.25); baseZoom = zoom }
+                return .handled
             }
             .onKeyPress("-", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
-                zoom = max(0.25, zoom / 1.25); baseZoom = zoom; return .handled
+                withAnimation(.easeOut(duration: 0.15)) { zoom = max(0.25, zoom / 1.25); baseZoom = zoom }
+                return .handled
             }
             .onKeyPress("0", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
-                zoom = 1.0; baseZoom = 1.0
-                panOffset = .zero; basePan = .zero
+                withAnimation(.easeOut(duration: 0.2)) { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
                 return .handled
             }
             .onKeyPress("f", phases: .down) { press in
+                guard !viewModel.showTextInput else { return .ignored }
+                if press.modifiers.isEmpty {
+                    // F = toggle fill for rectangle/ellipse/roundedRect tools
+                    let fillable: [DrawingTool] = [.rectangle, .ellipse, .roundedRect, .callout]
+                    if fillable.contains(viewModel.currentTool) {
+                        viewModel.currentFilled.toggle()
+                        viewModel.applyCurrentFilledToSelection()
+                        return .handled
+                    }
+                    return .ignored
+                }
                 guard press.modifiers.contains(.command) else { return .ignored }
-                // Fit canvas to viewport
+                // ⌘F = Fit canvas to viewport
                 let iw: CGFloat = viewModel.backgroundImage.map { CGFloat($0.width) } ?? viewModel.canvasSize.width
                 let ih: CGFloat = viewModel.backgroundImage.map { CGFloat($0.height) } ?? viewModel.canvasSize.height
                 guard iw > 0, ih > 0 else { return .ignored }
                 let fitW = viewModel.canvasSize.width / iw
                 let fitH = viewModel.canvasSize.height / ih
                 let fitZoom: CGFloat = min(fitW, fitH)
-                zoom = max(0.25, min(8.0, fitZoom))
-                baseZoom = zoom
-                panOffset = .zero; basePan = .zero
+                withAnimation(.easeOut(duration: 0.2)) {
+                    zoom = max(0.25, min(8.0, fitZoom))
+                    baseZoom = zoom
+                    panOffset = .zero; basePan = .zero
+                }
                 return .handled
             }
             .onKeyPress(.space, phases: .down) { _ in
@@ -3382,6 +3735,42 @@ struct AnnotationCanvasView: View {
                     default: break
                     }
                 }
+                // Crop mode: arrow keys move/resize the crop rect
+                if viewModel.isCropMode, viewModel.cropStart != nil, viewModel.cropEnd != nil {
+                    let step: CGFloat = press.modifiers.contains(.shift) ? 10 : 1
+                    let canvasW = viewModel.canvasSize.width, canvasH = viewModel.canvasSize.height
+                    var s = viewModel.cropStart!, e = viewModel.cropEnd!
+                    if press.modifiers.contains(.option) {
+                        // ⌥+arrow: resize (move end corner)
+                        switch press.key {
+                        case .upArrow:    e.y = max(s.y + 4, e.y - step)
+                        case .downArrow:  e.y = min(canvasH, e.y + step)
+                        case .leftArrow:  e.x = max(s.x + 4, e.x - step)
+                        case .rightArrow: e.x = min(canvasW, e.x + step)
+                        default: break
+                        }
+                    } else {
+                        // plain arrow: move whole rect
+                        let w = abs(e.x - s.x), h = abs(e.y - s.y)
+                        switch press.key {
+                        case .upArrow:
+                            let ny = max(0, min(s.y, e.y) - step)
+                            s.y = ny; e.y = ny + h
+                        case .downArrow:
+                            let ny = min(canvasH - h, min(s.y, e.y) + step)
+                            s.y = ny; e.y = ny + h
+                        case .leftArrow:
+                            let nx = max(0, min(s.x, e.x) - step)
+                            s.x = nx; e.x = nx + w
+                        case .rightArrow:
+                            let nx = min(canvasW - w, min(s.x, e.x) + step)
+                            s.x = nx; e.x = nx + w
+                        default: break
+                        }
+                    }
+                    viewModel.cropStart = s; viewModel.cropEnd = e
+                    return .handled
+                }
                 let step: CGFloat = press.modifiers.contains(.shift) ? 10 : 1
                 let dx: CGFloat
                 let dy: CGFloat
@@ -3460,8 +3849,13 @@ struct AnnotationCanvasView: View {
             .gesture(
                 SpatialTapGesture(count: 2)
                     .onEnded { value in
-                        guard viewModel.backgroundImage != nil,
-                              viewModel.currentTool == .select else { return }
+                        guard viewModel.backgroundImage != nil else { return }
+                        // Double-click in crop mode → confirm crop
+                        if viewModel.isCropMode {
+                            viewModel.confirmCrop()
+                            return
+                        }
+                        guard viewModel.currentTool == .select else { return }
                         let localPt = toCanvas(CGPoint(x: value.location.x, y: value.location.y), size: proxy.size)
                         for ann in viewModel.annotations.reversed() {
                             if ann.type == .text && ann.hitTest(localPt, in: CGRect(origin: .zero, size: viewModel.canvasSize)) {
@@ -3484,9 +3878,10 @@ struct AnnotationCanvasView: View {
             }
             .onContinuousHover { phase in
                 if case .active(let location) = phase {
+                    let canvasLoc = toCanvas(location, size: proxy.size)
+                    hoverCanvasPoint = canvasLoc
                     if viewModel.currentTool == .colorPicker {
                         hoverLocation = location
-                        let canvasLoc = toCanvas(location, size: proxy.size)
                         hoverColorHex = viewModel.sampleColor(at: canvasLoc)
                     } else {
                         hoverLocation = nil
@@ -3498,13 +3893,25 @@ struct AnnotationCanvasView: View {
                             !$0.isLocked && $0.hitTest(canvasLoc, in: CGRect(origin: .zero, size: viewModel.canvasSize))
                         })
                         viewModel.hoveredAnnotationID = hit?.id
+                        // Check if hovering over a resize handle of the selected annotation
+                        if let selID = viewModel.selectedAnnotationID,
+                           let ann = viewModel.annotations.first(where: { $0.id == selID }),
+                           CanvasViewModel.isResizable(ann.type) {
+                            let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
+                            let corners = viewModel.handleCorners(for: bounds)
+                            hoverHandleIndex = viewModel.hitTestHandle(at: canvasLoc, corners: corners)
+                        } else {
+                            hoverHandleIndex = nil
+                        }
                     } else {
                         viewModel.hoveredAnnotationID = nil
+                        hoverHandleIndex = nil
                     }
                     updateCursor()
                 } else {
                     hoverLocation = nil
                     hoverColorHex = nil
+                    hoverCanvasPoint = nil
                     viewModel.hoveredAnnotationID = nil
                 }
             }
@@ -3516,8 +3923,131 @@ struct AnnotationCanvasView: View {
                 }
             }
             .onChange(of: viewModel.loadToken) { _, _ in
-                zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero
+                // Auto-fit: if image is larger than canvas, scale down; never zoom in past 100%
+                if let img = viewModel.backgroundImage,
+                   viewModel.canvasSize.width > 0, viewModel.canvasSize.height > 0 {
+                    let iw = CGFloat(img.width), ih = CGFloat(img.height)
+                    let fitW = viewModel.canvasSize.width / iw
+                    let fitH = viewModel.canvasSize.height / ih
+                    let fitZoom = min(1.0, min(fitW, fitH))
+                    zoom = max(0.25, fitZoom); baseZoom = zoom
+                } else {
+                    zoom = 1.0; baseZoom = 1.0
+                }
+                panOffset = .zero; basePan = .zero
+                imageOpacity = 0
+                withAnimation(.easeOut(duration: 0.25)) { imageOpacity = 1.0 }
             }
+            .onChange(of: viewModel.cropAnimToken) { _, _ in
+                imageOpacity = 0
+                withAnimation(.easeOut(duration: 0.2)) { imageOpacity = 1.0 }
+            }
+        }
+    }
+
+    // Animated crop overlay using TimelineView for marching ants
+    @ViewBuilder
+    private func cropOverlayLayer(size: CGSize) -> some View {
+        TimelineView(.animation(minimumInterval: 0.05)) { timeline in
+            Canvas { context, _ in
+                let phase = timeline.date.timeIntervalSinceReferenceDate * 20
+                drawCropOverlay(context: context, size: size, dashPhase: CGFloat(phase))
+            }
+        }
+    }
+
+    private func drawCropOverlay(context: GraphicsContext, size: CGSize, dashPhase: CGFloat) {
+        let dim = Color.black.opacity(0.45)
+
+        guard let start = viewModel.cropStart, let end = viewModel.cropEnd else {
+            // No selection yet — dim the whole canvas with a hint
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(dim))
+            let hint = "ドラッグしてクロップ範囲を選択"
+            context.draw(Text(hint).font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.8)),
+                         at: CGPoint(x: size.width / 2, y: size.height / 2))
+            return
+        }
+
+        let sel = CGRect(
+            x: min(start.x, end.x), y: min(start.y, end.y),
+            width: abs(end.x - start.x), height: abs(end.y - start.y)
+        )
+
+        // Four dark panels
+        context.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: sel.minY)), with: .color(dim))
+        context.fill(Path(CGRect(x: 0, y: sel.maxY, width: size.width, height: size.height - sel.maxY)), with: .color(dim))
+        context.fill(Path(CGRect(x: 0, y: sel.minY, width: sel.minX, height: sel.height)), with: .color(dim))
+        context.fill(Path(CGRect(x: sel.maxX, y: sel.minY, width: size.width - sel.maxX, height: sel.height)), with: .color(dim))
+
+        // Marching ants border (white dashes moving)
+        context.stroke(
+            Path(sel),
+            with: .color(.white.opacity(0.9)),
+            style: StrokeStyle(lineWidth: 1.5, dash: [8, 4], dashPhase: -dashPhase)
+        )
+        // Outer thin border for contrast
+        context.stroke(Path(sel.insetBy(dx: -0.5, dy: -0.5)), with: .color(.black.opacity(0.4)), lineWidth: 0.5)
+
+        // Rule-of-thirds grid
+        let dash = StrokeStyle(lineWidth: 0.5, dash: [4, 3])
+        for i in [1, 2] {
+            let x = sel.minX + sel.width * CGFloat(i) / 3
+            let y = sel.minY + sel.height * CGFloat(i) / 3
+            var lv = Path(); lv.move(to: CGPoint(x: x, y: sel.minY)); lv.addLine(to: CGPoint(x: x, y: sel.maxY))
+            var lh = Path(); lh.move(to: CGPoint(x: sel.minX, y: y)); lh.addLine(to: CGPoint(x: sel.maxX, y: y))
+            context.stroke(lv, with: .color(.white.opacity(0.4)), style: dash)
+            context.stroke(lh, with: .color(.white.opacity(0.4)), style: dash)
+        }
+
+        // Corner L-brackets (CleanShot X style)
+        let bracketLen: CGFloat = 16, bracketW: CGFloat = 3
+        let corners: [(CGPoint, CGFloat, CGFloat)] = [
+            (CGPoint(x: sel.minX, y: sel.minY),  1, 1),
+            (CGPoint(x: sel.maxX, y: sel.minY), -1, 1),
+            (CGPoint(x: sel.minX, y: sel.maxY),  1,-1),
+            (CGPoint(x: sel.maxX, y: sel.maxY), -1,-1),
+        ]
+        for (pt, sx, sy) in corners {
+            var h = Path()
+            h.move(to: CGPoint(x: pt.x, y: pt.y))
+            h.addLine(to: CGPoint(x: pt.x + sx * bracketLen, y: pt.y))
+            var v = Path()
+            v.move(to: CGPoint(x: pt.x, y: pt.y))
+            v.addLine(to: CGPoint(x: pt.x, y: pt.y + sy * bracketLen))
+            context.stroke(h, with: .color(.white), style: StrokeStyle(lineWidth: bracketW, lineCap: .square))
+            context.stroke(v, with: .color(.white), style: StrokeStyle(lineWidth: bracketW, lineCap: .square))
+        }
+
+        // Mid-edge handles
+        let edgePts: [CGPoint] = [
+            CGPoint(x: sel.midX, y: sel.minY), CGPoint(x: sel.midX, y: sel.maxY),
+            CGPoint(x: sel.minX, y: sel.midY), CGPoint(x: sel.maxX, y: sel.midY)
+        ]
+        let hs: CGFloat = 6
+        for ep in edgePts {
+            context.fill(
+                Path(ellipseIn: CGRect(x: ep.x - hs, y: ep.y - hs, width: hs*2, height: hs*2)),
+                with: .color(.white)
+            )
+        }
+
+        // Size label inside selection
+        if sel.width > 60 && sel.height > 30 {
+            let img = viewModel.backgroundImage
+            let imgW = img.map { CGFloat($0.width) } ?? size.width
+            let imgH = img.map { CGFloat($0.height) } ?? size.height
+            let scaleX = imgW / size.width
+            let scaleY = imgH / size.height
+            let cropW = Int(sel.width * scaleX)
+            let cropH = Int(sel.height * scaleY)
+            let label = "\(cropW) × \(cropH) px"
+            let labelY = sel.minY + sel.height - 28
+            context.draw(
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white),
+                at: CGPoint(x: sel.midX, y: labelY)
+            )
         }
     }
 
@@ -3525,43 +4055,8 @@ struct AnnotationCanvasView: View {
         Canvas { context, _ in
             let canvasRect = CGRect(origin: .zero, size: size)
 
-            // Crop mode: draw only the crop selection overlay
-            if viewModel.isCropMode {
-                if let start = viewModel.cropStart, let end = viewModel.cropEnd {
-                    let sel = CGRect(
-                        x: min(start.x, end.x), y: min(start.y, end.y),
-                        width: abs(end.x - start.x), height: abs(end.y - start.y)
-                    )
-                    let dim = Color.black.opacity(0.45)
-                    // Four dark panels around selection
-                    context.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: sel.minY)), with: .color(dim))
-                    context.fill(Path(CGRect(x: 0, y: sel.maxY, width: size.width, height: size.height - sel.maxY)), with: .color(dim))
-                    context.fill(Path(CGRect(x: 0, y: sel.minY, width: sel.minX, height: sel.height)), with: .color(dim))
-                    context.fill(Path(CGRect(x: sel.maxX, y: sel.minY, width: size.width - sel.maxX, height: sel.height)), with: .color(dim))
-                    // Selection border
-                    context.stroke(Path(sel), with: .color(.white), lineWidth: 1.5)
-                    // Rule-of-thirds grid inside selection
-                    let dash = StrokeStyle(lineWidth: 0.5, dash: [4, 3])
-                    for i in [1, 2] {
-                        let x = sel.minX + sel.width * CGFloat(i) / 3
-                        let y = sel.minY + sel.height * CGFloat(i) / 3
-                        var lv = Path(); lv.move(to: CGPoint(x: x, y: sel.minY)); lv.addLine(to: CGPoint(x: x, y: sel.maxY))
-                        var lh = Path(); lh.move(to: CGPoint(x: sel.minX, y: y)); lh.addLine(to: CGPoint(x: sel.maxX, y: y))
-                        context.stroke(lv, with: .color(.white.opacity(0.5)), style: dash)
-                        context.stroke(lh, with: .color(.white.opacity(0.5)), style: dash)
-                    }
-                    // Corner handles
-                    let h: CGFloat = 10
-                    for corner in [CGPoint(x: sel.minX, y: sel.minY), CGPoint(x: sel.maxX, y: sel.minY),
-                                   CGPoint(x: sel.minX, y: sel.maxY), CGPoint(x: sel.maxX, y: sel.maxY)] {
-                        context.fill(Path(CGRect(x: corner.x - h/2, y: corner.y - h/2, width: h, height: h).insetBy(dx: 1, dy: 1)), with: .color(.white))
-                    }
-                } else {
-                    // No selection yet — show a hint
-                    context.fill(Path(canvasRect), with: .color(.black.opacity(0.2)))
-                }
-                return
-            }
+            // Crop mode: handled by cropOverlayLayer (animated, separate view)
+            if viewModel.isCropMode { return }
 
             // Normal annotation rendering
             let beingDragged = (viewModel.isDraggingAnnotation || viewModel.resizingHandleIndex != nil)
@@ -3624,12 +4119,18 @@ struct AnnotationCanvasView: View {
                             with: .color(bgColor.opacity(0.82 * annotationOpacity))
                         )
                     }
-                    context.draw(
-                        Text(text)
-                            .font(.system(size: fontSize, weight: .semibold))
-                            .foregroundColor(annotation.resolvedColor.opacity(annotationOpacity)),
-                        in: bounds
-                    )
+                    let textView = Text(text)
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundColor(annotation.resolvedColor.opacity(annotationOpacity))
+                    if annotation.textHasBackground {
+                        context.draw(textView, in: bounds)
+                    } else {
+                        // Add subtle drop shadow for legibility on any background
+                        context.drawLayer { ctx in
+                            ctx.addFilter(.shadow(color: .black.opacity(0.45), radius: 2, x: 0, y: 1))
+                            ctx.draw(textView, in: bounds)
+                        }
+                    }
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.stroke(Path(bounds), with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
@@ -3688,9 +4189,12 @@ struct AnnotationCanvasView: View {
                         }
                     }
                     if annotation.id == viewModel.selectedAnnotationID {
-                        let bounds = annotation.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
-                        context.stroke(Path(bounds), with: .color(.accentColor),
-                                       style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                        let bounds = annotation.bounds(in: canvasRect).insetBy(dx: -5, dy: -5)
+                        // White halo for contrast against any background
+                        context.stroke(Path(bounds.insetBy(dx: -1, dy: -1)),
+                                       with: .color(.white.opacity(0.4)), lineWidth: 3)
+                        // Solid accent border
+                        context.stroke(Path(bounds), with: .color(.accentColor.opacity(0.9)), lineWidth: 1.5)
                     }
                 }
             }
@@ -3718,10 +4222,18 @@ struct AnnotationCanvasView: View {
 
             // Multi-selection outlines
             if viewModel.selectedAnnotationIDs.count > 1 {
+                // Individual outlines
                 for ann in viewModel.annotations where viewModel.selectedAnnotationIDs.contains(ann.id) {
                     let bounds = ann.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
-                    context.stroke(Path(bounds), with: .color(.accentColor.opacity(0.7)),
-                                   style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    context.stroke(Path(bounds), with: .color(.accentColor.opacity(0.55)),
+                                   style: StrokeStyle(lineWidth: 1.0, dash: [4, 3]))
+                }
+                // Combined bounding box for all selected annotations
+                let selectedAnns = viewModel.annotations.filter { viewModel.selectedAnnotationIDs.contains($0.id) }
+                if !selectedAnns.isEmpty {
+                    let unionBounds = selectedAnns.map { $0.bounds(in: canvasRect) }.reduce(CGRect.null) { $0.union($1) }.insetBy(dx: -8, dy: -8)
+                    context.stroke(Path(unionBounds), with: .color(.accentColor.opacity(0.85)),
+                                   style: StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
                 }
             }
 
@@ -3732,10 +4244,22 @@ struct AnnotationCanvasView: View {
                let ann = viewModel.annotations.first(where: { $0.id == id }),
                CanvasViewModel.isResizable(ann.type) {
                 let bounds = ann.bounds(in: canvasRect)
-                for corner in viewModel.handleCorners(for: bounds) {
-                    let r = CGRect(x: corner.x - 5, y: corner.y - 5, width: 10, height: 10)
-                    context.fill(Path(ellipseIn: r), with: .color(.white))
-                    context.stroke(Path(ellipseIn: r), with: .color(.accentColor), lineWidth: 1.5)
+                let handles = viewModel.handleCorners(for: bounds)
+                for (i, handle) in handles.enumerated() {
+                    let hs: CGFloat = i < 4 ? 5.5 : 4.5  // corners slightly larger
+                    let outer = CGRect(x: handle.x - hs - 1, y: handle.y - hs - 1, width: (hs+1)*2, height: (hs+1)*2)
+                    let inner = CGRect(x: handle.x - hs, y: handle.y - hs, width: hs*2, height: hs*2)
+                    if i < 4 {
+                        // Corner handles: circles
+                        context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.2)))
+                        context.fill(Path(ellipseIn: inner), with: .color(.white))
+                        context.stroke(Path(ellipseIn: inner), with: .color(.accentColor), lineWidth: 1.5)
+                    } else {
+                        // Mid-edge handles: small rounded squares
+                        context.fill(Path(roundedRect: outer, cornerRadius: 2), with: .color(.black.opacity(0.2)))
+                        context.fill(Path(roundedRect: inner, cornerRadius: 2), with: .color(.white))
+                        context.stroke(Path(roundedRect: inner, cornerRadius: 2), with: .color(.accentColor), lineWidth: 1.5)
+                    }
                 }
             }
 
@@ -3749,7 +4273,7 @@ struct AnnotationCanvasView: View {
             // Pencil live preview
             if viewModel.currentTool == .pencil && viewModel.currentPencilPoints.count >= 2 {
                 let pts = viewModel.currentPencilPoints
-                let previewColor = viewModel.currentColor.color.opacity(0.75)
+                let previewColor = viewModel.currentColor.color.opacity(viewModel.currentOpacity * 0.85)
                 let lw = viewModel.currentLineWidth.rawValue
                 var pencilPath = Path()
                 pencilPath.move(to: pts[0])
@@ -3768,7 +4292,7 @@ struct AnnotationCanvasView: View {
                let start = viewModel.dragState.startPoint,
                let end = viewModel.dragState.currentPoint,
                !viewModel.isCropMode {
-                let previewColor = viewModel.currentColor.color.opacity(0.75)
+                let previewColor = viewModel.currentColor.color.opacity(viewModel.currentOpacity * 0.85)
                 let lw = viewModel.currentLineWidth.rawValue
                 if viewModel.currentTool == .arrow {
                     let dx = end.x - start.x, dy = end.y - start.y
@@ -3798,7 +4322,17 @@ struct AnnotationCanvasView: View {
                     case .line:
                         preview.move(to: start)
                         preview.addLine(to: end)
-                    case .rectangle, .redact:
+                    case .redact:
+                        // Live mosaic/blur preview during drag
+                        let redactRect = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                                               width: abs(end.x - start.x), height: abs(end.y - start.y))
+                        if let livePreview = viewModel.redactDragPreview {
+                            context.draw(Image(decorative: livePreview, scale: 1.0, orientation: .up),
+                                         in: redactRect)
+                        } else {
+                            preview = Path(redactRect)
+                        }
+                    case .rectangle:
                         preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                              width: abs(end.x - start.x), height: abs(end.y - start.y)))
                     case .roundedRect:
@@ -3811,12 +4345,32 @@ struct AnnotationCanvasView: View {
                     case .step:
                         let stepSize: CGFloat = viewModel.currentLineWidth == .thick ? 48 : viewModel.currentLineWidth == .medium ? 36 : 28
                         let rect = CGRect(x: start.x - stepSize/2, y: start.y - stepSize/2, width: stepSize, height: stepSize)
-                        preview = Path(ellipseIn: rect)
+                        let nextN = viewModel.annotations.filter { $0.type == .step }.count + 1
+                        context.fill(Path(ellipseIn: rect), with: .color(previewColor.opacity(0.75)))
+                        let textColor: Color = viewModel.currentColor == .yellow || viewModel.currentColor == .white ? .black : .white
+                        context.draw(
+                            Text("\(nextN)").font(.system(size: stepSize * 0.48, weight: .bold)).foregroundStyle(textColor),
+                            in: rect
+                        )
+                        // skip to default fallthrough — don't set preview (already drawn)
+                        break
                     case .callout:
                         let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                        width: abs(end.x - start.x), height: abs(end.y - start.y))
-                        let cr = min(r.width, r.height) * 0.15
-                        preview = Path(roundedRect: r, cornerRadius: cr)
+                        let cr = min(r.width, r.height) * 0.2
+                        var calloutPath = Path(roundedRect: r, cornerRadius: cr)
+                        // Tail from drag start (anchor point) toward the box
+                        let closest = CGPoint(x: max(r.minX, min(r.maxX, start.x)), y: max(r.minY, min(r.maxY, start.y)))
+                        let cdx = start.x - closest.x, cdy = start.y - closest.y
+                        let perpLen: CGFloat = 8
+                        let tAngle = atan2(cdy, cdx) + .pi / 2
+                        var tail = Path()
+                        tail.move(to: CGPoint(x: closest.x + cos(tAngle) * perpLen, y: closest.y + sin(tAngle) * perpLen))
+                        tail.addLine(to: start)
+                        tail.addLine(to: CGPoint(x: closest.x - cos(tAngle) * perpLen, y: closest.y - sin(tAngle) * perpLen))
+                        tail.closeSubpath()
+                        calloutPath.addPath(tail)
+                        preview = calloutPath
                     case .highlight:
                         preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                               width: abs(end.x - start.x), height: abs(end.y - start.y)))
@@ -3840,8 +4394,36 @@ struct AnnotationCanvasView: View {
                             context.fill(preview, with: .color(previewColor.opacity(isHighlight ? 0.38 : viewModel.currentTool == .step ? 0.7 : 0.35)))
                         }
                         if viewModel.currentTool != .step && !isHighlight {
-                            context.stroke(preview, with: .color(previewColor),
-                                           style: StrokeStyle(lineWidth: lw, dash: [4, 2]))
+                            // Solid preview (WYSIWYG) — same look as final annotation
+                            context.stroke(preview, with: .color(previewColor.opacity(0.85)),
+                                           style: StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round))
+                        }
+
+                        // Size label for rectangular tools
+                        let showsSize = [DrawingTool.rectangle, .ellipse, .roundedRect, .callout, .redact, .highlight].contains(viewModel.currentTool)
+                        if showsSize {
+                            let rx = min(start.x, end.x), ry = min(start.y, end.y)
+                            let rw = abs(end.x - start.x), rh = abs(end.y - start.y)
+                            if rw > 20 && rh > 10 {
+                                let img = viewModel.backgroundImage
+                                let scaleX = img.map { CGFloat($0.width) / size.width } ?? 1.0
+                                let scaleY = img.map { CGFloat($0.height) / size.height } ?? 1.0
+                                let pxW = Int(rw * scaleX), pxH = Int(rh * scaleY)
+                                let label = "\(pxW) × \(pxH)"
+                                let labelPos = CGPoint(x: rx + rw / 2, y: ry + rh + 14)
+                                let resolvedLabel = context.resolve(
+                                    Text(label)
+                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(.white)
+                                )
+                                let labelSize = resolvedLabel.measure(in: CGSize(width: 200, height: 40))
+                                let bgRect = CGRect(x: labelPos.x - labelSize.width / 2 - 4,
+                                                   y: labelPos.y - labelSize.height / 2 - 2,
+                                                   width: labelSize.width + 8, height: labelSize.height + 4)
+                                context.fill(Path(roundedRect: bgRect, cornerRadius: 3),
+                                             with: .color(.black.opacity(0.6)))
+                                context.draw(resolvedLabel, at: labelPos)
+                            }
                         }
                     }
                 }
@@ -3872,7 +4454,9 @@ struct AnnotationCanvasView: View {
                     let dxPx = abs(me.x - ms.x) * scaleX
                     let dyPx = abs(me.y - ms.y) * scaleY
                     let distPx = hypot(dxPx, dyPx)
-                    let label = String(format: "%.0f × %.0f px  (%.0f px)", dxPx, dyPx, distPx)
+                    let angleDeg = abs(atan2(me.y - ms.y, me.x - ms.x) * 180 / .pi)
+                    let angleStr = String(format: "%.1f°", min(angleDeg, 180 - angleDeg))
+                    let label = String(format: "%.0f × %.0f px  %.0f px  %@", dxPx, dyPx, distPx, angleStr)
                     let mid = CGPoint(x: (ms.x + me.x) / 2, y: (ms.y + me.y) / 2 - 16)
                     let text = Text(label).font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color.primary).bold()
@@ -3925,19 +4509,49 @@ struct AnnotationCanvasView: View {
             let r = viewModel.textInputRect
             let viewX = cx + (r.midX - cx) * zoom + panOffset.width
             let viewY = cy + (r.midY - cy) * zoom + panOffset.height
-            TextField("テキスト", text: $viewModel.textInputString)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: viewModel.currentFontSize * zoom, weight: .semibold))
-                .frame(width: r.width * zoom)
-                .position(x: viewX, y: viewY)
-                .focused($textFieldFocused)
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        textFieldFocused = true
+            let textColor = viewModel.currentColor.color
+            let nsColor = NSColor(textColor)
+            let inputW = max(r.width * zoom, 160)
+
+            VStack(spacing: 4) {
+                MultilineTextInput(
+                    text: $viewModel.textInputString,
+                    fontSize: viewModel.currentFontSize * zoom,
+                    color: nsColor,
+                    minWidth: inputW,
+                    onCommit: { viewModel.confirmTextInput() },
+                    onCancel: { viewModel.cancelTextInput() },
+                    onHeightChange: { h in
+                        withAnimation(.easeOut(duration: 0.1)) { textInputHeight = max(36, h) }
+                        let canvasH = h / zoom
+                        viewModel.updateTextInputHeight(canvasH)
                     }
+                )
+                .frame(width: inputW, height: textInputHeight)
+                .background {
+                    RoundedRectangle(cornerRadius: 5).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 5).stroke(textColor.opacity(0.5), lineWidth: 1.5)
                 }
-                .onSubmit { viewModel.confirmTextInput() }
-                .onExitCommand { viewModel.cancelTextInput() }
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                .onAppear {
+                    textInputHeight = viewModel.currentFontSize * zoom + 16
+                }
+
+                // Hint bar
+                HStack(spacing: 8) {
+                    Text("⏎ 確定").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("⇧⏎ 改行").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("Esc キャンセル").font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+            }
+            .position(x: viewX, y: viewY)
+            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
+            .onChange(of: viewModel.showTextInput) { _, show in
+                if !show { textInputHeight = 36 }
+            }
         }
     }
 }
