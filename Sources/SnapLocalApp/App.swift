@@ -1154,6 +1154,8 @@ struct CompactToolbar: View {
                 Button("左右反転") { canvas.flipImage(horizontal: true) }
                 Button("上下反転") { canvas.flipImage(horizontal: false) }
                 Divider()
+                Button("余白を自動トリミング") { canvas.trimWhitespace() }
+                Divider()
                 Button("25%に縮小") { canvas.resizeCanvas(scale: 0.25) }
                 Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
                 Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }

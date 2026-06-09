@@ -1510,6 +1510,67 @@ final class CanvasViewModel: ObservableObject {
         recomputeAllFilterPreviews()
     }
 
+    // Detect background color from corner pixels and trim uniform-color borders.
+    func trimWhitespace(threshold: CGFloat = 8) {
+        guard let img = backgroundImage, img.width > 2, img.height > 2 else { return }
+        // Render to an ARGB8888 bitmap for pixel access
+        let w = img.width, h = img.height
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &pixels, width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        // Sample corner pixels to determine background color
+        func pixel(_ x: Int, _ y: Int) -> (r: CGFloat, g: CGFloat, b: CGFloat) {
+            let i = (y * w + x) * 4
+            let a = CGFloat(pixels[i + 3]) / 255
+            guard a > 0 else { return (1, 1, 1) }
+            return (CGFloat(pixels[i]) / 255 / a,
+                    CGFloat(pixels[i + 1]) / 255 / a,
+                    CGFloat(pixels[i + 2]) / 255 / a)
+        }
+        let corners = [pixel(0, 0), pixel(w-1, 0), pixel(0, h-1), pixel(w-1, h-1)]
+        let bgR = corners.map(\.r).reduce(0, +) / CGFloat(corners.count)
+        let bgG = corners.map(\.g).reduce(0, +) / CGFloat(corners.count)
+        let bgB = corners.map(\.b).reduce(0, +) / CGFloat(corners.count)
+
+        func isBackground(_ x: Int, _ y: Int) -> Bool {
+            let p = pixel(x, y)
+            let dist = abs(p.r - bgR) + abs(p.g - bgG) + abs(p.b - bgB)
+            return dist * 255 < threshold
+        }
+
+        // Find crop bounds
+        var minX = 0, maxX = w - 1, minY = 0, maxY = h - 1
+        outer: for x in 0..<w {
+            for y in 0..<h { if !isBackground(x, y) { minX = x; break outer } }
+        }
+        outer: for x in stride(from: w-1, through: 0, by: -1) {
+            for y in 0..<h { if !isBackground(x, y) { maxX = x; break outer } }
+        }
+        outer: for y in 0..<h {
+            for x in 0..<w { if !isBackground(x, y) { minY = y; break outer } }
+        }
+        outer: for y in stride(from: h-1, through: 0, by: -1) {
+            for x in 0..<w { if !isBackground(x, y) { maxY = y; break outer } }
+        }
+
+        let cropW = maxX - minX + 1, cropH = maxY - minY + 1
+        guard cropW > 4, cropH > 4,
+              (cropW < w || cropH < h),
+              let cropped = img.cropping(to: CGRect(x: minX, y: minY, width: cropW, height: cropH)) else { return }
+
+        let prevImage = img
+        let prevAnnotations = annotations
+        backgroundImage = cropped
+        annotations.removeAll()
+        selectedAnnotationID = nil
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        recomputeAllFilterPreviews()
+    }
+
     // Register undo for a background image replacement (saves previous image + annotations)
     private func registerBackgroundUndo(previousImage: CGImage, previousAnnotations: [AnyAnnotation]) {
         undoManager.registerUndo(withTarget: self) { [previousImage, previousAnnotations] vm in
