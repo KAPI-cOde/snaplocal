@@ -348,6 +348,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func renameHistoryItem(_ item: VaultItem, title: String?) {
+        Task {
+            await vault.updateTitle(id: item.id, title: title)
+            await loadHistory()
+        }
+    }
+
     func exportHistoryItem(_ item: VaultItem) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
@@ -969,10 +976,13 @@ struct HistoryRail: View {
     let onRefresh: () -> Void
     let onSearch: () -> Void
     let onExport: (VaultItem) -> Void
+    var onRename: ((VaultItem, String?) -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
     @State private var hoveredItemID: UUID? = nil
+    @State private var renamingItemID: UUID? = nil
+    @State private var renameText: String = ""
 
     private let thumbW: CGFloat = 68
     private let thumbH: CGFloat = 46
@@ -1048,10 +1058,31 @@ struct HistoryRail: View {
                                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
                                 )
 
-                                Text(historyItemLabel(item.createdAt))
-                                    .font(.system(size: 8))
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                                    .lineLimit(1)
+                                if renamingItemID == item.id {
+                                    TextField("名前", text: $renameText)
+                                        .font(.system(size: 8))
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: thumbW)
+                                        .onSubmit {
+                                            onRename?(item, renameText.isEmpty ? nil : renameText)
+                                            renamingItemID = nil
+                                        }
+                                        .onExitCommand { renamingItemID = nil }
+                                } else {
+                                    VStack(spacing: 1) {
+                                        if let title = item.title {
+                                            Text(title)
+                                                .font(.system(size: 8, weight: .medium))
+                                                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                                                .lineLimit(1)
+                                                .frame(width: thumbW, alignment: .leading)
+                                        }
+                                        Text(historyItemLabel(item.createdAt))
+                                            .font(.system(size: 8))
+                                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
 
                                 if !item.ocrText.isEmpty && !searchQuery.isEmpty {
                                     Text(item.ocrText)
@@ -1083,6 +1114,11 @@ struct HistoryRail: View {
                         }
                         .contextMenu {
                             Button("開く") { onSelect(item) }
+                            Button("名前を変更…") {
+                                renameText = item.title ?? ""
+                                renamingItemID = item.id
+                            }
+                            Divider()
                             Button("ファイルに保存…") { onExport(item) }
                             Button("Finderで表示") {
                                 NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
@@ -1659,7 +1695,8 @@ struct ContentView: View {
                     onDelete: state.deleteHistoryItem,
                     onRefresh: state.refreshHistory,
                     onSearch: state.applySearch,
-                    onExport: state.exportHistoryItem
+                    onExport: state.exportHistoryItem,
+                    onRename: state.renameHistoryItem
                 )
             }
         }

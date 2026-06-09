@@ -17,6 +17,7 @@ struct VaultManifestEntry: Codable, Sendable {
     var annotationsData: Data?  // JSON-encoded [AnyAnnotation]
     var width: Int
     var height: Int
+    var title: String?
 }
 
 // MARK: - VaultItem (in-memory representation for UI)
@@ -29,6 +30,7 @@ struct VaultItem: Identifiable, Sendable {
     var ocrText: String
     var annotations: [AnyAnnotation]
     var level: VaultLevel
+    var title: String?
 
     // Load full image on demand (triggers disk read, call from background)
     var imageData: Data { (try? Data(contentsOf: imageURL)) ?? Data() }
@@ -119,7 +121,8 @@ actor PersistentVault {
             thumbnailData: thumbData,
             ocrText: "",
             annotations: annotations,
-            level: .permanent
+            level: .permanent,
+            title: nil
         )
     }
 
@@ -127,6 +130,13 @@ actor PersistentVault {
     func updateOCR(id: UUID, text: String) {
         guard manifest[id] != nil else { return }
         manifest[id]!.ocrText = text
+        saveManifest()
+    }
+
+    /// Update title/label for an item
+    func updateTitle(id: UUID, title: String?) {
+        guard manifest[id] != nil else { return }
+        manifest[id]!.title = title?.isEmpty == true ? nil : title
         saveManifest()
     }
 
@@ -163,7 +173,8 @@ actor PersistentVault {
                 thumbnailData: thumbData,
                 ocrText: entry.ocrText,
                 annotations: annotations,
-                level: .permanent
+                level: .permanent,
+                title: entry.title
             )
         }
     }
