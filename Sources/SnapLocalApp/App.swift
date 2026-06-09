@@ -2222,10 +2222,23 @@ struct AnnotationCanvasView: View {
                 return .handled
             }
             .onKeyPress(.delete, phases: .down) { press in
-                guard !viewModel.showTextInput,
-                      press.modifiers.contains(.command) && press.modifiers.contains(.shift) else { return .ignored }
-                viewModel.clearAllAnnotations()
-                return .handled
+                guard !viewModel.showTextInput else { return .ignored }
+                if press.modifiers.contains(.command) && press.modifiers.contains(.shift) {
+                    viewModel.clearAllAnnotations()
+                    return .handled
+                }
+                if press.modifiers.isEmpty || press.modifiers == .option {
+                    viewModel.deleteSelectedAnnotation()
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.escape, phases: .down) { _ in
+                if viewModel.currentTool == .colorPicker {
+                    viewModel.currentTool = viewModel.colorPickerPreviousTool
+                    return .handled
+                }
+                return .ignored
             }
             .onKeyPress("l", phases: .down) { press in
                 guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
