@@ -522,6 +522,40 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func exportHistoryAsZip() {
+        guard !history.isEmpty else { showStatus("エクスポートする履歴がありません"); return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "zip")!]
+        let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmmss"
+        panel.nameFieldStringValue = "SnapLocal-export-\(df.string(from: Date())).zip"
+        panel.begin { [self] response in
+            guard response == .OK, let url = panel.url else { return }
+            showStatus("ZIP作成中…")
+            Task {
+                do {
+                    let tmpDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("SnapLocalExport-\(UUID().uuidString)", isDirectory: true)
+                    try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+                    for item in history {
+                        let dst = tmpDir.appendingPathComponent(item.imageURL.lastPathComponent)
+                        try? FileManager.default.copyItem(at: item.imageURL, to: dst)
+                    }
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
+                    var err: NSError?
+                    NSFileCoordinator().coordinate(readingItemAt: tmpDir, options: .forUploading, error: &err) { zipURL in
+                        try? FileManager.default.copyItem(at: zipURL, to: url)
+                    }
+                    try? FileManager.default.removeItem(at: tmpDir)
+                    showStatus("ZIPを保存しました: \(url.lastPathComponent) (\(history.count)件)")
+                } catch {
+                    showStatus("ZIP作成失敗: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     func deleteAllHistory() {
         Task {
             for item in history { await vault.delete(id: item.id) }
@@ -1367,6 +1401,7 @@ struct HistoryRail: View {
     var onRename: ((VaultItem, String?) -> Void)? = nil
     var onDuplicate: ((VaultItem) -> Void)? = nil
     var onDeleteAll: (() -> Void)? = nil
+    var onExportZip: (() -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
@@ -1653,6 +1688,14 @@ struct HistoryRail: View {
                         .font(.caption2)
                 }
                 .buttonStyle(.borderless)
+                if let onExportZip {
+                    Button(action: onExportZip) {
+                        Image(systemName: "arrow.down.doc")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("すべての履歴をZIPでエクスポート")
+                }
                 if let onDeleteAll {
                     Button(action: { showDeleteAllConfirm = true }) {
                         Image(systemName: "trash")
@@ -2231,7 +2274,8 @@ struct ContentView: View {
                         onExport: state.exportHistoryItem,
                         onRename: state.renameHistoryItem,
                         onDuplicate: state.duplicateHistoryItem,
-                        onDeleteAll: state.deleteAllHistory
+                        onDeleteAll: state.deleteAllHistory,
+                        onExportZip: state.exportHistoryAsZip
                     )
                     .transition(.move(edge: .trailing))
                 }
