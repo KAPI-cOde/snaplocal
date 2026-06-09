@@ -335,6 +335,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         RegionCapture.start { [weak self] rect, preCaptured in
             guard let rect else { self?.clipboardOnlyCapture = false; return }
             if let img = preCaptured {
+                self?.regionCapturePlayedSound = true
                 self?.acceptCapture(img)
             } else {
                 self?.captureEngine?.captureRegion(rect)
@@ -386,6 +387,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     private(set) var lastRegionRect: CGRect?
+    private var regionCapturePlayedSound = false   // prevents double-shutter in region capture fast path
 
     func captureRegion() {
         isRegionCapturing = true
@@ -399,7 +401,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             }
             self.lastRegionRect = rect
             if let img = preCaptured {
-                // Fast path: use the frozen screenshot crop, no SCKit re-capture needed
+                // Fast path: shutter sound already played in RegionCapture.commit()
+                self.regionCapturePlayedSound = true
                 self.acceptCapture(img)
             } else {
                 self.showStatus("撮影中…")
@@ -418,7 +421,9 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     func acceptCapture(_ image: CGImage) {
-        CameraFlash.shared.flash()
+        let skipSound = regionCapturePlayedSound
+        regionCapturePlayedSound = false
+        CameraFlash.shared.flash(playSound: !skipSound)
         // Clipboard-only mode: copy and return immediately, skip history/HUD
         if clipboardOnlyCapture {
             clipboardOnlyCapture = false

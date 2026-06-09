@@ -236,8 +236,8 @@ final class CameraFlash {
     private var windows: [NSWindow] = []
     private init() {}
 
-    func flash() {
-        AudioServicesPlaySystemSound(1108)
+    func flash(playSound: Bool = true) {
+        if playSound { AudioServicesPlaySystemSound(1108) }
         // Create a white borderless panel covering each screen
         let newWindows: [NSWindow] = NSScreen.screens.map { screen in
             let win = NSPanel(
