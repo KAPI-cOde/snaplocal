@@ -30,12 +30,25 @@ private final class RegionOverlayWindow: NSObject {
     private var localMonitor: Any?
     private var globalMonitor: Any?
 
+    // Loupe
+    private var loupePanel: NSPanel?
+    private var loupeView: LoupeView?
+    private var screenSnapshots: [CGDirectDisplayID: CGImage] = [:]
+
     init(completion: @escaping @MainActor (CGRect?) -> Void) {
         self.completion = completion
         super.init()
     }
 
     func show() {
+        // Capture snapshots for loupe (synchronous, before showing overlay)
+        for screen in NSScreen.screens {
+            if let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+               let image = CGDisplayCreateImage(displayID) {
+                screenSnapshots[displayID] = image
+            }
+        }
+
         // One transparent panel per screen
         for screen in NSScreen.screens {
             let panel = makeOverlayPanel(for: screen)
@@ -48,13 +61,25 @@ private final class RegionOverlayWindow: NSObject {
         }
         NSCursor.crosshair.set()
 
-        // ESC to cancel
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { // ESC
+        setupLoupe()
+
+        // ESC to cancel + cursor tracking
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved]) { [weak self] event in
+            if event.type == .keyDown && event.keyCode == 53 {
                 self?.cancel()
                 return nil
             }
+            if event.type == .mouseMoved {
+                let loc = NSEvent.mouseLocation
+                self?.updateLoupe(at: loc, selectionSize: .zero)
+            }
             return event
+        }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
+            guard let self else { return }
+            let loc = NSEvent.mouseLocation
+            let size = self.startPoint != nil ? self.selectionRect.size : .zero
+            self.updateLoupe(at: loc, selectionSize: size)
         }
     }
 
@@ -108,6 +133,7 @@ private final class RegionOverlayWindow: NSObject {
             view.frame = CGRect(origin: .zero, size: selectionRect.size)
             view.needsDisplay = true
         }
+        updateLoupe(at: screenPoint, selectionSize: selectionRect.size)
     }
 
     func mouseUp(at screenPoint: NSPoint) {
@@ -148,10 +174,153 @@ private final class RegionOverlayWindow: NSObject {
         if let monitor = globalMonitor { NSEvent.removeMonitor(monitor); globalMonitor = nil }
         selectionPanel?.orderOut(nil)
         selectionPanel = nil
+        loupePanel?.orderOut(nil)
+        loupePanel = nil
+        loupeView = nil
         panels.forEach { $0.orderOut(nil) }
         panels.removeAll()
         trackingAreaViews.removeAll()
+        screenSnapshots.removeAll()
         NSCursor.arrow.set()
+    }
+
+    // MARK: - Loupe
+
+    private let loupeSize: CGFloat = 152
+    private let loupeZoom: CGFloat = 3.0
+
+    private func setupLoupe() {
+        let panel = NSPanel(
+            contentRect: CGRect(x: 0, y: 0, width: loupeSize, height: loupeSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .screenSaver + 2
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        let view = LoupeView(frame: CGRect(x: 0, y: 0, width: loupeSize, height: loupeSize))
+        panel.contentView = view
+        panel.orderFrontRegardless()
+        loupePanel = panel
+        loupeView = view
+
+        updateLoupe(at: NSEvent.mouseLocation, selectionSize: .zero)
+    }
+
+    private func updateLoupe(at cursorScreen: NSPoint, selectionSize: CGSize) {
+        guard let panel = loupePanel, let view = loupeView else { return }
+
+        // Find which display the cursor is on (NSScreen coords)
+        let screen = NSScreen.screens.first(where: { NSPointInRect(cursorScreen, $0.frame) }) ?? NSScreen.main
+        guard let screen else { return }
+        let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+        let snapshot = displayID.flatMap { screenSnapshots[$0] }
+
+        // Convert cursor from NSScreen (bottom-left) to display-local points (top-left)
+        let localX = cursorScreen.x - screen.frame.minX
+        let localY_topLeft = screen.frame.height - (cursorScreen.y - screen.frame.minY)
+        let scale = screen.backingScaleFactor
+
+        // Update view
+        view.snapshot = snapshot
+        view.cursorPixel = CGPoint(x: localX * scale, y: localY_topLeft * scale)
+        view.snapshotSize = CGSize(width: CGFloat(snapshot?.width ?? 1), height: CGFloat(snapshot?.height ?? 1))
+        view.selectionSize = selectionSize
+        view.needsDisplay = true
+
+        // Position loupe: offset from cursor, flip when near right/top edge
+        let offset: CGFloat = 20
+        var lx = cursorScreen.x + offset
+        var ly = cursorScreen.y + offset
+        // Flip right if too close to right edge
+        if lx + loupeSize > screen.frame.maxX - 4 { lx = cursorScreen.x - loupeSize - offset }
+        // Flip down if too close to top edge
+        if ly + loupeSize > screen.frame.maxY - 4 { ly = cursorScreen.y - loupeSize - offset }
+        panel.setFrameOrigin(NSPoint(x: lx, y: ly))
+    }
+}
+
+// MARK: - Loupe View
+
+private final class LoupeView: NSView {
+    var snapshot: CGImage?
+    var cursorPixel: CGPoint = .zero
+    var snapshotSize: CGSize = .zero
+    var selectionSize: CGSize = .zero
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = frame.width / 2
+        layer?.masksToBounds = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+
+        // Background
+        ctx.setFillColor(NSColor.black.cgColor)
+        ctx.fill(bounds)
+
+        // Draw zoomed screenshot
+        if let snapshot {
+            // The region we want to show: loupeSize/zoom logical pixels, in snapshot pixels
+            let zoom: CGFloat = 3.0
+            let capturePts = bounds.width / zoom  // logical pts we're zooming
+            let capturePx = capturePts  // snapshot pixels (snapshot is at display scale already)
+
+            let srcRect = CGRect(
+                x: cursorPixel.x - capturePx / 2,
+                y: cursorPixel.y - capturePx / 2,
+                width: capturePx,
+                height: capturePx
+            ).intersection(CGRect(origin: .zero, size: snapshotSize))
+
+            if let crop = snapshot.cropping(to: srcRect) {
+                ctx.interpolationQuality = .none
+                ctx.draw(crop, in: bounds)
+            }
+        }
+
+        // Crosshair
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+        ctx.setLineWidth(1.0)
+        let cx = bounds.midX, cy = bounds.midY
+        ctx.move(to: CGPoint(x: cx, y: 0)); ctx.addLine(to: CGPoint(x: cx, y: bounds.height))
+        ctx.move(to: CGPoint(x: 0, y: cy)); ctx.addLine(to: CGPoint(x: bounds.width, y: cy))
+        ctx.strokePath()
+
+        // Size label (when dragging)
+        if selectionSize.width >= 1 && selectionSize.height >= 1 {
+            let label = "\(Int(selectionSize.width))×\(Int(selectionSize.height))"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: NSColor.white
+            ]
+            let str = NSAttributedString(string: label, attributes: attrs)
+            let textSize = str.size()
+            let pad: CGFloat = 4
+            let bgRect = CGRect(
+                x: (bounds.width - textSize.width) / 2 - pad,
+                y: pad,
+                width: textSize.width + pad * 2,
+                height: textSize.height + pad
+            )
+            ctx.setFillColor(NSColor.black.withAlphaComponent(0.65).cgColor)
+            let path = CGPath(roundedRect: bgRect, cornerWidth: 3, cornerHeight: 3, transform: nil)
+            ctx.addPath(path); ctx.fillPath()
+            str.draw(at: CGPoint(x: bgRect.minX + pad, y: bgRect.minY + pad / 2))
+        }
+
+        // Circular border
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.85).cgColor)
+        ctx.setLineWidth(2.5)
+        ctx.strokeEllipse(in: bounds.insetBy(dx: 1.25, dy: 1.25))
     }
 }
 
