@@ -2202,7 +2202,12 @@ struct ContentView: View {
                     }
                     .overlay(alignment: .bottomTrailing) {
                         if let img = state.canvas.backgroundImage {
-                            Text("\(img.width) × \(img.height)")
+                            let zoomPct = Int(state.canvas.currentZoom * 100)
+                            let annCount = state.canvas.annotations.count
+                            let info = "\(img.width) × \(img.height)"
+                                + "  \(zoomPct)%"
+                                + (annCount > 0 ? "  ✎\(annCount)" : "")
+                            Text(info)
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 6)
@@ -2396,8 +2401,9 @@ struct AnnotationCanvasView: View {
                     }
                 }
             }
-            .onAppear { viewModel.canvasSize = proxy.size }
+            .onAppear { viewModel.canvasSize = proxy.size; viewModel.currentZoom = zoom }
             .onChange(of: proxy.size) { _, newSize in viewModel.canvasSize = newSize }
+            .onChange(of: zoom) { _, z in viewModel.currentZoom = z }
             .overlay(textInputOverlay)
             .overlay(
                 ScrollWheelHandler { dx, dy, isCmd in

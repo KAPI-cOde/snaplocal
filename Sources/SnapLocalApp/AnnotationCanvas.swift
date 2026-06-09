@@ -283,6 +283,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
     @Published var loadToken: UUID = UUID()
+    @Published var currentZoom: CGFloat = 1.0
     // Non-destructive image adjustments (pending until baked)
     @Published var adjustBrightness: Double = 0.0   // -0.5 … 0.5
     @Published var adjustContrast: Double = 1.0     // 0.5 … 2.0
