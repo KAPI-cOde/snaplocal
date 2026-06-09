@@ -666,9 +666,23 @@ struct CompactToolbar: View {
         HStack(spacing: 8) {
             Image(systemName: "crop")
                 .foregroundStyle(Color.accentColor)
-            Text("切り取りモード — ドラッグで範囲選択")
+            Text("切り取り")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Divider().frame(height: 16)
+            // Aspect ratio presets
+            let ratioOptions: [(String, CGFloat?)] = [
+                ("フリー", nil), ("1:1", 1.0), ("4:3", 4.0/3.0), ("16:9", 16.0/9.0), ("3:2", 3.0/2.0)
+            ]
+            ForEach(ratioOptions, id: \.0) { label, ratio in
+                let isActive = canvas.cropAspectRatio == ratio
+                Button(label) { canvas.cropAspectRatio = ratio }
+                    .font(.caption)
+                    .controlSize(.mini)
+                    .buttonStyle(.bordered)
+                    .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+                    .fontWeight(isActive ? .semibold : .regular)
+            }
             Spacer()
             Button("確定") { canvas.confirmCrop() }
                 .keyboardShortcut(.return, modifiers: [])

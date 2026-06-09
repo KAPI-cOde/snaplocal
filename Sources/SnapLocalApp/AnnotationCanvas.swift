@@ -284,6 +284,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var isCropMode = false
     @Published var cropStart: CGPoint?
     @Published var cropEnd: CGPoint?
+    @Published var cropAspectRatio: CGFloat? = nil  // nil = free, else width/height
 
     let undoManager = UndoManager()
     private var isUndoing = false
@@ -907,12 +908,21 @@ final class CanvasViewModel: ObservableObject {
 
         if isCropMode {
             var cropPt = localPoint
-            // Shift in crop mode: lock to square
-            if NSEvent.modifierFlags.contains(.shift), let start = cropStart {
+            if let start = cropStart {
                 let dx = cropPt.x - start.x, dy = cropPt.y - start.y
-                let side = min(abs(dx), abs(dy))
-                cropPt = CGPoint(x: start.x + (dx < 0 ? -side : side),
-                                 y: start.y + (dy < 0 ? -side : side))
+                // Preset ratio takes priority; Shift overrides with square
+                let ratio = NSEvent.modifierFlags.contains(.shift) ? 1.0 : cropAspectRatio
+                if let r = ratio {
+                    // Constrain to ratio: expand whichever dimension is larger
+                    let absDx = abs(dx), absDy = abs(dy)
+                    if absDx / r >= absDy {
+                        let constrainedDy = absDx / r * (dy < 0 ? -1 : 1)
+                        cropPt = CGPoint(x: cropPt.x, y: start.y + constrainedDy)
+                    } else {
+                        let constrainedDx = absDy * r * (dx < 0 ? -1 : 1)
+                        cropPt = CGPoint(x: start.x + constrainedDx, y: cropPt.y)
+                    }
+                }
             }
             cropEnd = cropPt
             objectWillChange.send()
@@ -1416,6 +1426,7 @@ final class CanvasViewModel: ObservableObject {
         isCropMode = false
         cropStart = nil
         cropEnd = nil
+        cropAspectRatio = nil
     }
 
     // MARK: - Image Rotation
