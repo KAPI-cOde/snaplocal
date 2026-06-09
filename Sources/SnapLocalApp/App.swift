@@ -332,7 +332,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     func captureRegionToClipboard() {
         clipboardOnlyCapture = true
-        RegionCapture.start { [weak self] rect, preCaptured in
+        RegionCapture.start(initialRect: lastRegionRect) { [weak self] rect, preCaptured in
             guard let rect else { self?.clipboardOnlyCapture = false; return }
             if let img = preCaptured {
                 self?.regionCapturePlayedSound = true
@@ -392,7 +392,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     func captureRegion() {
         isRegionCapturing = true
         showStatus("範囲を選択 — ドラッグして選択")
-        RegionCapture.start { [weak self] rect, preCaptured in
+        RegionCapture.start(initialRect: lastRegionRect) { [weak self] rect, preCaptured in
             guard let self else { return }
             self.isRegionCapturing = false
             guard let rect else {

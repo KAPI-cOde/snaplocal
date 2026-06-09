@@ -12,10 +12,11 @@ import ScreenCaptureKit
 enum RegionCapture {
     /// completion receives the selection rect (CG top-left coords) and, when a frozen
     /// screenshot is available, the pre-cropped CGImage so callers can skip re-capture.
+    /// - Parameter initialRect: Optional CG-coordinates rect (top-left origin) to pre-select on open.
     @MainActor
-    static func start(completion: @escaping @MainActor (CGRect?, CGImage?) -> Void) {
+    static func start(initialRect: CGRect? = nil, completion: @escaping @MainActor (CGRect?, CGImage?) -> Void) {
         let overlay = RegionOverlayWindow(completion: completion)
-        overlay.show()
+        overlay.show(preselectedCGRect: initialRect)
     }
 }
 
@@ -176,7 +177,7 @@ private final class RegionOverlayWindow: NSObject {
         super.init()
     }
 
-    func show() {
+    func show(preselectedCGRect cgRect: CGRect? = nil) {
         // Capture snapshots for loupe
         for screen in NSScreen.screens {
             if let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
@@ -221,6 +222,22 @@ private final class RegionOverlayWindow: NSObject {
         setupLoupe()
         setupEvents()
         startBorderAnimation()
+
+        // Pre-select the given region (CG coords → NS coords)
+        if let cg = cgRect, let mainH = NSScreen.screens.first?.frame.height {
+            // CG: top-left origin. NS: bottom-left origin. Convert:
+            let nsY = mainH - cg.maxY
+            let nsRect = CGRect(x: cg.minX, y: nsY, width: cg.width, height: cg.height)
+            // Clamp to available screen space
+            let screenBounds = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+            let clamped = nsRect.intersection(screenBounds)
+            if !clamped.isNull, clamped.width > 4, clamped.height > 4 {
+                selectionRect = clamped
+                captureState = .adjusting
+                loupePanel?.orderOut(nil)  // hide loupe immediately when starting with preselection
+                trackingViews.forEach { $0.needsDisplay = true }
+            }
+        }
     }
 
     private func makeOverlayPanel(for screen: NSScreen, opaque: Bool = false) -> NSPanel {
