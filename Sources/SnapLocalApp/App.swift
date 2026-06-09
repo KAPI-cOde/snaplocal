@@ -41,6 +41,31 @@ struct MenuBarQuickActions: View {
     @ObservedObject var state: SnapLocalState
 
     var body: some View {
+        // Last capture thumbnail row
+        if let last = state.history.first, let nsImage = NSImage(data: last.thumbnailData) {
+            Button {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows.first?.makeKeyAndOrderFront(nil)
+                state.loadHistoryItem(last)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 80, height: 52)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(last.title ?? "最新のスクリーンショット")
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        Text(last.createdAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Divider()
+        }
         Button("全画面撮影 (⌘⇧2)") { state.captureNow() }
         Button("範囲選択撮影 (⌘⇧4)") { state.captureRegion() }
         Button("前回の範囲を再撮影 (⌘⇧R)") { state.repeatLastRegionCapture() }
@@ -51,6 +76,11 @@ struct MenuBarQuickActions: View {
             Button("5秒後") { state.captureWithDelay(5) }
             Button("10秒後") { state.captureWithDelay(10) }
         }
+        Divider()
+        Button("クリップボードにコピー") { state.copyToClipboard() }
+            .disabled(state.canvas.backgroundImage == nil)
+        Button("共有…") { state.shareCurrentImage() }
+            .disabled(state.canvas.backgroundImage == nil)
         Divider()
         Button("SnapLocalを表示") {
             NSApp.activate(ignoringOtherApps: true)
