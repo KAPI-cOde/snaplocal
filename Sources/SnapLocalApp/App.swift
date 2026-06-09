@@ -324,6 +324,28 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         showStatus("オリジナル（アノテーションなし）をコピーしました")
     }
 
+    func shareCurrentImage() {
+        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
+              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            showStatus("共有する画像がありません")
+            return
+        }
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SnapLocal-share-\(UUID().uuidString).png")
+        do {
+            try data.write(to: tmpURL)
+        } catch {
+            showStatus("共有の準備に失敗しました")
+            return
+        }
+        DispatchQueue.main.async {
+            let picker = NSSharingServicePicker(items: [tmpURL])
+            if let contentView = NSApp.keyWindow?.contentView {
+                picker.show(relativeTo: .zero, of: contentView, preferredEdge: .minY)
+            }
+        }
+    }
+
     private func copyImageToClipboard(_ image: CGImage) {
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         NSPasteboard.general.clearContents()
@@ -543,6 +565,7 @@ struct CompactToolbar: View {
     let onSaveAs: () -> Void
     let onCopy: () -> Void
     let onPaste: () -> Void
+    let onShare: () -> Void
     @State private var showHelp = false
     @State private var showSettings = false
     @ObservedObject private var settings = SettingsManager.shared
@@ -671,6 +694,13 @@ struct CompactToolbar: View {
             .help("別名で保存… (⌘⇧S)")
             .disabled(canvas.backgroundImage == nil)
             .keyboardShortcut("s", modifiers: [.command, .shift])
+
+            Button(action: onShare) {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .help("共有… (⌘⇧E)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("e", modifiers: [.command, .shift])
 
             Divider().frame(height: 18)
 
@@ -1342,6 +1372,7 @@ struct HelpPopoverContent: View {
             ("⌘C", "クリップボードにコピー（アノテーション込み）"),
             ("⌘⌥C", "オリジナルをコピー（アノテーションなし）"),
             ("⌘S", "ファイルに保存"),
+            ("⌘⇧E", "共有（AirDrop・メール等）"),
         ]),
     ]
 
@@ -1627,7 +1658,8 @@ struct ContentView: View {
                 onSave: state.saveAnnotatedImage,
                 onSaveAs: state.saveAnnotatedImageAs,
                 onCopy: state.copyToClipboard,
-                onPaste: state.pasteFromClipboard
+                onPaste: state.pasteFromClipboard,
+                onShare: state.shareCurrentImage
             )
             .sheet(isPresented: $state.showWindowPicker) {
                 WindowPickerSheet(
