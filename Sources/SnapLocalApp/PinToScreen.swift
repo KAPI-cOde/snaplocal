@@ -78,6 +78,49 @@ extension PinnedImageWindow: NSWindowDelegate {
     }
 }
 
+// MARK: - Camera Flash Effect
+
+@MainActor
+final class CameraFlash {
+    static let shared = CameraFlash()
+    private var windows: [NSWindow] = []
+    private init() {}
+
+    func flash() {
+        // Create a white borderless panel covering each screen
+        let newWindows: [NSWindow] = NSScreen.screens.map { screen in
+            let win = NSPanel(
+                contentRect: screen.frame,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            win.level = NSWindow.Level(rawValue: Int(CGWindowLevelKey.screenSaverWindow.rawValue) + 1)
+            win.isOpaque = true
+            win.backgroundColor = .white
+            win.ignoresMouseEvents = true
+            win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            win.alphaValue = 0
+            win.orderFrontRegardless()
+            return win
+        }
+        windows = newWindows
+
+        // Flash in then out
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.05
+            newWindows.forEach { $0.animator().alphaValue = 0.85 }
+        }, completionHandler: {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.25
+                newWindows.forEach { $0.animator().alphaValue = 0 }
+            }, completionHandler: {
+                newWindows.forEach { $0.orderOut(nil) }
+            })
+        })
+    }
+}
+
 // MARK: - Countdown Overlay
 
 @MainActor

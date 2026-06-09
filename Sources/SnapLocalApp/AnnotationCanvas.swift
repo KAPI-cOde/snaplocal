@@ -293,6 +293,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var textInputString = ""
     private var editingAnnotationID: UUID? = nil
     @Published var selectedAnnotationID: UUID?
+    @Published var hoveredAnnotationID: UUID?
     @Published var isDraggingAnnotation = false
     // Multi-selection
     @Published var selectedAnnotationIDs: Set<UUID> = []
@@ -1009,6 +1010,7 @@ final class CanvasViewModel: ObservableObject {
             if let id = selectedAnnotationID,
                var annotation = annotations.first(where: { $0.id == id }) {
                 isDraggingAnnotation = true
+                hoveredAnnotationID = nil
                 let newCenter = CGPoint(x: localPoint.x - dragState.dragOffset.width, y: localPoint.y - dragState.dragOffset.height)
                 let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
                 var deltaX = newCenter.x - bounds.midX

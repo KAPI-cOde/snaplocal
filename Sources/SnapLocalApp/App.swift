@@ -295,6 +295,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     func acceptCapture(_ image: CGImage) {
+        CameraFlash.shared.flash()
         canvas.backgroundImage = image
         canvas.annotations.removeAll()
         canvas.loadToken = UUID()
@@ -2796,9 +2797,19 @@ struct AnnotationCanvasView: View {
                         hoverLocation = nil
                         hoverColorHex = nil
                     }
+                    if viewModel.currentTool == .select, !viewModel.isDraggingAnnotation {
+                        let canvasLoc = toCanvas(location, size: proxy.size)
+                        let hit = viewModel.annotations.last(where: {
+                            !$0.isLocked && $0.hitTest(canvasLoc, in: CGRect(origin: .zero, size: viewModel.canvasSize))
+                        })
+                        viewModel.hoveredAnnotationID = hit?.id
+                    } else {
+                        viewModel.hoveredAnnotationID = nil
+                    }
                 } else {
                     hoverLocation = nil
                     hoverColorHex = nil
+                    viewModel.hoveredAnnotationID = nil
                 }
             }
             .onChange(of: viewModel.currentTool) { _, _ in
@@ -2867,6 +2878,16 @@ struct AnnotationCanvasView: View {
             let stepOrdinals: [UUID: Int] = Dictionary(uniqueKeysWithValues: viewModel.annotations.filter { $0.type == .step }.map { ann in
                 ordinalStep += 1; return (ann.id, ordinalStep)
             })
+
+            // Hover glow: draw a faint accent outline behind the hovered annotation (select mode only)
+            if viewModel.currentTool == .select,
+               let hid = viewModel.hoveredAnnotationID,
+               hid != viewModel.selectedAnnotationID,
+               let hovered = viewModel.annotations.first(where: { $0.id == hid }) {
+                let hBounds = hovered.bounds(in: canvasRect).insetBy(dx: -4, dy: -4)
+                context.stroke(Path(hBounds), with: .color(.accentColor.opacity(0.35)),
+                               style: StrokeStyle(lineWidth: 1.5))
+            }
 
             for annotation in viewModel.annotations {
                 let annotationOpacity = annotation.opacity
