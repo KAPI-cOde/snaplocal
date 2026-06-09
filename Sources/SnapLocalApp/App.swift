@@ -948,6 +948,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         UNUserNotificationCenter.current().add(request)
     }
 
+    var hasScreenRecordingPermission: Bool { CGPreflightScreenCaptureAccess() }
+
     func openScreenRecordingSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
@@ -1169,6 +1171,7 @@ struct CompactToolbar: View {
     @State private var showSettings = false
     @State private var showAdjustments = false
     @State private var showDecoration = false
+    @State private var showColorPopover = false
     @State private var showSaveTemplate = false
     @State private var templateNameInput = ""
     @State private var showExtendCanvas = false
@@ -1374,6 +1377,14 @@ struct CompactToolbar: View {
                 extendCanvasSheet
             }
 
+            if canvas.backgroundImage != nil { annotationToolControls }
+
+            normalControlsExport
+        }
+    }
+
+    @ViewBuilder
+    private var annotationToolControls: some View {
             Divider().frame(height: 18)
 
             // ─ 描画ツール（主要6つ + もっと見る）─
@@ -1555,88 +1566,33 @@ struct CompactToolbar: View {
                 .controlSize(.small)
             }
 
-            // Opacity slider — always visible
-            HStack(spacing: 2) {
-                Image(systemName: "circle.lefthalf.filled")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                Slider(value: $canvas.currentOpacity, in: 0.1...1.0, step: 0.05)
-                    .frame(width: 56)
-                    .controlSize(.mini)
-                    .onChange(of: canvas.currentOpacity) { _, _ in canvas.applyCurrentOpacityToSelection() }
-            }
-            .help("不透明度 \(Int(canvas.currentOpacity * 100))%  ({ } で±10%)")
-
+            // ─ カラー（シングルスウォッチ → ポップオーバーで全パレット）─
             Divider().frame(height: 18)
 
-            ForEach(Array(AnnotationColor.allCases.enumerated()), id: \.element) { idx, color in
-                Button(action: { canvas.currentColor = color; canvas.applyCurrentColorToSelection() }) {
-                    ZStack {
-                        Circle()
-                            .fill(color.color)
-                            .frame(width: 12, height: 12)
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.primary.opacity(color == .white ? 0.3 : 0), lineWidth: 0.5)
-                                    .frame(width: 12, height: 12)
-                            )
-                        if canvas.currentColor == color {
-                            Circle()
-                                .stroke(Color.primary.opacity(0.8), lineWidth: 2)
-                                .frame(width: 17, height: 17)
-                        }
+            Button {
+                showColorPopover.toggle()
+            } label: {
+                let activeColor: Color = {
+                    if let hex = canvas.currentCustomColorHex,
+                       let c = ColorWellView.hexToNSColor(hex) {
+                        return Color(nsColor: c)
                     }
+                    return canvas.currentColor.color
+                }()
+                ZStack {
+                    Circle().fill(activeColor).frame(width: 16, height: 16)
+                        .overlay(Circle().stroke(Color.primary.opacity(activeColor == .white ? 0.3 : 0), lineWidth: 0.5))
+                    Circle().stroke(Color.primary.opacity(0.6), lineWidth: 1.5).frame(width: 20, height: 20)
                 }
-                .buttonStyle(.plain)
-                .frame(width: 18, height: 18)
-                .help("\(color.rawValue) (\(idx + 1))")
-                .simultaneousGesture(TapGesture().onEnded {
-                    canvas.currentCustomColorHex = nil
-                    canvas.applyCustomColorToSelection(hex: nil)
-                })
+            }
+            .buttonStyle(.plain)
+            .frame(width: 22, height: 22)
+            .help("カラー (1-8, カスタム)")
+            .popover(isPresented: $showColorPopover, arrowEdge: .bottom) {
+                colorPalettePopover
             }
 
-            // Custom color well
-            ColorWellView(colorHex: $canvas.currentCustomColorHex) { hex in
-                canvas.currentCustomColorHex = hex
-                canvas.applyCustomColorToSelection(hex: hex)
-                if let hex { settings.addRecentCustomColor(hex) }
-            }
-            .frame(width: 18, height: 18)
-            .cornerRadius(3)
-            .help("カスタムカラー（クリックで色を選択）")
-
-            // Recent custom colors (up to 5)
-            ForEach(settings.recentCustomColors.prefix(5), id: \.self) { hex in
-                Button(action: {
-                    canvas.currentCustomColorHex = hex
-                    canvas.applyCustomColorToSelection(hex: hex)
-                }) {
-                    ZStack {
-                        if let c = ColorWellView.hexToNSColor(hex) {
-                            Circle()
-                                .fill(Color(nsColor: c))
-                                .frame(width: 12, height: 12)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.primary.opacity(0.2), lineWidth: 0.5)
-                                        .frame(width: 12, height: 12)
-                                )
-                        }
-                        if canvas.currentCustomColorHex == hex {
-                            Circle()
-                                .stroke(Color.primary.opacity(0.8), lineWidth: 2)
-                                .frame(width: 17, height: 17)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .frame(width: 18, height: 18)
-                .help("最近使ったカラー: #\(hex.prefix(6))")
-            }
-
-            Divider().frame(height: 18)
-
+            // ─ 線の太さ（コンパクト）─
             Picker("", selection: $canvas.currentLineWidth) {
                 Text("S").tag(LineWidth.thin)
                 Text("M").tag(LineWidth.medium)
@@ -1651,20 +1607,95 @@ struct CompactToolbar: View {
                 canvas.applyCurrentLineWidthToSelection()
             }
 
-            Picker("", selection: $canvas.currentLineStyle) {
-                LineStylePreview(style: .solid).tag(LineStyle.solid)
-                LineStylePreview(style: .dashed).tag(LineStyle.dashed)
-                LineStylePreview(style: .dotted).tag(LineStyle.dotted)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 76)
-            .disabled(!canvas.currentTool.usesLineWidth)
-            .opacity(canvas.currentTool.usesLineWidth ? 1.0 : 0.5)
-            .help("線のスタイル（実線 / 破線 / 点線）")
-            .onChange(of: canvas.currentLineStyle) { _, _ in
-                canvas.applyCurrentLineStyleToSelection()
-            }
+    } // annotationToolControls
 
+    @ViewBuilder
+    private var colorPalettePopover: some View {
+        VStack(spacing: 8) {
+            // 8 standard colors
+            HStack(spacing: 6) {
+                ForEach(Array(AnnotationColor.allCases.enumerated()), id: \.element) { idx, color in
+                    Button(action: {
+                        canvas.currentColor = color
+                        canvas.currentCustomColorHex = nil
+                        canvas.applyCurrentColorToSelection()
+                        canvas.applyCustomColorToSelection(hex: nil)
+                    }) {
+                        ZStack {
+                            Circle().fill(color.color).frame(width: 18, height: 18)
+                                .overlay(Circle().stroke(Color.primary.opacity(color == .white ? 0.3 : 0), lineWidth: 0.5))
+                            if canvas.currentColor == color && canvas.currentCustomColorHex == nil {
+                                Circle().stroke(Color.primary.opacity(0.8), lineWidth: 2).frame(width: 23, height: 23)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .help("\(color.rawValue) (\(idx + 1))")
+                }
+            }
+            if !settings.recentCustomColors.isEmpty {
+                Divider()
+                HStack(spacing: 6) {
+                    ForEach(settings.recentCustomColors.prefix(6), id: \.self) { hex in
+                        Button(action: {
+                            canvas.currentCustomColorHex = hex
+                            canvas.applyCustomColorToSelection(hex: hex)
+                        }) {
+                            ZStack {
+                                if let c = ColorWellView.hexToNSColor(hex) {
+                                    Circle().fill(Color(nsColor: c)).frame(width: 18, height: 18)
+                                        .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
+                                }
+                                if canvas.currentCustomColorHex == hex {
+                                    Circle().stroke(Color.primary.opacity(0.8), lineWidth: 2).frame(width: 23, height: 23)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 24, height: 24)
+                    }
+                }
+            }
+            Divider()
+            HStack(spacing: 8) {
+                ColorWellView(colorHex: $canvas.currentCustomColorHex) { hex in
+                    canvas.currentCustomColorHex = hex
+                    canvas.applyCustomColorToSelection(hex: hex)
+                    if let hex { settings.addRecentCustomColor(hex) }
+                }
+                .frame(width: 28, height: 22)
+                .cornerRadius(4)
+                Text("カスタムカラー")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                // Opacity
+                HStack(spacing: 4) {
+                    Image(systemName: "circle.lefthalf.filled").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Slider(value: $canvas.currentOpacity, in: 0.1...1.0, step: 0.05)
+                        .frame(width: 64).controlSize(.mini)
+                        .onChange(of: canvas.currentOpacity) { _, _ in canvas.applyCurrentOpacityToSelection() }
+                    Text("\(Int(canvas.currentOpacity * 100))%")
+                        .font(.system(size: 9, design: .monospaced)).frame(width: 28)
+                }
+                // Line style
+                Picker("", selection: $canvas.currentLineStyle) {
+                    LineStylePreview(style: .solid).tag(LineStyle.solid)
+                    LineStylePreview(style: .dashed).tag(LineStyle.dashed)
+                    LineStylePreview(style: .dotted).tag(LineStyle.dotted)
+                }
+                .pickerStyle(.segmented).frame(width: 72)
+                .disabled(!canvas.currentTool.usesLineWidth)
+                .onChange(of: canvas.currentLineStyle) { _, _ in canvas.applyCurrentLineStyleToSelection() }
+            }
+        }
+        .padding(10)
+        .frame(width: 320)
+    }
+
+    @ViewBuilder
+    private var normalControlsExport: some View {
             Spacer()
 
             // ─ エクスポート ─
@@ -1825,7 +1856,6 @@ struct CompactToolbar: View {
             }
             .help("履歴を表示/非表示 (⌘⇧H)")
             .keyboardShortcut("h", modifiers: [.command, .shift])
-        }
     }
 
     private var adjustmentsPopover: some View {
@@ -2215,6 +2245,19 @@ struct HistoryRail: View {
             .background(.ultraThinMaterial)
 
             Divider()
+
+            if displayedHistory.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.tertiary)
+                    Text(searchQuery.isEmpty ? "キャプチャなし" : "見つかりません")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
             ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
@@ -2612,6 +2655,26 @@ struct HistoryItemPopover: View {
                 Text(dim)
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.secondary)
+            }
+            if !item.ocrText.isEmpty {
+                Divider()
+                HStack(alignment: .top, spacing: 6) {
+                    Text(item.ocrText)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(item.ocrText, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.clipboard")
+                            .font(.system(size: 10))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("テキストをコピー")
+                }
+                .frame(width: 360)
             }
             Divider()
             TextEditor(text: $notesText)
@@ -3323,7 +3386,7 @@ struct ContentView: View {
                 AnnotationCanvasView(
                     viewModel: state.canvas,
                     onCapture: state.captureNow,
-                    onOpenPermissions: state.openScreenRecordingSettings,
+                    onOpenPermissions: state.hasScreenRecordingPermission ? nil : { state.openScreenRecordingSettings() },
                     onFocusSearch: { state.searchFocusTrigger.toggle() },
                     onNavigateHistory: { delta in state.navigateHistory(by: delta) },
                     onCopyOriginal: state.copyOriginalToClipboard,
@@ -3594,6 +3657,7 @@ struct AnnotationCanvasView: View {
                         }
                         VStack(spacing: 4) {
                             HintRow(key: "⌘⇧2", label: "全画面撮影")
+                            HintRow(key: "⌘⇧3", label: "ウィンドウ撮影")
                             HintRow(key: "⌘⇧4", label: "範囲選択撮影")
                             HintRow(key: "⌘V",  label: "クリップボードから貼り付け")
                         }
