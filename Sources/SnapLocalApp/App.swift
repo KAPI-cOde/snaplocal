@@ -1120,6 +1120,18 @@ struct HistoryRail: View {
                                 }
                                 .frame(width: thumbW, height: thumbH)
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .overlay(alignment: .topTrailing) {
+                                    let count = item.annotations.count
+                                    if count > 0 {
+                                        Text("\(count)")
+                                            .font(.system(size: 7, weight: .bold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 3)
+                                            .padding(.vertical, 1)
+                                            .background(Color.accentColor, in: Capsule())
+                                            .padding(2)
+                                    }
+                                }
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 4)
                                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
@@ -1189,6 +1201,10 @@ struct HistoryRail: View {
                             Button("ファイルに保存…") { onExport(item) }
                             Button("Finderで表示") {
                                 NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
+                            }
+                            Button("ファイルパスをコピー") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(item.imageURL.path, forType: .string)
                             }
                             Button("クリップボードにコピー") {
                                 if let nsImage = NSImage(contentsOf: item.imageURL) {
