@@ -1612,6 +1612,34 @@ final class CanvasViewModel: ObservableObject {
         updateUndoRedoState()
     }
 
+    // MARK: - Canvas Extend
+
+    /// Extend the canvas by adding padding on each side with a given background color.
+    func extendCanvas(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat, bgColor: CGColor) {
+        guard let src = backgroundImage else { return }
+        let newW = CGFloat(src.width) + left + right
+        let newH = CGFloat(src.height) + top + bottom
+        guard newW >= 1, newH >= 1, newW <= 16000, newH <= 16000 else { return }
+        guard let ctx = CGContext(
+            data: nil, width: Int(newW), height: Int(newH),
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        ctx.setFillColor(bgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: newW, height: newH))
+        // CGContext y-axis is bottom-up: original sits at (left, bottom)
+        ctx.draw(src, in: CGRect(x: left, y: bottom, width: CGFloat(src.width), height: CGFloat(src.height)))
+        guard let result = ctx.makeImage() else { return }
+        let prevImage = src
+        let prevAnnotations = annotations
+        backgroundImage = result
+        canvasSize = CGSize(width: newW, height: newH)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        recomputeAllFilterPreviews()
+        objectWillChange.send()
+    }
+
     // MARK: - Image Stitch
 
     /// Stitch `other` below (vertical=true) or to the right (vertical=false) of the current background.

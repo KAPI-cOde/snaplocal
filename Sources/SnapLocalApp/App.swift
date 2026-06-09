@@ -1130,6 +1130,14 @@ struct CompactToolbar: View {
     @State private var showDecoration = false
     @State private var showSaveTemplate = false
     @State private var templateNameInput = ""
+    @State private var showExtendCanvas = false
+    @State private var extendSymmetric = true
+    @State private var extendAll: CGFloat = 40
+    @State private var extendTop: CGFloat = 40
+    @State private var extendRight: CGFloat = 40
+    @State private var extendBottom: CGFloat = 40
+    @State private var extendLeft: CGFloat = 40
+    @State private var extendBgChoice: Int = 0   // 0=white 1=black 2=transparent
     @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
@@ -1291,6 +1299,8 @@ struct CompactToolbar: View {
                 Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
                 Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
                 Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
+                Divider()
+                Button("余白を追加…") { showExtendCanvas = true }
             } label: {
                 Image(systemName: "aspectratio")
             }
@@ -1298,6 +1308,9 @@ struct CompactToolbar: View {
             .disabled(canvas.backgroundImage == nil)
             .menuStyle(.borderlessButton)
             .frame(width: 22)
+            .sheet(isPresented: $showExtendCanvas) {
+                extendCanvasSheet
+            }
 
             Button { showAdjustments.toggle() } label: {
                 Image(systemName: "slider.horizontal.3")
@@ -1781,6 +1794,78 @@ struct CompactToolbar: View {
         }
         .padding(14)
         .frame(width: 280)
+    }
+
+    @ViewBuilder
+    private func extendPaddingRow(label: String, value: Binding<CGFloat>) -> some View {
+        HStack {
+            Text(label).frame(width: 60, alignment: .leading)
+            Slider(value: value, in: 0...500, step: 10)
+            Text("\(Int(value.wrappedValue))")
+                .frame(width: 36, alignment: .trailing)
+                .font(.system(size: 12, design: .monospaced))
+        }
+    }
+
+    private var extendCanvasSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("余白を追加").font(.headline)
+
+            Toggle("全方向に同じ余白", isOn: $extendSymmetric)
+
+            if extendSymmetric {
+                HStack {
+                    Text("余白 (px)")
+                        .frame(width: 80, alignment: .leading)
+                    Slider(value: $extendAll, in: 0...500, step: 10)
+                    Text("\(Int(extendAll))")
+                        .frame(width: 36, alignment: .trailing)
+                        .font(.system(size: 12, design: .monospaced))
+                }
+            } else {
+                extendPaddingRow(label: "上 (px)", value: $extendTop)
+                extendPaddingRow(label: "右 (px)", value: $extendRight)
+                extendPaddingRow(label: "下 (px)", value: $extendBottom)
+                extendPaddingRow(label: "左 (px)", value: $extendLeft)
+            }
+
+            Divider()
+
+            HStack {
+                Text("背景色")
+                    .frame(width: 80, alignment: .leading)
+                Picker("", selection: $extendBgChoice) {
+                    Text("白").tag(0)
+                    Text("黒").tag(1)
+                    Text("透明").tag(2)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            HStack {
+                Spacer()
+                Button("キャンセル") { showExtendCanvas = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("追加") {
+                    let t = extendSymmetric ? extendAll : extendTop
+                    let r = extendSymmetric ? extendAll : extendRight
+                    let b = extendSymmetric ? extendAll : extendBottom
+                    let l = extendSymmetric ? extendAll : extendLeft
+                    let cgColor: CGColor
+                    switch extendBgChoice {
+                    case 1:  cgColor = CGColor(gray: 0, alpha: 1)
+                    case 2:  cgColor = CGColor(gray: 0, alpha: 0)
+                    default: cgColor = CGColor(gray: 1, alpha: 1)
+                    }
+                    canvas.extendCanvas(top: t, right: r, bottom: b, left: l, bgColor: cgColor)
+                    showExtendCanvas = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
     }
 
     private var decorationPopover: some View {
