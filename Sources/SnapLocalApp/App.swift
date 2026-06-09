@@ -2116,12 +2116,27 @@ struct AnnotationCanvasView: View {
             }
             .onKeyPress(.tab, phases: .down) { press in
                 guard !viewModel.showTextInput else { return .ignored }
-                let tools = DrawingTool.allCases
-                if let i = tools.firstIndex(of: viewModel.currentTool) {
+                if viewModel.currentTool == .select && !viewModel.annotations.isEmpty {
+                    // Tab cycles through annotations when in select mode
+                    let anns = viewModel.annotations
+                    let currentIdx = anns.firstIndex { $0.id == viewModel.selectedAnnotationID } ?? -1
+                    let next: Int
                     if press.modifiers.contains(.shift) {
-                        viewModel.currentTool = tools[(i - 1 + tools.count) % tools.count]
+                        next = (currentIdx - 1 + anns.count) % anns.count
                     } else {
-                        viewModel.currentTool = tools[(i + 1) % tools.count]
+                        next = (currentIdx + 1) % anns.count
+                    }
+                    viewModel.selectedAnnotationID = anns[next].id
+                    viewModel.selectedAnnotationIDs = []
+                } else {
+                    // Tab cycles through tools in drawing modes
+                    let tools = DrawingTool.allCases
+                    if let i = tools.firstIndex(of: viewModel.currentTool) {
+                        if press.modifiers.contains(.shift) {
+                            viewModel.currentTool = tools[(i - 1 + tools.count) % tools.count]
+                        } else {
+                            viewModel.currentTool = tools[(i + 1) % tools.count]
+                        }
                     }
                 }
                 return .handled
