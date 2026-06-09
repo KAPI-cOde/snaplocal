@@ -349,19 +349,19 @@ final class CanvasViewModel: ObservableObject {
             _currentTool = newValue
         }
     }
-    @Published var currentColor: AnnotationColor = .red
-    @Published var currentLineWidth: LineWidth = .thin
+    @Published var currentColor: AnnotationColor = .red { didSet { saveCurrentStyle() } }
+    @Published var currentLineWidth: LineWidth = .thin { didSet { saveCurrentStyle() } }
     @Published var currentRedactMode: RedactMode = .mosaic
     @Published var currentSpotlightShape: SpotlightShape = .ellipse
     @Published var currentMosaicScale: Float = 12
     @Published var currentBlurRadius: Float = 20
-    @Published var currentFontSize: CGFloat = 18
-    @Published var currentFilled: Bool = false
-    @Published var currentArrowDoubleSided: Bool = false
-    @Published var currentOpacity: Double = 1.0
-    @Published var currentTextBackground: Bool = false
-    @Published var currentLineStyle: LineStyle = .solid
-    @Published var currentCustomColorHex: String? = nil
+    @Published var currentFontSize: CGFloat = 18 { didSet { saveCurrentStyle() } }
+    @Published var currentFilled: Bool = false { didSet { saveCurrentStyle() } }
+    @Published var currentArrowDoubleSided: Bool = false { didSet { saveCurrentStyle() } }
+    @Published var currentOpacity: Double = 1.0 { didSet { saveCurrentStyle() } }
+    @Published var currentTextBackground: Bool = false { didSet { saveCurrentStyle() } }
+    @Published var currentLineStyle: LineStyle = .solid { didSet { saveCurrentStyle() } }
+    @Published var currentCustomColorHex: String? = nil { didSet { saveCurrentStyle() } }
     @Published var snapGuides: [SnapGuide] = []
     @Published var annotationsHidden: Bool = false
     @Published var currentPencilPoints: [CGPoint] = []
@@ -418,6 +418,36 @@ final class CanvasViewModel: ObservableObject {
     private var isUndoing = false
     private var dragStartAnnotation: AnyAnnotation? = nil
     private var calloutTailBakedBase: CalloutAnnotation? = nil
+
+    // MARK: - Style persistence
+
+    init() {
+        let ud = UserDefaults.standard
+        if let c = ud.string(forKey: "canvas.color"), let col = AnnotationColor(rawValue: c) { currentColor = col }
+        if let lw = LineWidth(rawValue: CGFloat(ud.float(forKey: "canvas.lineWidth"))) { currentLineWidth = lw }
+        currentFontSize = CGFloat(ud.float(forKey: "canvas.fontSize")).isZero ? 18 : CGFloat(ud.float(forKey: "canvas.fontSize"))
+        currentFilled = ud.bool(forKey: "canvas.filled")
+        currentArrowDoubleSided = ud.bool(forKey: "canvas.arrowDouble")
+        let op = ud.double(forKey: "canvas.opacity")
+        currentOpacity = op == 0 ? 1.0 : op
+        currentTextBackground = ud.bool(forKey: "canvas.textBg")
+        if let ls = ud.string(forKey: "canvas.lineStyle"), let style = LineStyle(rawValue: ls) { currentLineStyle = style }
+        let hex = ud.string(forKey: "canvas.customColorHex")
+        currentCustomColorHex = hex?.isEmpty == false ? hex : nil
+    }
+
+    func saveCurrentStyle() {
+        let ud = UserDefaults.standard
+        ud.set(currentColor.rawValue, forKey: "canvas.color")
+        ud.set(Float(currentLineWidth.rawValue), forKey: "canvas.lineWidth")
+        ud.set(Float(currentFontSize), forKey: "canvas.fontSize")
+        ud.set(currentFilled, forKey: "canvas.filled")
+        ud.set(currentArrowDoubleSided, forKey: "canvas.arrowDouble")
+        ud.set(currentOpacity, forKey: "canvas.opacity")
+        ud.set(currentTextBackground, forKey: "canvas.textBg")
+        ud.set(currentLineStyle.rawValue, forKey: "canvas.lineStyle")
+        ud.set(currentCustomColorHex ?? "", forKey: "canvas.customColorHex")
+    }
 
     func applyCurrentColorToSelection() {
         let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
