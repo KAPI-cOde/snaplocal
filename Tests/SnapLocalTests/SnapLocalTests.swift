@@ -56,6 +56,38 @@ struct PersistentVaultTests {
         #expect(!FileManager.default.fileExists(atPath: saved.imageURL.path))
     }
 
+    @Test("cleanOrphans is a no-op when manifest is empty (corrupt index.json guard)")
+    func cleanOrphansNoOpOnEmptyManifest() async throws {
+        let (vault, dir) = makeTempVault()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // UUID-named PNG present but manifest empty (= index.json unreadable scenario):
+        // cleanup must not touch anything.
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let strayPNG = dir.appendingPathComponent("\(UUID().uuidString).png")
+        try Data([0x89, 0x50]).write(to: strayPNG)
+
+        let trashed = await vault.cleanOrphans()
+
+        #expect(trashed == 0)
+        #expect(FileManager.default.fileExists(atPath: strayPNG.path))
+    }
+
+    @Test("cleanOrphans never touches non-vault-named files (user files guard)")
+    func cleanOrphansIgnoresNonUUIDFiles() async throws {
+        let (vault, dir) = makeTempVault()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        _ = try #require(await vault.save(image: makeTestImage()))
+        let userPNG = dir.appendingPathComponent("my-vacation-photo.png")
+        try Data([0x89, 0x50]).write(to: userPNG)
+
+        let trashed = await vault.cleanOrphans()
+
+        #expect(trashed == 0)
+        #expect(FileManager.default.fileExists(atPath: userPNG.path))
+    }
+
     @Test("cleanOrphans trashes unindexed files, keeps indexed ones (PLAN.md T5.2)")
     func cleanOrphansTrashesUnindexedFiles() async throws {
         let (vault, dir) = makeTempVault()

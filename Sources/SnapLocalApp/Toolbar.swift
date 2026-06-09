@@ -76,12 +76,13 @@ struct CompactToolbar: View {
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                     .disabled(canvas.backgroundImage == nil)
                 // T3.2-A: undo/redo はツールバー非表示化、ショートカットのみ維持
+                // (クロップ中は無効 — 旧実装でもクロップバー表示中は登録されなかった)
                 Button { canvas.undo() } label: { EmptyView() }
                     .keyboardShortcut("z", modifiers: .command)
-                    .disabled(!canvas.canUndo)
+                    .disabled(canvas.isCropMode || !canvas.canUndo)
                 Button { canvas.redo() } label: { EmptyView() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
-                    .disabled(!canvas.canRedo)
+                    .disabled(canvas.isCropMode || !canvas.canRedo)
             }
             .frame(width: 0, height: 0).opacity(0)
         }

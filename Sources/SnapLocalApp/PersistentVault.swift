@@ -201,20 +201,34 @@ actor PersistentVault {
 
     /// index.json に載っていない画像/サムネイルをゴミ箱へ移動する(復元可能)。
     /// 「消したはずの画像がディスクに残る」事故を防ぐ起動時クリーンアップ(PLAN.md T5.2)。
+    ///
+    /// データ安全ガード:
+    /// - manifestが空なら何もしない(index.jsonがクラウド同期競合等で読めなかった場合に
+    ///   全ファイルを孤児と誤認して履歴全体をゴミ箱送りにする事故を防ぐ)
+    /// - vault自身の命名規則 `{UUID}.png/jpg` に一致するファイルだけを対象にする
+    ///   (保存先にユーザー自身のPNGがあるフォルダを指定しているケースを保護)
     func cleanOrphans() -> Int {
+        guard !manifest.isEmpty else { return 0 }
         let fm = FileManager.default
         let validImages = Set(manifest.values.map { $0.filename })
         let validThumbs = Set(manifest.values.map { ($0.thumbFilename as NSString).lastPathComponent })
+        func isVaultNamed(_ url: URL) -> Bool {
+            UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil
+        }
         var trashed = 0
         if let files = try? fm.contentsOfDirectory(at: baseDirectory, includingPropertiesForKeys: nil) {
             for url in files
-            where url.pathExtension.lowercased() == "png" && !validImages.contains(url.lastPathComponent) {
+            where url.pathExtension.lowercased() == "png"
+                && isVaultNamed(url)
+                && !validImages.contains(url.lastPathComponent) {
                 if (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil { trashed += 1 }
             }
         }
         if let files = try? fm.contentsOfDirectory(at: thumbDirectory, includingPropertiesForKeys: nil) {
             for url in files
-            where url.pathExtension.lowercased() == "jpg" && !validThumbs.contains(url.lastPathComponent) {
+            where url.pathExtension.lowercased() == "jpg"
+                && isVaultNamed(url)
+                && !validThumbs.contains(url.lastPathComponent) {
                 if (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil { trashed += 1 }
             }
         }
