@@ -658,7 +658,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
 
         if let id = currentVaultID {
-            Task { await vault.updateAnnotations(id: id, annotations: canvas.annotations) }
+            Task {
+                await vault.updateAnnotations(id: id, annotations: canvas.annotations)
+                // Update thumbnail to show annotated version
+                if !canvas.annotations.isEmpty, let annotatedRaw = canvas.renderAnnotations() {
+                    await vault.updateThumbnail(id: id, annotatedImage: annotatedRaw)
+                }
+            }
         }
 
         do {

@@ -156,6 +156,15 @@ actor PersistentVault {
         saveManifest()
     }
 
+    /// Overwrite the thumbnail file with an annotated image (call after baking annotations).
+    func updateThumbnail(id: UUID, annotatedImage: CGImage) {
+        guard let entry = manifest[id] else { return }
+        let thumbURL = baseDirectory.appendingPathComponent(entry.thumbFilename)
+        if let thumbData = jpegThumbnail(from: annotatedImage) {
+            try? thumbData.write(to: thumbURL, options: .atomic)
+        }
+    }
+
     /// Delete an item and its files
     func delete(id: UUID) {
         guard let entry = manifest[id] else { return }
