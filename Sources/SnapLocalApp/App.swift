@@ -1231,6 +1231,15 @@ struct CompactToolbar: View {
                 }
             }
 
+            if canvas.currentTool == .arrow {
+                Toggle(isOn: $canvas.currentArrowDoubleSided) {
+                    Image(systemName: "arrow.left.and.right")
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("両方向矢印 (double-headed arrow)")
+            }
+
             if canvas.currentTool == .redact {
                 Picker("", selection: $canvas.currentRedactMode) {
                     ForEach(RedactMode.allCases, id: \.self) { mode in

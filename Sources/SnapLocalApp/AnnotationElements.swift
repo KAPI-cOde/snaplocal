@@ -46,6 +46,7 @@ struct ArrowAnnotation: AnnotationElement {
     var transform: CGAffineTransform = .identity
     var startPoint: CGPoint
     var endPoint: CGPoint
+    var doubleSided: Bool = false
 
     func path(in rect: CGRect) -> Path {
         let s = startPoint.applying(transform)
@@ -57,19 +58,31 @@ struct ArrowAnnotation: AnnotationElement {
         let lw = lineWidth.rawValue
         let headLen: CGFloat = lw * 4 + 12
         let headAngle: CGFloat = .pi / 5.5
+        let shaftStart = doubleSided && length > headLen * 2
+            ? CGPoint(x: s.x + headLen * cos(angle), y: s.y + headLen * sin(angle))
+            : s
         let shaftEnd = length > headLen
             ? CGPoint(x: e.x - headLen * cos(angle), y: e.y - headLen * sin(angle))
             : s
         var p = Path()
-        p.move(to: s)
+        p.move(to: shaftStart)
         p.addLine(to: shaftEnd)
-        // Filled triangular head
+        // Forward arrowhead at end
         p.move(to: e)
         p.addLine(to: CGPoint(x: e.x - headLen * cos(angle - headAngle),
                                y: e.y - headLen * sin(angle - headAngle)))
         p.addLine(to: CGPoint(x: e.x - headLen * cos(angle + headAngle),
                                y: e.y - headLen * sin(angle + headAngle)))
         p.closeSubpath()
+        // Backward arrowhead at start (only if double-sided)
+        if doubleSided {
+            p.move(to: s)
+            p.addLine(to: CGPoint(x: s.x + headLen * cos(angle - headAngle),
+                                   y: s.y + headLen * sin(angle - headAngle)))
+            p.addLine(to: CGPoint(x: s.x + headLen * cos(angle + headAngle),
+                                   y: s.y + headLen * sin(angle + headAngle)))
+            p.closeSubpath()
+        }
         return p
     }
 

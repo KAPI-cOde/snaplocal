@@ -271,6 +271,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentBlurRadius: Float = 20
     @Published var currentFontSize: CGFloat = 18
     @Published var currentFilled: Bool = false
+    @Published var currentArrowDoubleSided: Bool = false
     @Published var currentOpacity: Double = 1.0
     @Published var currentTextBackground: Bool = false
     @Published var currentLineStyle: LineStyle = .solid
@@ -537,6 +538,9 @@ final class CanvasViewModel: ObservableObject {
                 }
                 if annotation.type == .rectangle || annotation.type == .ellipse || annotation.type == .roundedRect {
                     currentFilled = annotation.isFilled
+                }
+                if annotation.type == .arrow {
+                    currentArrowDoubleSided = annotation.arrowDoubleSided
                 }
                 currentOpacity = annotation.opacity
                 currentLineStyle = annotation.lineStyle
@@ -1285,7 +1289,8 @@ final class CanvasViewModel: ObservableObject {
             let a = LineAnnotation(color: color, lineWidth: lineWidth, startPoint: start, endPoint: end)
             annotation = AnyAnnotation(a)
         case .arrow:
-            let a = ArrowAnnotation(color: color, lineWidth: lineWidth, startPoint: start, endPoint: end)
+            var a = ArrowAnnotation(color: color, lineWidth: lineWidth, startPoint: start, endPoint: end)
+            a.doubleSided = currentArrowDoubleSided
             annotation = AnyAnnotation(a)
         case .rectangle:
             let rect = CGRect(

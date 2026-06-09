@@ -19,6 +19,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var textHasBackground: Bool
     var isFilled: Bool
     var stepNumber: Int?
+    var arrowDoubleSided: Bool = false
     var hasStrokeRepresentation: Bool
     var opacity: Double = 1.0
     var isLocked: Bool = false
@@ -65,6 +66,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
             ?? (annotation as? RoundedRectAnnotation)?.isFilled
             ?? (annotation as? CalloutAnnotation)?.isFilled ?? false
         self.stepNumber = (annotation as? StepAnnotation)?.stepNumber
+        self.arrowDoubleSided = (annotation as? ArrowAnnotation)?.doubleSided ?? false
         self.hasStrokeRepresentation = annotation.hasStrokeRepresentation
 
         var base = annotation
@@ -165,6 +167,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.textHasBackground = wrapped.textHasBackground
         self.isFilled = wrapped.isFilled
         self.stepNumber = wrapped.stepNumber
+        self.arrowDoubleSided = wrapped.arrowDoubleSided
         self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation
         self.opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
