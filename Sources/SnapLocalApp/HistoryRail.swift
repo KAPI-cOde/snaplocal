@@ -38,8 +38,10 @@ struct HistoryRail: View {
     @State private var showDeleteAllConfirm = false
     @State private var showOnlyStarred = false
 
-    private let thumbW: CGFloat = 68
-    private let thumbH: CGFloat = 46
+    // Gyazo風2列グリッド (PLAN.md T4.1)
+    private let thumbW: CGFloat = 110
+    private let thumbH: CGFloat = 74
+    private var railWidth: CGFloat { thumbW * 2 + DS.Space.xs + DS.Space.xs * 2 }
 
     private func historyItemLabel(_ date: Date) -> String {
         if Calendar.current.isDateInToday(date) {
@@ -133,7 +135,9 @@ struct HistoryRail: View {
                             .padding(.horizontal, DS.Space.xs)
                             .padding(.top, DS.Space.xs)
                             .padding(.bottom, 2)
-                        VStack(spacing: 6) {
+                        LazyVGrid(columns: [GridItem(.fixed(thumbW), spacing: DS.Space.xs),
+                                            GridItem(.fixed(thumbW))],
+                                  alignment: .leading, spacing: DS.Space.xs) {
                         ForEach(items) { item in
                             HistoryItemRow(
                                 item: item,
@@ -170,7 +174,7 @@ struct HistoryRail: View {
                                 }
                             )
                         }   // ForEach(items)
-                        }   // VStack for items
+                        }   // LazyVGrid for items
                         .padding(.horizontal, DS.Space.xs)
                         .padding(.bottom, DS.Space.xxs)
                     }   // ForEach(groupedHistory)
@@ -275,7 +279,7 @@ struct HistoryRail: View {
             }
             .padding(.vertical, DS.Space.xxs)
         }
-        .frame(width: 88)
+        .frame(width: railWidth)
         .background(.regularMaterial)
         .onKeyPress(.escape) {
             if quickLookItem != nil {
@@ -328,7 +332,7 @@ private struct HistoryItemRow: View {
                 labelView
                 if !item.ocrText.isEmpty && !searchQuery.isEmpty {
                     Text(item.ocrText)
-                        .font(.system(size: 7))
+                        .font(.system(size: DS.FontSize.caption2))
                         .lineLimit(2)
                         .foregroundStyle(.secondary)
                         .frame(width: thumbW, alignment: .leading)
@@ -372,7 +376,7 @@ private struct HistoryItemRow: View {
         .overlay(alignment: .topTrailing) {
             if item.annotations.count > 0 {
                 Text("\(item.annotations.count)")
-                    .font(.system(size: 7, weight: .bold))
+                    .font(.system(size: DS.FontSize.caption2, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 3).padding(.vertical, 1)
                     .background(Color.accentColor, in: Capsule())
@@ -383,7 +387,7 @@ private struct HistoryItemRow: View {
             let dim = item.dimensionLabel
             if !dim.isEmpty {
                 Text(dim)
-                    .font(.system(size: 6, weight: .medium, design: .monospaced))
+                    .font(.system(size: DS.FontSize.caption2, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 3).padding(.vertical, 1)
                     .background(Color.black.opacity(0.55))
@@ -397,7 +401,7 @@ private struct HistoryItemRow: View {
                 let color: Color = item.isStarred ? .yellow : .white.opacity(0.8)
                 Button(action: onToggleStar) {
                     Image(systemName: icon)
-                        .font(.system(size: 8))
+                        .font(.system(size: 10))
                         .foregroundStyle(color)
                         .padding(2)
                         .background(Color.black.opacity(0.45))
@@ -427,7 +431,7 @@ private struct HistoryItemRow: View {
     @ViewBuilder private var labelView: some View {
         if isRenaming {
             TextField("名前", text: $renameText)
-                .font(.system(size: 8))
+                .font(.system(size: DS.FontSize.caption2))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: thumbW)
                 .onSubmit { onRename(renameText.isEmpty ? nil : renameText) }
@@ -436,13 +440,13 @@ private struct HistoryItemRow: View {
             VStack(spacing: 1) {
                 if let title = item.title {
                     Text(title)
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: DS.FontSize.caption2, weight: .medium))
                         .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
                         .lineLimit(1)
                         .frame(width: thumbW, alignment: .leading)
                 }
                 Text(historyItemLabel(item.createdAt))
-                    .font(.system(size: 8))
+                    .font(.system(size: DS.FontSize.caption2))
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                     .lineLimit(1)
             }
