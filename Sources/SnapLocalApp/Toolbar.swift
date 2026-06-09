@@ -106,8 +106,7 @@ struct CompactToolbar: View {
             Button("確定") { canvas.confirmCrop() }
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(canvas.cropStart == nil || canvas.cropEnd == nil)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .dsPrimaryButton()
             Button("キャンセル") { canvas.cancelCrop() }
                 .keyboardShortcut(.escape, modifiers: [])
                 .controlSize(.small)
@@ -120,18 +119,21 @@ struct CompactToolbar: View {
             Button(action: onCapture) {
                 Image(systemName: "camera.viewfinder")
             }
+            .buttonStyle(DSToolButtonStyle())
             .help("全画面撮影 (⌘⇧2)")
             .keyboardShortcut("2", modifiers: [.command, .shift])
 
             Button(action: onCaptureRegion) {
                 Image(systemName: "crop")
             }
+            .buttonStyle(DSToolButtonStyle())
             .help("範囲選択撮影 (⌘⇧4)")
             .keyboardShortcut("4", modifiers: [.command, .shift])
 
             Button(action: onCaptureWindow) {
                 Image(systemName: "macwindow.on.rectangle")
             }
+            .buttonStyle(DSToolButtonStyle())
             .help("ウィンドウ撮影 (⌘⇧3)")
             .keyboardShortcut("3", modifiers: [.command, .shift])
 
@@ -245,6 +247,7 @@ struct CompactToolbar: View {
                 } label: {
                     Image(systemName: "person.crop.rectangle.badge.plus")
                 }
+                .buttonStyle(DSToolButtonStyle())
                 .help("顔を自動検出してモザイク/ぼかし")
                 .disabled(canvas.backgroundImage == nil)
             }
@@ -270,8 +273,7 @@ struct CompactToolbar: View {
                             .font(.system(size: DS.FontSize.caption))
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .dsPrimaryButton()
                 .help("画面全体から色をサンプリング (NSColorSampler)")
             }
 
@@ -383,13 +385,14 @@ struct CompactToolbar: View {
         Button { canvas.enterCropMode() } label: {
             Image(systemName: "scissors")
         }
+        .buttonStyle(DSToolButtonStyle())
         .help("切り取り (⌘K)")
         .keyboardShortcut("k", modifiers: .command)
 
         Button { showAdjustments.toggle() } label: {
             Image(systemName: "slider.horizontal.3")
-                .foregroundStyle(canvas.hasActiveAdjustments ? Color.accentColor : Color.primary)
         }
+        .buttonStyle(DSToolButtonStyle(isActive: canvas.hasActiveAdjustments))
         .help(canvas.hasActiveAdjustments ? "明るさ・コントラスト・彩度（調整中）" : "明るさ・コントラスト・彩度")
         .popover(isPresented: $showAdjustments, arrowEdge: .bottom) {
             adjustmentsPopover
@@ -397,8 +400,8 @@ struct CompactToolbar: View {
 
         Button { showDecoration.toggle() } label: {
             Image(systemName: canvas.decorationEnabled ? "wand.and.stars.inverse" : "wand.and.stars")
-                .foregroundStyle(canvas.decorationEnabled ? Color.accentColor : Color.primary)
         }
+        .buttonStyle(DSToolButtonStyle(isActive: canvas.decorationEnabled))
         .help("書き出し装飾 (パディング・角丸・影)")
         .popover(isPresented: $showDecoration, arrowEdge: .bottom) {
             decorationPopover
@@ -456,8 +459,8 @@ struct CompactToolbar: View {
         if !currentOCRText.isEmpty {
             Button { showOCRPanel.toggle() } label: {
                 Image(systemName: "text.viewfinder")
-                    .foregroundStyle(showOCRPanel ? Color.accentColor : Color.primary)
             }
+            .buttonStyle(DSToolButtonStyle(isActive: showOCRPanel))
             .help("OCRテキストを表示・コピー")
             .popover(isPresented: $showOCRPanel, arrowEdge: .bottom) {
                 OCRTextPanel(text: currentOCRText)
@@ -467,12 +470,14 @@ struct CompactToolbar: View {
         Button(action: onCopy) {
             Image(systemName: "doc.on.clipboard")
         }
+        .buttonStyle(DSToolButtonStyle())
         .help("クリップボードにコピー (⌘C)")
         .keyboardShortcut("c", modifiers: .command)
 
         Button(action: onSave) {
             Image(systemName: "square.and.arrow.down")
         }
+        .buttonStyle(DSToolButtonStyle())
         .help("保存 (⌘S)")
         .keyboardShortcut("s", modifiers: .command)
 
@@ -494,6 +499,7 @@ struct CompactToolbar: View {
         Button(action: { canvas.undo() }) {
             Image(systemName: "arrow.uturn.backward")
         }
+        .buttonStyle(DSToolButtonStyle())
         .disabled(!canvas.canUndo)
         .help("元に戻す (⌘Z)")
         .keyboardShortcut("z", modifiers: .command)
@@ -501,6 +507,7 @@ struct CompactToolbar: View {
         Button(action: { canvas.redo() }) {
             Image(systemName: "arrow.uturn.forward")
         }
+        .buttonStyle(DSToolButtonStyle())
         .disabled(!canvas.canRedo)
         .help("やり直し (⌘⇧Z)")
         .keyboardShortcut("z", modifiers: [.command, .shift])
@@ -508,6 +515,7 @@ struct CompactToolbar: View {
         Button(action: { canvas.deleteSelectedAnnotation() }) {
             Image(systemName: "trash")
         }
+        .buttonStyle(DSToolButtonStyle())
         .disabled(canvas.selectedAnnotationID == nil)
         .help("削除 (⌫)")
         .keyboardShortcut(.delete, modifiers: [])
@@ -545,8 +553,7 @@ struct CompactToolbar: View {
                         Button { canvas.alignSelected(edge) } label: {
                             Image(systemName: icon).font(.system(size: 9))
                         }
-                        .buttonStyle(.plain)
-                        .frame(width: 16, height: 16)
+                        .buttonStyle(DSToolButtonStyle(size: 16))
                         .help(help)
                     }
                 }
@@ -706,6 +713,7 @@ struct CompactToolbar: View {
         Button(action: { showHelp.toggle() }) {
             Image(systemName: "questionmark.circle")
         }
+        .buttonStyle(DSToolButtonStyle(isActive: showHelp))
         .help("ショートカットキー一覧")
         .popover(isPresented: $showHelp, arrowEdge: .bottom) {
             HelpPopoverContent()
@@ -714,6 +722,7 @@ struct CompactToolbar: View {
         Button(action: { showSettings.toggle() }) {
             Image(systemName: "gearshape")
         }
+        .buttonStyle(DSToolButtonStyle())
         .help("設定 (⌘,)")
         .keyboardShortcut(",", modifiers: .command)
         .sheet(isPresented: $showSettings) {
@@ -724,6 +733,7 @@ struct CompactToolbar: View {
             Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
                 .symbolVariant(sidebarVisible ? .none : .slash)
         }
+        .buttonStyle(DSToolButtonStyle(isActive: sidebarVisible))
         .help("履歴を表示/非表示 (⌘⇧H)")
         .keyboardShortcut("h", modifiers: [.command, .shift])
     }
@@ -764,8 +774,7 @@ struct CompactToolbar: View {
                     .controlSize(.small)
                 Spacer()
                 Button("適用") { canvas.bakeAdjustments(); showAdjustments = false }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .dsPrimaryButton()
             }
         }
         .padding(DS.Space.m)
@@ -996,21 +1005,11 @@ struct CompactToolbar: View {
 
     @ViewBuilder
     private func toolButton(_ tool: DrawingTool, canvas: CanvasViewModel) -> some View {
-        let isSelected = canvas.currentTool == tool
         Button(action: { canvas.currentTool = tool }) {
             Image(systemName: tool.systemImage)
-                .frame(width: 22, height: 22)
-                .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: DS.Radius.small))
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.small)
-                        .stroke(isSelected ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
-                )
-                .contentShape(Rectangle())
         }
         .help(tool.helpText)
-        .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        .buttonStyle(DSToolButtonStyle(isActive: canvas.currentTool == tool))
     }
 }
 

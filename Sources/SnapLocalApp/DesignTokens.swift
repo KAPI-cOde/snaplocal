@@ -81,4 +81,49 @@ extension View {
     func shadow(_ style: DS.Shadow.ShadowStyle) -> some View {
         shadow(color: style.color, radius: style.radius, x: style.x, y: style.y)
     }
+
+    /// 主要アクションボタン(確定・適用など)。borderedProminent + small で統一。
+    func dsPrimaryButton() -> some View {
+        buttonStyle(.borderedProminent).controlSize(.small)
+    }
+}
+
+/// ツールバーのアイコンボタン用スタイル。
+/// 選択状態の強調・ホバー背景・押下スケール・無効時ディムを統一的に提供する。
+struct DSToolButtonStyle: ButtonStyle {
+    var isActive: Bool = false
+    var size: CGFloat = 22
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, isActive: isActive, size: size)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let isActive: Bool
+        let size: CGFloat
+        @State private var hovering = false
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .frame(width: size, height: size)
+                .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+                .background(
+                    isActive ? Color.accentColor.opacity(0.18)
+                             : (hovering && isEnabled) ? Color.primary.opacity(0.08)
+                             : Color.clear,
+                    in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.small)
+                        .stroke(isActive ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+                .opacity(isEnabled ? 1 : 0.35)
+                .scaleEffect(configuration.isPressed ? 0.96 : 1)
+                .animation(DS.Anim.fast, value: configuration.isPressed)
+                .animation(DS.Anim.fast, value: hovering)
+                .onHover { hovering = $0 }
+        }
+    }
 }
