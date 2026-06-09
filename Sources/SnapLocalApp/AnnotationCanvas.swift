@@ -1515,6 +1515,75 @@ final class CanvasViewModel: ObservableObject {
         adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1
     }
 
+    // MARK: - Decoration (beautify / export wrapper)
+
+    @Published var decorationEnabled: Bool = false
+    @Published var decorationPadding: CGFloat = 40     // px per side in output image
+    @Published var decorationCornerRadius: CGFloat = 12
+    @Published var decorationShadow: Bool = true
+    // 0=white 1=dark 2=wallpaper-gradient 3=transparent
+    @Published var decorationBackgroundStyle: Int = 0
+
+    func applyDecoration(to image: CGImage) -> CGImage {
+        guard decorationEnabled else { return image }
+        let pad = decorationPadding
+        let outW = CGFloat(image.width) + pad * 2
+        let outH = CGFloat(image.height) + pad * 2
+        guard let ctx = CGContext(
+            data: nil,
+            width: Int(outW), height: Int(outH),
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return image }
+
+        // Background
+        switch decorationBackgroundStyle {
+        case 1: // dark
+            ctx.setFillColor(CGColor(gray: 0.12, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
+        case 2: // gradient (top-left #667eea → bottom-right #764ba2)
+            let colors = [CGColor(red: 0.40, green: 0.49, blue: 0.92, alpha: 1),
+                          CGColor(red: 0.46, green: 0.29, blue: 0.64, alpha: 1)] as CFArray
+            if let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                     colors: colors, locations: [0.0, 1.0]) {
+                ctx.drawLinearGradient(grad,
+                    start: CGPoint(x: 0, y: outH),
+                    end: CGPoint(x: outW, y: 0),
+                    options: [])
+            }
+        case 3: // transparent — nothing
+            break
+        default: // white
+            ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: outW, height: outH))
+        }
+
+        let imageRect = CGRect(x: pad, y: pad, width: CGFloat(image.width), height: CGFloat(image.height))
+        let radius = decorationCornerRadius
+
+        // Shadow
+        if decorationShadow {
+            ctx.saveGState()
+            let shadowPath = CGPath(roundedRect: imageRect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 28, color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+            ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+            ctx.addPath(shadowPath)
+            ctx.fillPath()
+            ctx.restoreGState()
+        }
+
+        // Clip to rounded rect and draw screenshot
+        ctx.saveGState()
+        let clipPath = CGPath(roundedRect: imageRect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        ctx.addPath(clipPath)
+        ctx.clip()
+        ctx.draw(image, in: imageRect)
+        ctx.restoreGState()
+
+        return ctx.makeImage() ?? image
+    }
+
     // MARK: - Image Rotation
 
     func rotateImage(clockwise: Bool) {

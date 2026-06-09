@@ -366,10 +366,11 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     func copyToClipboard() {
-        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage else {
+        guard let raw = canvas.renderAnnotations() ?? canvas.backgroundImage else {
             showStatus("コピーする画像がありません")
             return
         }
+        let image = canvas.applyDecoration(to: raw)
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([nsImage])
@@ -407,8 +408,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     func shareCurrentImage() {
-        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
-              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+        guard let raw = canvas.renderAnnotations() ?? canvas.backgroundImage else {
+            showStatus("共有する画像がありません")
+            return
+        }
+        let image = canvas.applyDecoration(to: raw)
+        guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
             showStatus("共有する画像がありません")
             return
         }
@@ -555,8 +560,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     // MARK: - Save
 
     func saveAnnotatedImage() {
-        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
-              let data = pngData(from: image) else {
+        guard let raw = canvas.renderAnnotations() ?? canvas.backgroundImage else {
+            showStatus("保存できる画像がありません")
+            return
+        }
+        let image = canvas.applyDecoration(to: raw)
+        guard let data = pngData(from: image) else {
             showStatus("保存できる画像がありません")
             return
         }
@@ -582,10 +591,11 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     func saveAnnotatedImageAs() {
-        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage else {
+        guard let raw = canvas.renderAnnotations() ?? canvas.backgroundImage else {
             showStatus("保存できる画像がありません")
             return
         }
+        let image = canvas.applyDecoration(to: raw)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png, .jpeg, .pdf]
         let baseName = SettingsManager.shared.filename(for: Date(), width: image.width, height: image.height, title: nil)
@@ -700,6 +710,7 @@ struct CompactToolbar: View {
     @State private var showHelp = false
     @State private var showSettings = false
     @State private var showAdjustments = false
+    @State private var showDecoration = false
     @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
@@ -846,6 +857,16 @@ struct CompactToolbar: View {
             .disabled(canvas.backgroundImage == nil)
             .popover(isPresented: $showAdjustments, arrowEdge: .bottom) {
                 adjustmentsPopover
+            }
+
+            Button { showDecoration.toggle() } label: {
+                Image(systemName: canvas.decorationEnabled ? "wand.and.stars.inverse" : "wand.and.stars")
+                    .foregroundStyle(canvas.decorationEnabled ? Color.accentColor : Color.primary)
+            }
+            .help("書き出し装飾 (パディング・角丸・影)")
+            .disabled(canvas.backgroundImage == nil)
+            .popover(isPresented: $showDecoration, arrowEdge: .bottom) {
+                decorationPopover
             }
 
             Button(action: onCopy) {
@@ -1190,6 +1211,53 @@ struct CompactToolbar: View {
         }
         .padding(14)
         .frame(width: 280)
+    }
+
+    private var decorationPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("書き出し装飾").font(.headline)
+                Spacer()
+                Toggle("", isOn: $canvas.decorationEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            .padding(.bottom, 2)
+            Divider()
+
+            Group {
+                HStack {
+                    Text("背景").frame(width: 70, alignment: .trailing)
+                    Picker("", selection: $canvas.decorationBackgroundStyle) {
+                        Text("白").tag(0)
+                        Text("暗").tag(1)
+                        Text("グラデ").tag(2)
+                        Text("透明").tag(3)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 170)
+                }
+                HStack {
+                    Text("パディング").frame(width: 70, alignment: .trailing)
+                    Slider(value: $canvas.decorationPadding, in: 0...120, step: 4)
+                        .frame(width: 130)
+                    Text("\(Int(canvas.decorationPadding))px")
+                        .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                }
+                HStack {
+                    Text("角丸").frame(width: 70, alignment: .trailing)
+                    Slider(value: $canvas.decorationCornerRadius, in: 0...40, step: 2)
+                        .frame(width: 130)
+                    Text("\(Int(canvas.decorationCornerRadius))px")
+                        .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                }
+                Toggle("ドロップシャドウ", isOn: $canvas.decorationShadow)
+            }
+            .disabled(!canvas.decorationEnabled)
+            .opacity(canvas.decorationEnabled ? 1 : 0.4)
+        }
+        .padding(14)
+        .frame(width: 300)
     }
 
     @ViewBuilder
