@@ -325,6 +325,15 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             let ocrText = await OCRService.recognizeText(in: image)
             if !ocrText.isEmpty {
                 await vault.updateOCR(id: item.id, text: ocrText)
+                // Auto-set title from first meaningful OCR line (≤40 chars)
+                let firstLine = ocrText
+                    .components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .first(where: { $0.count >= 3 }) ?? ""
+                if !firstLine.isEmpty {
+                    let autoTitle = String(firstLine.prefix(40))
+                    await vault.updateTitle(id: item.id, title: autoTitle)
+                }
                 await loadHistory()
                 showStatus("OCR完了 — 検索可能になりました")
             }
