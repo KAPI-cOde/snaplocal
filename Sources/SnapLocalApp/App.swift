@@ -1654,8 +1654,6 @@ struct AnnotationCanvasView: View {
                     default: break
                     }
                 }
-                guard let id = viewModel.selectedAnnotationID,
-                      var annotation = viewModel.annotations.first(where: { $0.id == id }) else { return .ignored }
                 let step: CGFloat = press.modifiers.contains(.shift) ? 10 : 1
                 let dx: CGFloat
                 let dy: CGFloat
@@ -1666,12 +1664,19 @@ struct AnnotationCanvasView: View {
                 case .rightArrow: dx = step;  dy = 0
                 default: return .ignored
                 }
-                annotation.applyTransform(CGAffineTransform(translationX: dx, y: dy))
-                viewModel.updateAnnotation(annotation)
-                viewModel.updateUndoRedoState()
-                if !annotation.hasStrokeRepresentation {
-                    viewModel.updateFilterPreview(for: annotation)
+                let t = CGAffineTransform(translationX: dx, y: dy)
+                // Move all selected annotations (multi-select or single)
+                let ids = viewModel.selectedAnnotationIDs.isEmpty
+                    ? Set(viewModel.selectedAnnotationID.map { [$0] } ?? [])
+                    : viewModel.selectedAnnotationIDs
+                guard !ids.isEmpty else { return .ignored }
+                for id in ids {
+                    guard var ann = viewModel.annotations.first(where: { $0.id == id }) else { continue }
+                    ann.applyTransform(t)
+                    viewModel.updateAnnotation(ann)
+                    if !ann.hasStrokeRepresentation { viewModel.updateFilterPreview(for: ann) }
                 }
+                viewModel.updateUndoRedoState()
                 return .handled
             }
             .onKeyPress(characters: .init(charactersIn: "[]"), phases: .down) { press in
