@@ -459,9 +459,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             let actions = CaptureNotificationActions(
                 copy: { [weak self] in self?.copyToClipboard() },
                 save: { [weak self] in self?.saveAnnotatedImage() },
-                annotate: {
+                annotate: { [weak self] in
                     NSApp.activate(ignoringOtherApps: true)
                     NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+                    // Auto-switch to arrow tool so the user can immediately start annotating
+                    if let self, self.canvas.currentTool == .select || self.canvas.annotations.isEmpty {
+                        self.canvas.currentTool = .arrow
+                    }
                 },
                 pin: { [weak self] in self?.pinCurrentImage() },
                 share: { [weak self] in self?.shareCurrentImage() }
