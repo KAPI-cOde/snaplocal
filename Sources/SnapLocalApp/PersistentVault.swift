@@ -182,8 +182,11 @@ actor PersistentVault {
     /// Search items by OCR text
     func search(query: String) -> [VaultItem] {
         guard !query.isEmpty else { return allItems() }
-        return allItems().filter {
-            $0.ocrText.localizedCaseInsensitiveContains(query)
+        return allItems().filter { item in
+            if item.ocrText.localizedCaseInsensitiveContains(query) { return true }
+            if let title = item.title, title.localizedCaseInsensitiveContains(query) { return true }
+            let annotationText = item.annotations.compactMap { $0.textContent }.joined(separator: " ")
+            return annotationText.localizedCaseInsensitiveContains(query)
         }
     }
 
