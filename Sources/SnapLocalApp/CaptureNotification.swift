@@ -25,7 +25,7 @@ final class CaptureNotificationWindow {
 
     private init() {}
 
-    func show(image: CGImage, actions: CaptureNotificationActions) {
+    func show(image: CGImage, actions: CaptureNotificationActions, onScreen: NSScreen? = nil) {
         dismiss(animated: false)
 
         let view = CaptureNotificationView(image: image, actions: actions) { [weak self] in
@@ -50,7 +50,7 @@ final class CaptureNotificationWindow {
         // Fit panel to hosting view's intrinsic size
         hosting.frame = NSRect(x: 0, y: 0, width: 300, height: 76)
 
-        positionPanel(newPanel)
+        positionPanel(newPanel, on: onScreen)
         newPanel.alphaValue = 0
         newPanel.orderFrontRegardless()
 
@@ -79,8 +79,8 @@ final class CaptureNotificationWindow {
         }
     }
 
-    private func positionPanel(_ p: NSPanel) {
-        let screen = NSScreen.screens.first(where: { $0 == NSScreen.main }) ?? NSScreen.screens[0]
+    private func positionPanel(_ p: NSPanel, on preferredScreen: NSScreen? = nil) {
+        let screen = preferredScreen ?? NSScreen.screens.first(where: { $0 == NSScreen.main }) ?? NSScreen.screens[0]
         let margin: CGFloat = 24
         let x = screen.visibleFrame.maxX - p.frame.width - margin
         let y = screen.visibleFrame.minY + margin

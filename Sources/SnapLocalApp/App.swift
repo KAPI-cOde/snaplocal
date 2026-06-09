@@ -392,7 +392,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             pin: { [weak self] in self?.pinCurrentImage() },
             share: { [weak self] in self?.shareCurrentImage() }
         )
-        CaptureNotificationWindow.shared.show(image: image, actions: actions)
+        let cursorScreen = NSScreen.screens.first(where: { NSPointInRect(NSEvent.mouseLocation, $0.frame) })
+        CaptureNotificationWindow.shared.show(image: image, actions: actions, onScreen: cursorScreen)
 
         Task {
             guard let item = await vault.save(image: image) else { return }
