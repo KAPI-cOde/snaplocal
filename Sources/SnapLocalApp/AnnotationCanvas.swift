@@ -529,7 +529,27 @@ final class CanvasViewModel: ObservableObject {
             }
 
             if NSEvent.modifierFlags.contains(.option) {
-                selectAnnotation(at: localPoint, pickStyleOnly: true)
+                // Option+drag: duplicate the hit annotation and drag the copy
+                let innerRect = CGRect(origin: .zero, size: canvasSize)
+                let hitAnn = annotations.reversed().first(where: { $0.hitTest(localPoint, in: innerRect) })
+                if let ann = hitAnn,
+                   let data = try? JSONEncoder().encode(ann),
+                   var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let _ = { json["id"] = UUID().uuidString }() as Void?,
+                   let newData = try? JSONSerialization.data(withJSONObject: json),
+                   var newAnn = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) {
+                    addAnnotation(newAnn)
+                    selectedAnnotationID = newAnn.id
+                    selectedAnnotationIDs = [newAnn.id]
+                    dragState.start(at: localPoint)
+                    let bounds = newAnn.bounds(in: innerRect)
+                    dragState.dragOffset = CGSize(width: localPoint.x - bounds.midX, height: localPoint.y - bounds.midY)
+                    dragStartAnnotation = newAnn
+                    multiDragStartPositions = [:]
+                } else {
+                    // No annotation hit: pick style (eyedropper)
+                    selectAnnotation(at: localPoint, pickStyleOnly: true)
+                }
                 return
             }
 
