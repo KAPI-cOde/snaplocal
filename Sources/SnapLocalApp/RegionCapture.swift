@@ -183,11 +183,14 @@ private final class RegionOverlayWindow: NSObject {
             }
         }
 
-        // One transparent panel per screen (fade in for smooth entry)
+        // One opaque panel per screen showing frozen screenshot (fade in for smooth entry)
         for screen in NSScreen.screens {
-            let panel = makeOverlayPanel(for: screen)
+            let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+            let frozenImage = displayID.flatMap { screenSnapshots[$0] }
+            let panel = makeOverlayPanel(for: screen, opaque: frozenImage != nil)
             let view = RegionView(frame: screen.frame)
             view.overlayWindow = self
+            view.frozenImage = frozenImage
             panel.contentView = view
             panel.alphaValue = 0
             panel.orderFrontRegardless()
@@ -218,7 +221,7 @@ private final class RegionOverlayWindow: NSObject {
         startBorderAnimation()
     }
 
-    private func makeOverlayPanel(for screen: NSScreen) -> NSPanel {
+    private func makeOverlayPanel(for screen: NSScreen, opaque: Bool = false) -> NSPanel {
         let panel = NSPanel(
             contentRect: screen.frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -226,8 +229,8 @@ private final class RegionOverlayWindow: NSObject {
             defer: false
         )
         panel.level = .screenSaver
-        panel.isOpaque = false
-        panel.backgroundColor = .clear   // RegionView draws its own overlay
+        panel.isOpaque = opaque
+        panel.backgroundColor = opaque ? .black : .clear
         panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         return panel
@@ -671,6 +674,7 @@ private final class RegionOverlayWindow: NSObject {
 
 private final class RegionView: NSView {
     weak var overlayWindow: RegionOverlayWindow?
+    var frozenImage: CGImage?
     private var dashPhase: CGFloat = 0
 
     override var acceptsFirstResponder: Bool { true }
@@ -722,9 +726,41 @@ private final class RegionView: NSView {
         // Advance dash phase for marching ants
         dashPhase -= 1.2
 
-        // Dark overlay over this screen
+        // Draw frozen screenshot as background (screen freeze effect)
+        if let img = frozenImage {
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: bounds.height)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(img, in: bounds)
+            ctx.restoreGState()
+        }
+
+        // Build dark overlay: full bounds minus selection hole (even-odd clipping)
+        let localSel: CGRect
+        let hasSelection: Bool
+        if ow.selectionRect.width > 0 && ow.selectionRect.height > 0, let win = window {
+            let screenOrigin = win.frame.origin
+            localSel = CGRect(
+                x: ow.selectionRect.minX - screenOrigin.x,
+                y: ow.selectionRect.minY - screenOrigin.y,
+                width: ow.selectionRect.width,
+                height: ow.selectionRect.height
+            )
+            hasSelection = !localSel.intersection(bounds).isNull
+        } else {
+            localSel = .zero
+            hasSelection = false
+        }
+
+        ctx.saveGState()
+        if hasSelection {
+            ctx.addRect(bounds)
+            ctx.addRect(localSel)
+            ctx.clip(using: .evenOdd)
+        }
         ctx.setFillColor(NSColor.black.withAlphaComponent(0.48).cgColor)
         ctx.fill(bounds)
+        ctx.restoreGState()
 
         // Crosshair lines: extend full-screen from cursor (idle or dragging states)
         if !ow.isAdjusting, let win = window {
@@ -746,23 +782,10 @@ private final class RegionView: NSView {
             }
         }
 
-        // Convert selection rect from NSScreen coords to this view's local coords
-        if ow.selectionRect.width > 0 && ow.selectionRect.height > 0,
-           let win = window {
-            let screenOrigin = win.frame.origin
-            let localSel = CGRect(
-                x: ow.selectionRect.minX - screenOrigin.x,
-                y: ow.selectionRect.minY - screenOrigin.y,
-                width: ow.selectionRect.width,
-                height: ow.selectionRect.height
-            )
+        // Draw selection decorations
+        if hasSelection {
             let clipped = localSel.intersection(bounds)
             if !clipped.isNull {
-                // Punch through — show original screen brightness
-                ctx.setBlendMode(.clear)
-                ctx.fill(clipped)
-                ctx.setBlendMode(.normal)
-
                 // Subtle bright tint on selection
                 ctx.setFillColor(NSColor.white.withAlphaComponent(0.04).cgColor)
                 ctx.fill(clipped)
@@ -819,11 +842,11 @@ private final class RegionView: NSView {
                     drawBottomHint(ctx: ctx, in: bounds,
                                    text: "Space で移動  |  ⇧ 正方形  |  ↵ 確定  |  Esc キャンセル")
                 }
-            } else if !ow.isAdjusting {
-                // Idle: brief instruction
-                drawBottomHint(ctx: ctx, in: bounds,
-                               text: "ドラッグして範囲を選択  |  ⇧ 正方形  |  Esc キャンセル")
             }
+        }
+        if !hasSelection && !ow.isAdjusting {
+            drawBottomHint(ctx: ctx, in: bounds,
+                           text: "ドラッグして範囲を選択  |  ⇧ 正方形  |  Esc キャンセル")
         }
     }
 
