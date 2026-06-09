@@ -1705,6 +1705,15 @@ final class CanvasViewModel: ObservableObject {
 
     // MARK: - Resize
 
+    /// Resize to fit within the given target dimensions while preserving aspect ratio.
+    func resizeToFit(width targetW: Int, height targetH: Int) {
+        guard let src = backgroundImage, src.width > 0, src.height > 0 else { return }
+        let scaleX = CGFloat(targetW) / CGFloat(src.width)
+        let scaleY = CGFloat(targetH) / CGFloat(src.height)
+        let scale = min(scaleX, scaleY)
+        resizeCanvas(scale: scale)
+    }
+
     func resizeCanvas(scale: CGFloat) {
         guard let src = backgroundImage, scale > 0, scale != 1.0 else { return }
         let newW = max(1, Int(CGFloat(src.width) * scale))

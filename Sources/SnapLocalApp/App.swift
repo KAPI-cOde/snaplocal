@@ -1035,6 +1035,11 @@ struct CompactToolbar: View {
                 Button("50%に縮小") { canvas.resizeCanvas(scale: 0.5) }
                 Button("75%に縮小") { canvas.resizeCanvas(scale: 0.75) }
                 Button("2倍に拡大") { canvas.resizeCanvas(scale: 2.0) }
+                Divider()
+                Button("1920×1080 (FHD)") { canvas.resizeToFit(width: 1920, height: 1080) }
+                Button("1280×720 (HD)") { canvas.resizeToFit(width: 1280, height: 720) }
+                Button("1080×1080 (正方形)") { canvas.resizeToFit(width: 1080, height: 1080) }
+                Button("1200×630 (OGP)") { canvas.resizeToFit(width: 1200, height: 630) }
             } label: {
                 Image(systemName: "aspectratio")
             }
