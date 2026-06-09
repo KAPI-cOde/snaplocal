@@ -35,6 +35,11 @@ private final class RegionOverlayWindow: NSObject {
     private var loupeView: LoupeView?
     private var screenSnapshots: [CGDirectDisplayID: CGImage] = [:]
 
+    // Window snap
+    private var windowSnapPanel: NSPanel?
+    private var windowSnapRect: CGRect?
+    private var ourPanelNumbers: Set<CGWindowID> = []
+
     init(completion: @escaping @MainActor (CGRect?) -> Void) {
         self.completion = completion
         super.init()
@@ -59,19 +64,36 @@ private final class RegionOverlayWindow: NSObject {
             panels.append(panel)
             trackingAreaViews.append(view)
         }
-        NSCursor.crosshair.set()
 
+        // Snapshot our own window numbers to exclude from window snapping
+        if let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] {
+            for info in list {
+                if let pid = info[kCGWindowOwnerPID as String] as? Int32,
+                   pid == ProcessInfo.processInfo.processIdentifier,
+                   let wid = info[kCGWindowNumber as String] as? CGWindowID {
+                    ourPanelNumbers.insert(wid)
+                }
+            }
+        }
+
+        setupWindowSnapPanel()
+        NSCursor.crosshair.set()
         setupLoupe()
 
-        // ESC to cancel + cursor tracking
+        // ESC to cancel; Space to confirm window snap; cursor tracking
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved]) { [weak self] event in
-            if event.type == .keyDown && event.keyCode == 53 {
-                self?.cancel()
-                return nil
+            guard let self else { return event }
+            if event.type == .keyDown {
+                if event.keyCode == 53 { self.cancel(); return nil }         // ESC
+                if event.keyCode == 49, self.startPoint == nil {             // Space
+                    if let r = self.windowSnapRect { self.commitWindowSnap(r) }
+                    return nil
+                }
             }
-            if event.type == .mouseMoved {
+            if event.type == .mouseMoved, self.startPoint == nil {
                 let loc = NSEvent.mouseLocation
-                self?.updateLoupe(at: loc, selectionSize: .zero)
+                self.updateLoupe(at: loc, selectionSize: .zero)
+                self.updateWindowSnap(at: loc)
             }
             return event
         }
@@ -80,6 +102,7 @@ private final class RegionOverlayWindow: NSObject {
             let loc = NSEvent.mouseLocation
             let size = self.startPoint != nil ? self.selectionRect.size : .zero
             self.updateLoupe(at: loc, selectionSize: size)
+            if self.startPoint == nil { self.updateWindowSnap(at: loc) }
         }
     }
 
@@ -102,8 +125,16 @@ private final class RegionOverlayWindow: NSObject {
     // MARK: - Mouse events (called by RegionView)
 
     func mouseDown(at screenPoint: NSPoint) {
+        // If a window snap is active, confirm it instead of starting a drag
+        if let snapRect = windowSnapRect {
+            commitWindowSnap(snapRect)
+            return
+        }
+
         startPoint = screenPoint
         selectionRect = .zero
+        windowSnapPanel?.orderOut(nil)
+        windowSnapRect = nil
 
         let panel = NSPanel(
             contentRect: CGRect(x: screenPoint.x, y: screenPoint.y, width: 0, height: 0),
@@ -122,6 +153,8 @@ private final class RegionOverlayWindow: NSObject {
 
     func mouseDragged(to screenPoint: NSPoint) {
         guard let start = startPoint else { return }
+        windowSnapPanel?.orderOut(nil)
+        windowSnapRect = nil
         selectionRect = CGRect(
             x: min(start.x, screenPoint.x),
             y: min(start.y, screenPoint.y),
@@ -177,11 +210,97 @@ private final class RegionOverlayWindow: NSObject {
         loupePanel?.orderOut(nil)
         loupePanel = nil
         loupeView = nil
+        windowSnapPanel?.orderOut(nil)
+        windowSnapPanel = nil
+        windowSnapRect = nil
         panels.forEach { $0.orderOut(nil) }
         panels.removeAll()
         trackingAreaViews.removeAll()
         screenSnapshots.removeAll()
+        ourPanelNumbers.removeAll()
         NSCursor.arrow.set()
+    }
+
+    // MARK: - Window Snap
+
+    private func setupWindowSnapPanel() {
+        let panel = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .screenSaver
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        windowSnapPanel = panel
+    }
+
+    private func updateWindowSnap(at cursorScreen: NSPoint) {
+        guard let panel = windowSnapPanel else { return }
+        let found = windowRectAt(cursor: cursorScreen)
+        if let rect = found {
+            windowSnapRect = rect
+            panel.setFrame(rect, display: true)
+            if panel.contentView == nil || !(panel.contentView is WindowSnapView) {
+                panel.contentView = WindowSnapView(frame: CGRect(origin: .zero, size: rect.size))
+            } else if let v = panel.contentView {
+                v.frame = CGRect(origin: .zero, size: rect.size)
+                v.needsDisplay = true
+            }
+            panel.orderFrontRegardless()
+        } else {
+            windowSnapRect = nil
+            panel.orderOut(nil)
+        }
+    }
+
+    private func commitWindowSnap(_ snapRect: CGRect) {
+        // snapRect is in NSScreen coords (bottom-left). Convert to top-left for CaptureKit.
+        let mainH = NSScreen.screens.first?.frame.height ?? 0
+        let topLeftRect = CGRect(
+            x: snapRect.minX,
+            y: mainH - snapRect.maxY,
+            width: snapRect.width,
+            height: snapRect.height
+        )
+        dismiss()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            completion(topLeftRect)
+        }
+    }
+
+    /// Find the topmost on-screen window (excluding our overlay) that contains the cursor point.
+    /// Returns the window's frame in NSScreen coordinates (bottom-left origin).
+    private func windowRectAt(cursor: NSPoint) -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        // Windows are front-to-back in the list; find the first one that contains the cursor
+        for info in list {
+            guard let wid = info[kCGWindowNumber as String] as? CGWindowID,
+                  !ourPanelNumbers.contains(wid),
+                  let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let boundsDict = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = boundsDict["X"], let y = boundsDict["Y"],
+                  let w = boundsDict["Width"], let h = boundsDict["Height"],
+                  w > 20, h > 20
+            else { continue }
+
+            // CGWindowListCopyWindowInfo returns rects in CG coords (top-left origin)
+            let cgRect = CGRect(x: x, y: y, width: w, height: h)
+            // Convert to NSScreen coords (bottom-left origin)
+            let mainScreenH = NSScreen.screens.first?.frame.height ?? 0
+            let nsRect = CGRect(x: cgRect.minX, y: mainScreenH - cgRect.maxY, width: cgRect.width, height: cgRect.height)
+
+            if nsRect.contains(cursor) {
+                return nsRect
+            }
+        }
+        return nil
     }
 
     // MARK: - Loupe
@@ -413,6 +532,44 @@ private final class RegionView: NSView {
             owner: self,
             userInfo: nil
         ))
+    }
+}
+
+// MARK: - Window snap border visual
+
+private final class WindowSnapView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = false
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        // Tinted overlay
+        ctx.setFillColor(NSColor.systemBlue.withAlphaComponent(0.10).cgColor)
+        ctx.fill(bounds)
+        // Border
+        ctx.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.85).cgColor)
+        ctx.setLineWidth(2.5)
+        ctx.stroke(bounds.insetBy(dx: 1.25, dy: 1.25))
+        // "クリックまたはSpaceで撮影" hint
+        let hint = "クリックまたはSpaceで撮影"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.white
+        ]
+        let str = NSAttributedString(string: hint, attributes: attrs)
+        let sz = str.size()
+        let pad: CGFloat = 6
+        let bgRect = CGRect(x: (bounds.width - sz.width) / 2 - pad,
+                            y: bounds.height - sz.height - pad * 2 - 4,
+                            width: sz.width + pad * 2,
+                            height: sz.height + pad)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.6).cgColor)
+        let path = CGPath(roundedRect: bgRect, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        ctx.addPath(path); ctx.fillPath()
+        str.draw(at: CGPoint(x: bgRect.minX + pad, y: bgRect.minY + pad / 2))
     }
 }
 
