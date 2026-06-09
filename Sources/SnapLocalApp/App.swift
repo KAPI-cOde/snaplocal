@@ -2356,8 +2356,13 @@ struct AnnotationCanvasView: View {
             return
         }
         switch viewModel.currentTool {
-        case .select: NSCursor.arrow.set()
-        default:      NSCursor.crosshair.set()
+        case .select:
+            if viewModel.hoveredAnnotationID != nil {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        default: NSCursor.crosshair.set()
         }
     }
 
@@ -2806,6 +2811,7 @@ struct AnnotationCanvasView: View {
                     } else {
                         viewModel.hoveredAnnotationID = nil
                     }
+                    updateCursor()
                 } else {
                     hoverLocation = nil
                     hoverColorHex = nil
