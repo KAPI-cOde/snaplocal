@@ -41,6 +41,7 @@ struct MenuBarQuickActions: View {
     var body: some View {
         Button("全画面撮影 (⌘⇧2)") { state.captureNow() }
         Button("範囲選択撮影 (⌘⇧4)") { state.captureRegion() }
+        Button("前回の範囲を再撮影 (⌘⇧R)") { state.repeatLastRegionCapture() }
         Button("ウィンドウ撮影 (⌘⇧3)") { state.captureWindowMode() }
         Divider()
         Menu("遅延撮影") {
@@ -203,6 +204,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         captureEngine?.captureWindow(window)
     }
 
+    private(set) var lastRegionRect: CGRect?
+
     func captureRegion() {
         isRegionCapturing = true
         showStatus("範囲を選択 — ドラッグして選択")
@@ -213,9 +216,19 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 self.showStatus("キャンセルしました")
                 return
             }
+            self.lastRegionRect = rect
             self.showStatus("撮影中…")
             self.captureEngine?.captureRegion(rect)
         }
+    }
+
+    func repeatLastRegionCapture() {
+        guard let rect = lastRegionRect else {
+            captureRegion()
+            return
+        }
+        showStatus("撮影中…")
+        captureEngine?.captureRegion(rect)
     }
 
     func acceptCapture(_ image: CGImage) {
@@ -498,6 +511,7 @@ struct CompactToolbar: View {
     let onCaptureWindow: () -> Void
     let onPin: () -> Void
     let onCaptureWithDelay: (Int) -> Void
+    let onRepeatRegion: () -> Void
     let onSave: () -> Void
     let onSaveAs: () -> Void
     let onCopy: () -> Void
@@ -551,6 +565,12 @@ struct CompactToolbar: View {
             }
             .help("範囲選択撮影 (⌘⇧4)")
             .keyboardShortcut("4", modifiers: [.command, .shift])
+
+            Button(action: onRepeatRegion) {
+                Image(systemName: "arrow.counterclockwise.circle")
+            }
+            .help("前回の範囲を再撮影 (⌘⇧R)")
+            .keyboardShortcut("r", modifiers: [.command, .shift])
 
             Button(action: onCaptureWindow) {
                 Image(systemName: "macwindow.on.rectangle")
@@ -1382,6 +1402,7 @@ struct ContentView: View {
                 onCaptureWindow: state.captureWindowMode,
                 onPin: state.pinCurrentImage,
                 onCaptureWithDelay: state.captureWithDelay,
+                onRepeatRegion: state.repeatLastRegionCapture,
                 onSave: state.saveAnnotatedImage,
                 onSaveAs: state.saveAnnotatedImageAs,
                 onCopy: state.copyToClipboard,
