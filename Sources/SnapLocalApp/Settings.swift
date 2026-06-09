@@ -22,6 +22,7 @@ enum SettingsKey: String {
     case recentCustomColors = "color.recentCustomColors"
     case filenameTemplate = "filename.template"
     case captureWithCursor = "capture.withCursor"
+    case autoCopyOnCapture = "capture.autoCopy"
 }
 
 // MARK: - Settings Manager
@@ -43,7 +44,8 @@ final class SettingsManager: ObservableObject {
             SettingsKey.hotkeyModifiers.rawValue: Int(defaultHotkey.modifiers),
             SettingsKey.hotkeyDisplayString.rawValue: defaultHotkey.displayString,
             SettingsKey.notificationsEnabled.rawValue: true,
-            SettingsKey.launchAtLogin.rawValue: false
+            SettingsKey.launchAtLogin.rawValue: false,
+            SettingsKey.autoCopyOnCapture.rawValue: true
         ])
     }
     
@@ -138,6 +140,13 @@ final class SettingsManager: ObservableObject {
     var captureWithCursor: Bool {
         get { defaults.bool(forKey: SettingsKey.captureWithCursor.rawValue) }
         set { defaults.set(newValue, forKey: SettingsKey.captureWithCursor.rawValue) }
+    }
+
+    // MARK: - Auto-copy on capture
+
+    var autoCopyOnCapture: Bool {
+        get { defaults.bool(forKey: SettingsKey.autoCopyOnCapture.rawValue) }
+        set { defaults.set(newValue, forKey: SettingsKey.autoCopyOnCapture.rawValue) }
     }
 
     // MARK: - Recent Custom Colors (up to 5 hex strings "RRGGBBAA")

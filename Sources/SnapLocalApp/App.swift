@@ -378,9 +378,14 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         canvas.loadToken = UUID()
         currentVaultID = nil
         selectedHistoryID = nil
-        copyImageToClipboard(image)
-        showStatus("撮影 → クリップボードにコピーしました")
-        sendNotification(title: "撮影完了", body: "クリップボードにコピーしました")
+        if SettingsManager.shared.autoCopyOnCapture {
+            copyImageToClipboard(image)
+            showStatus("撮影 → クリップボードにコピーしました")
+            sendNotification(title: "撮影完了", body: "クリップボードにコピーしました")
+        } else {
+            showStatus("撮影しました")
+            sendNotification(title: "撮影完了", body: "HUDから操作できます")
+        }
 
         // Post-capture floating HUD
         let actions = CaptureNotificationActions(
@@ -2316,6 +2321,10 @@ struct SettingsSheet: View {
                     Toggle("カーソルを含める", isOn: Binding(
                         get: { settings.captureWithCursor },
                         set: { settings.captureWithCursor = $0 }
+                    ))
+                    Toggle("撮影後にクリップボードへ自動コピー", isOn: Binding(
+                        get: { settings.autoCopyOnCapture },
+                        set: { settings.autoCopyOnCapture = $0 }
                     ))
                 }
 
