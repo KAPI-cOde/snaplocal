@@ -165,6 +165,14 @@ enum RedactMode: String, Codable, CaseIterable {
     var displayName: String { self == .mosaic ? "モザイク" : "ぼかし" }
 }
 
+// MARK: - Snap Guides
+
+struct SnapGuide: Equatable {
+    enum Axis { case horizontal, vertical }
+    let axis: Axis
+    let position: CGFloat
+}
+
 // MARK: - Drag State for Drawing
 
 struct DragState {
@@ -214,6 +222,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentFilled: Bool = false
     @Published var currentOpacity: Double = 1.0
     @Published var currentTextBackground: Bool = false
+    @Published var snapGuides: [SnapGuide] = []
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
@@ -754,9 +763,8 @@ final class CanvasViewModel: ObservableObject {
                 isDraggingAnnotation = true
                 let newCenter = CGPoint(x: localPoint.x - dragState.dragOffset.width, y: localPoint.y - dragState.dragOffset.height)
                 let bounds = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
-                let deltaX = newCenter.x - bounds.midX
-                let deltaY = newCenter.y - bounds.midY
-                let moveT = CGAffineTransform(translationX: deltaX, y: deltaY)
+                var deltaX = newCenter.x - bounds.midX
+                var deltaY = newCenter.y - bounds.midY
 
                 if !multiDragStartPositions.isEmpty {
                     // Multi-move: apply same delta to all selected annotations from their start positions
@@ -772,8 +780,19 @@ final class CanvasViewModel: ObservableObject {
                             annotations[idx] = ann
                         }
                     }
+                    snapGuides = []
                 } else {
-                    annotation.applyTransform(moveT)
+                    // Single move with snap guide computation
+                    let proposedBounds = CGRect(
+                        x: bounds.minX + deltaX, y: bounds.minY + deltaY,
+                        width: bounds.width, height: bounds.height
+                    )
+                    let (snappedDx, snappedDy, guides) = computeSnap(for: proposedBounds, excluding: id)
+                    deltaX -= snappedDx
+                    deltaY -= snappedDy
+                    snapGuides = guides
+
+                    annotation.applyTransform(CGAffineTransform(translationX: deltaX, y: deltaY))
                     if let index = annotations.firstIndex(where: { $0.id == id }) {
                         annotations[index] = annotation
                     }
@@ -781,6 +800,47 @@ final class CanvasViewModel: ObservableObject {
             }
         }
         objectWillChange.send()
+    }
+
+    private func computeSnap(for proposed: CGRect, excluding excludedID: UUID) -> (dx: CGFloat, dy: CGFloat, guides: [SnapGuide]) {
+        let threshold: CGFloat = 6
+        let canvas = CGRect(origin: .zero, size: canvasSize)
+        let others = annotations.filter { $0.id != excludedID }
+        let sources: [CGRect] = others.map { $0.bounds(in: canvas) } + [canvas]
+
+        var bestDx: CGFloat = threshold, bestDy: CGFloat = threshold
+        var guides: [SnapGuide] = []
+
+        for src in sources {
+            let xPairs: [(CGFloat, CGFloat)] = [
+                (proposed.minX, src.minX), (proposed.midX, src.midX), (proposed.maxX, src.maxX),
+                (proposed.minX, src.maxX), (proposed.maxX, src.minX)
+            ]
+            for (mine, theirs) in xPairs {
+                let diff = mine - theirs
+                if abs(diff) < abs(bestDx) {
+                    bestDx = diff
+                    guides.removeAll { $0.axis == .vertical }
+                    guides.append(SnapGuide(axis: .vertical, position: theirs))
+                }
+            }
+            let yPairs: [(CGFloat, CGFloat)] = [
+                (proposed.minY, src.minY), (proposed.midY, src.midY), (proposed.maxY, src.maxY),
+                (proposed.minY, src.maxY), (proposed.maxY, src.minY)
+            ]
+            for (mine, theirs) in yPairs {
+                let diff = mine - theirs
+                if abs(diff) < abs(bestDy) {
+                    bestDy = diff
+                    guides.removeAll { $0.axis == .horizontal }
+                    guides.append(SnapGuide(axis: .horizontal, position: theirs))
+                }
+            }
+        }
+        // Only snap if within threshold
+        if abs(bestDx) >= threshold { bestDx = 0; guides.removeAll { $0.axis == .vertical } }
+        if abs(bestDy) >= threshold { bestDy = 0; guides.removeAll { $0.axis == .horizontal } }
+        return (bestDx, bestDy, guides)
     }
 
     func handleDragEnd(at point: CGPoint, in canvasRect: CGRect) {
@@ -795,6 +855,7 @@ final class CanvasViewModel: ObservableObject {
         switch currentTool {
         case .select:
             isDraggingAnnotation = false
+            snapGuides = []
             // Rubber-band selection finalize
             if isRubberBanding {
                 isRubberBanding = false

@@ -1920,6 +1920,20 @@ struct AnnotationCanvasView: View {
                 }
             }
 
+            // Smart alignment guides during drag
+            for guide in viewModel.snapGuides {
+                var line = Path()
+                if guide.axis == .vertical {
+                    line.move(to: CGPoint(x: guide.position, y: 0))
+                    line.addLine(to: CGPoint(x: guide.position, y: canvasRect.height))
+                } else {
+                    line.move(to: CGPoint(x: 0, y: guide.position))
+                    line.addLine(to: CGPoint(x: canvasRect.width, y: guide.position))
+                }
+                context.stroke(line, with: .color(.cyan.opacity(0.9)),
+                               style: StrokeStyle(lineWidth: 1, dash: [4, 2]))
+            }
+
             // Lock badges on locked annotations
             for annotation in viewModel.annotations where annotation.isLocked {
                 let bounds = annotation.bounds(in: canvasRect)
