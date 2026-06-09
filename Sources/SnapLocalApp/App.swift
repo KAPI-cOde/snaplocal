@@ -1219,6 +1219,9 @@ struct CompactToolbar: View {
                 Button { canvas.rotateImage(clockwise: true) } label: { EmptyView() }
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
                     .disabled(canvas.backgroundImage == nil)
+                Button(action: onPin) { EmptyView() }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .disabled(canvas.backgroundImage == nil)
             }
             .frame(width: 0, height: 0).opacity(0)
         }
