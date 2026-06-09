@@ -31,6 +31,13 @@ struct VaultItem: Identifiable, Sendable {
     var annotations: [AnyAnnotation]
     var level: VaultLevel
     var title: String?
+    var width: Int = 0
+    var height: Int = 0
+
+    var dimensionLabel: String {
+        guard width > 0, height > 0 else { return "" }
+        return "\(width)×\(height)"
+    }
 
     // Load full image on demand (triggers disk read, call from background)
     var imageData: Data { (try? Data(contentsOf: imageURL)) ?? Data() }
@@ -122,7 +129,9 @@ actor PersistentVault {
             ocrText: "",
             annotations: annotations,
             level: .permanent,
-            title: nil
+            title: nil,
+            width: image.width,
+            height: image.height
         )
     }
 
@@ -184,7 +193,8 @@ actor PersistentVault {
             .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
         return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
                          thumbnailData: thumbData, ocrText: entry.ocrText,
-                         annotations: annotations, level: .permanent, title: entry.title)
+                         annotations: annotations, level: .permanent, title: entry.title,
+                         width: entry.width, height: entry.height)
     }
 
     /// All items, newest first
@@ -204,7 +214,9 @@ actor PersistentVault {
                 ocrText: entry.ocrText,
                 annotations: annotations,
                 level: .permanent,
-                title: entry.title
+                title: entry.title,
+                width: entry.width,
+                height: entry.height
             )
         }
     }

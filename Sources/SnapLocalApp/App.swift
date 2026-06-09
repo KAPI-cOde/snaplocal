@@ -1448,6 +1448,19 @@ struct HistoryRail: View {
                                             .padding(2)
                                     }
                                 }
+                                .overlay(alignment: .bottomLeading) {
+                                    let dim = item.dimensionLabel
+                                    if !dim.isEmpty {
+                                        Text(dim)
+                                            .font(.system(size: 6, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 3)
+                                            .padding(.vertical, 1)
+                                            .background(Color.black.opacity(0.55))
+                                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                                            .padding(2)
+                                    }
+                                }
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 4)
                                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
@@ -1496,7 +1509,7 @@ struct HistoryRail: View {
                             get: { hoveredItemID == item.id },
                             set: { if !$0 { hoveredItemID = nil } }
                         ), arrowEdge: .leading) {
-                            Group {
+                            VStack(spacing: 4) {
                                 if let nsImage = NSImage(data: item.imageData) {
                                     Image(nsImage: nsImage)
                                         .resizable()
@@ -1504,6 +1517,12 @@ struct HistoryRail: View {
                                         .frame(maxWidth: 360, maxHeight: 280)
                                 } else {
                                     Color.clear.frame(width: 120, height: 80)
+                                }
+                                let dim = item.dimensionLabel
+                                if !dim.isEmpty {
+                                    Text(dim)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                             .padding(4)
@@ -1533,6 +1552,14 @@ struct HistoryRail: View {
                                 let md = "![\(alt)](\(item.imageURL.path))"
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(md, forType: .string)
+                            }
+                            Button("Data URLをコピー") {
+                                guard let data = try? Data(contentsOf: item.imageURL),
+                                      let ext = item.imageURL.pathExtension.isEmpty ? "png" : item.imageURL.pathExtension as String?,
+                                      let mime = UTType(filenameExtension: ext)?.preferredMIMEType else { return }
+                                let b64 = data.base64EncodedString()
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString("data:\(mime);base64,\(b64)", forType: .string)
                             }
                             Button("クリップボードにコピー") {
                                 if let nsImage = NSImage(contentsOf: item.imageURL) {
