@@ -11,6 +11,7 @@ bash build-app.sh && open .build/debug/SnapLocal.app
 
 - 初回起動で画面録画権限ダイアログが出るのは正常(build-app.sh が tccutil reset するため毎回出る)
 - **ビルド通過だけでは完了ではない。** アプリを起動し、タスクの受け入れ条件を目視確認してから完了とする
+- **このマシンでは `swift test` は動かない**(Command Line Toolsのみで swift-testing/XCTest が無い)。テストは Tests/SnapLocalTests にあり、GitHub Actions(.github/workflows/ci.yml、Xcode入りランナー)で実行される。ローカルで `no such module 'Testing'` が出ても壊したわけではない
 - コミットは1タスク1コミット。`feat:` / `refactor:` / `fix:` プレフィックス。PLAN.md のチェックボックス更新を同コミットに含める
 
 ## 絶対原則(違反は即やり直し)

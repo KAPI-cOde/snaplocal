@@ -24,7 +24,7 @@ let package = Package(
             ]),
         .testTarget(
             name: "SnapLocalTests",
-            dependencies: [],
+            dependencies: ["SnapLocalApp"],
             path: "Tests/SnapLocalTests"),
     ]
 )
