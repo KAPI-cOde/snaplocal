@@ -31,6 +31,7 @@ enum SettingsKey: String {
     case filenameTemplate = "filename.template"
     case captureWithCursor = "capture.withCursor"
     case autoCopyOnCapture = "capture.autoCopy"
+    case openEditorOnCapture = "capture.openEditor"
     case annotationTemplates = "annotation.templates"
 }
 
@@ -156,6 +157,13 @@ final class SettingsManager: ObservableObject {
     var autoCopyOnCapture: Bool {
         get { defaults.bool(forKey: SettingsKey.autoCopyOnCapture.rawValue) }
         set { defaults.set(newValue, forKey: SettingsKey.autoCopyOnCapture.rawValue) }
+    }
+
+    // MARK: - Open editor immediately after capture (skip HUD)
+
+    var openEditorOnCapture: Bool {
+        get { defaults.bool(forKey: SettingsKey.openEditorOnCapture.rawValue) }
+        set { defaults.set(newValue, forKey: SettingsKey.openEditorOnCapture.rawValue) }
     }
 
     // MARK: - Recent Custom Colors (up to 5 hex strings "RRGGBBAA")

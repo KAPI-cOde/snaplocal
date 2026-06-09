@@ -387,19 +387,24 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             sendNotification(title: "撮影完了", body: "HUDから操作できます")
         }
 
-        // Post-capture floating HUD
-        let actions = CaptureNotificationActions(
-            copy: { [weak self] in self?.copyToClipboard() },
-            save: { [weak self] in self?.saveAnnotatedImage() },
-            annotate: {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
-            },
-            pin: { [weak self] in self?.pinCurrentImage() },
-            share: { [weak self] in self?.shareCurrentImage() }
-        )
-        let cursorScreen = NSScreen.screens.first(where: { NSPointInRect(NSEvent.mouseLocation, $0.frame) })
-        CaptureNotificationWindow.shared.show(image: image, actions: actions, onScreen: cursorScreen)
+        // Post-capture: open editor immediately if that setting is enabled, otherwise show HUD
+        if SettingsManager.shared.openEditorOnCapture {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        } else {
+            let actions = CaptureNotificationActions(
+                copy: { [weak self] in self?.copyToClipboard() },
+                save: { [weak self] in self?.saveAnnotatedImage() },
+                annotate: {
+                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+                },
+                pin: { [weak self] in self?.pinCurrentImage() },
+                share: { [weak self] in self?.shareCurrentImage() }
+            )
+            let cursorScreen = NSScreen.screens.first(where: { NSPointInRect(NSEvent.mouseLocation, $0.frame) })
+            CaptureNotificationWindow.shared.show(image: image, actions: actions, onScreen: cursorScreen)
+        }
 
         Task {
             guard let item = await vault.save(image: image) else { return }
@@ -2423,6 +2428,10 @@ struct SettingsSheet: View {
                     Toggle("撮影後にクリップボードへ自動コピー", isOn: Binding(
                         get: { settings.autoCopyOnCapture },
                         set: { settings.autoCopyOnCapture = $0 }
+                    ))
+                    Toggle("撮影後すぐにエディタを開く（HUDをスキップ）", isOn: Binding(
+                        get: { settings.openEditorOnCapture },
+                        set: { settings.openEditorOnCapture = $0 }
                     ))
                 }
 
