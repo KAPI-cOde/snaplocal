@@ -1277,6 +1277,7 @@ struct HistoryRail: View {
                         }
                         .id(item.id)
                         .buttonStyle(.plain)
+                        .onDrag { NSItemProvider(contentsOf: item.imageURL) ?? NSItemProvider() }
                         .onHover { hovering in hoveredItemID = hovering ? item.id : nil }
                         .popover(isPresented: Binding(
                             get: { hoveredItemID == item.id },
@@ -1313,6 +1314,12 @@ struct HistoryRail: View {
                             Button("ファイルパスをコピー") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(item.imageURL.path, forType: .string)
+                            }
+                            Button("Markdownリンクをコピー") {
+                                let alt = item.title ?? "screenshot"
+                                let md = "![\(alt)](\(item.imageURL.path))"
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(md, forType: .string)
                             }
                             Button("クリップボードにコピー") {
                                 if let nsImage = NSImage(contentsOf: item.imageURL) {
