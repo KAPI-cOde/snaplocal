@@ -848,6 +848,16 @@ struct CompactToolbar: View {
 
             Spacer()
 
+            // Image dimensions
+            if let img = canvas.backgroundImage {
+                Text("\(img.width) × \(img.height)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .help("画像サイズ（ピクセル）")
+            }
+
+            Divider().frame(height: 14)
+
             Button(action: { canvas.undo() }) {
                 Image(systemName: "arrow.uturn.backward")
             }
