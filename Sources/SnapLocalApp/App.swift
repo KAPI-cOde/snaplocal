@@ -323,6 +323,17 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func navigateHistory(by delta: Int) {
+        guard !history.isEmpty else { return }
+        if let current = selectedHistoryID,
+           let idx = history.firstIndex(where: { $0.id == current }) {
+            let newIdx = max(0, min(history.count - 1, idx + delta))
+            if newIdx != idx { loadHistoryItem(history[newIdx]) }
+        } else {
+            loadHistoryItem(history[0])
+        }
+    }
+
     func refreshHistory() {
         Task { await loadHistory() }
     }
@@ -989,7 +1000,8 @@ struct ContentView: View {
                     viewModel: state.canvas,
                     onCapture: state.captureNow,
                     onOpenPermissions: state.openScreenRecordingSettings,
-                    onFocusSearch: { state.searchFocusTrigger.toggle() }
+                    onFocusSearch: { state.searchFocusTrigger.toggle() },
+                    onNavigateHistory: { delta in state.navigateHistory(by: delta) }
                 )
                     .frame(minWidth: 600, minHeight: 400)
                     .background(Color(nsColor: .windowBackgroundColor))
@@ -1051,6 +1063,7 @@ struct AnnotationCanvasView: View {
     var onCapture: (() -> Void)? = nil
     var onOpenPermissions: (() -> Void)? = nil
     var onFocusSearch: (() -> Void)? = nil
+    var onNavigateHistory: ((Int) -> Void)? = nil
 
     @FocusState private var textFieldFocused: Bool
     @FocusState private var canvasFocused: Bool
@@ -1261,11 +1274,19 @@ struct AnnotationCanvasView: View {
                 viewModel.clearAllAnnotations()
                 return .handled
             }
-            // Arrow key nudge for selected annotation
+            // Arrow key nudge for selected annotation (⌘↑/⌘↓ = history navigation)
             .onKeyPress(characters: .init(charactersIn: "\u{F700}\u{F701}\u{F702}\u{F703}"),
                         phases: [.down, .repeat]) { press in
-                guard !viewModel.showTextInput,
-                      let id = viewModel.selectedAnnotationID,
+                guard !viewModel.showTextInput else { return .ignored }
+                // ⌘+arrow: navigate history
+                if press.modifiers.contains(.command) {
+                    switch press.key {
+                    case .upArrow:    onNavigateHistory?(-1); return .handled
+                    case .downArrow:  onNavigateHistory?(1);  return .handled
+                    default: break
+                    }
+                }
+                guard let id = viewModel.selectedAnnotationID,
                       var annotation = viewModel.annotations.first(where: { $0.id == id }) else { return .ignored }
                 let step: CGFloat = press.modifiers.contains(.shift) ? 10 : 1
                 let dx: CGFloat
