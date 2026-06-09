@@ -1155,19 +1155,35 @@ struct CompactToolbar: View {
             }
 
             if canvas.currentTool == .stamp {
-                let stamps = ["✅", "❌", "⚠️", "💡", "🐛", "📌", "❗", "❓", "✨", "🔍"]
-                HStack(spacing: 2) {
-                    ForEach(stamps, id: \.self) { emoji in
-                        Button(action: { canvas.currentStamp = emoji }) {
-                            Text(emoji)
-                                .font(.system(size: 16))
-                                .frame(width: 24, height: 24)
-                                .background(canvas.currentStamp == emoji ? Color.accentColor.opacity(0.25) : Color.clear,
-                                            in: RoundedRectangle(cornerRadius: 4))
+                let stamps = ["✅", "❌", "⚠️", "💡", "🐛", "📌", "❗", "❓", "✨", "🔍",
+                              "👆", "👀", "🔥", "💯", "🎯", "🔑", "⭐", "🚀", "🛑", "🤔"]
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        ForEach(stamps, id: \.self) { emoji in
+                            Button(action: { canvas.currentStamp = emoji }) {
+                                Text(emoji)
+                                    .font(.system(size: 16))
+                                    .frame(width: 26, height: 26)
+                                    .background(canvas.currentStamp == emoji ? Color.accentColor.opacity(0.25) : Color.clear,
+                                                in: RoundedRectangle(cornerRadius: 4))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                        // Custom stamp input
+                        Divider().frame(height: 20)
+                        TextField("絵文字", text: Binding(
+                            get: { stamps.contains(canvas.currentStamp) ? "" : canvas.currentStamp },
+                            set: { if !$0.isEmpty { canvas.currentStamp = String($0.unicodeScalars.suffix(2)) } }
+                        ))
+                        .frame(width: 36)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 16))
+                        .multilineTextAlignment(.center)
+                        .help("カスタム絵文字を入力")
                     }
+                    .padding(.horizontal, 2)
                 }
+                .frame(maxWidth: 300)
                 .help("スタンプを選択（クリックで配置）")
             }
 
