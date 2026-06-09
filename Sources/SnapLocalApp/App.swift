@@ -587,6 +587,7 @@ struct CompactToolbar: View {
     let onCopy: () -> Void
     let onPaste: () -> Void
     let onShare: () -> Void
+    @Binding var sidebarVisible: Bool
     @State private var showHelp = false
     @State private var showSettings = false
     @ObservedObject private var settings = SettingsManager.shared
@@ -1011,6 +1012,13 @@ struct CompactToolbar: View {
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
             }
+
+            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible.toggle() } }) {
+                Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
+                    .symbolVariant(sidebarVisible ? .none : .slash)
+            }
+            .help("履歴を表示/非表示 (⌘⇧H)")
+            .keyboardShortcut("h", modifiers: [.command, .shift])
         }
     }
 
@@ -1693,6 +1701,7 @@ struct WindowPickerRow: View {
 struct ContentView: View {
     @ObservedObject var state: SnapLocalState
     @State private var isDropTargeted = false
+    @State private var sidebarVisible = true
 
     var windowTitle: String {
         if let img = state.canvas.backgroundImage {
@@ -1715,7 +1724,8 @@ struct ContentView: View {
                 onSaveAs: state.saveAnnotatedImageAs,
                 onCopy: state.copyToClipboard,
                 onPaste: state.pasteFromClipboard,
-                onShare: state.shareCurrentImage
+                onShare: state.shareCurrentImage,
+                sidebarVisible: $sidebarVisible
             )
             .sheet(isPresented: $state.showWindowPicker) {
                 WindowPickerSheet(
@@ -1774,19 +1784,22 @@ struct ContentView: View {
                         }
                     }
 
-                Divider()
-                HistoryRail(
-                    history: state.history,
-                    searchQuery: $state.searchQuery,
-                    focusTrigger: $state.searchFocusTrigger,
-                    selectedID: state.selectedHistoryID,
-                    onSelect: state.loadHistoryItem,
-                    onDelete: state.deleteHistoryItem,
-                    onRefresh: state.refreshHistory,
-                    onSearch: state.applySearch,
-                    onExport: state.exportHistoryItem,
-                    onRename: state.renameHistoryItem
-                )
+                if sidebarVisible {
+                    Divider()
+                    HistoryRail(
+                        history: state.history,
+                        searchQuery: $state.searchQuery,
+                        focusTrigger: $state.searchFocusTrigger,
+                        selectedID: state.selectedHistoryID,
+                        onSelect: state.loadHistoryItem,
+                        onDelete: state.deleteHistoryItem,
+                        onRefresh: state.refreshHistory,
+                        onSearch: state.applySearch,
+                        onExport: state.exportHistoryItem,
+                        onRename: state.renameHistoryItem
+                    )
+                    .transition(.move(edge: .trailing))
+                }
             }
         }
     }
