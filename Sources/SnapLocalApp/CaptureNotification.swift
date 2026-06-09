@@ -103,6 +103,8 @@ struct CaptureNotificationView: View {
     let actions: CaptureNotificationActions
     let onDismiss: () -> Void
 
+    @State private var timerProgress: CGFloat = 1.0
+
     var body: some View {
         HStack(spacing: 10) {
             // Thumbnail
@@ -158,10 +160,27 @@ struct CaptureNotificationView: View {
         .frame(width: 300, height: 76)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(alignment: .bottom) {
+            // Auto-dismiss countdown bar
+            GeometryReader { geo in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.accentColor.opacity(0.5))
+                    .frame(width: geo.size.width * timerProgress, height: 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 2)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 4)
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 14)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
+        .onAppear {
+            withAnimation(.linear(duration: 5)) {
+                timerProgress = 0
+            }
+        }
     }
 
     @ViewBuilder
