@@ -1517,32 +1517,11 @@ struct CompactToolbar: View {
                 colorPalettePopover
             }
 
-            // ─ 線の太さ（コンパクト）─
-            Picker("", selection: $canvas.currentLineWidth) {
-                Text("S").tag(LineWidth.thin)
-                Text("M").tag(LineWidth.medium)
-                Text("L").tag(LineWidth.thick)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 76)
-            .disabled(!canvas.currentTool.usesLineWidth)
-            .opacity(canvas.currentTool.usesLineWidth ? 1.0 : 0.5)
-            .help("線の太さ  ([ ] で変更)")
-            .onChange(of: canvas.currentLineWidth) { _, _ in
-                canvas.applyCurrentLineWidthToSelection()
-            }
-
     } // annotationToolControls
 
     @ViewBuilder
     private var imageEditControls: some View {
         Divider().frame(height: 18)
-
-        Button(action: onPin) {
-            Image(systemName: "pin.fill")
-        }
-        .help("画面にピン留め (⌘⇧P)")
-        .keyboardShortcut("p", modifiers: [.command, .shift])
 
         Button { canvas.enterCropMode() } label: {
             Image(systemName: "scissors")
@@ -1631,12 +1610,14 @@ struct CompactToolbar: View {
             Button("別名で保存… (⌘⇧S)") { onSaveAs() }
             Divider()
             Button("共有… (⌘⇧E)") { onShare() }
+            Divider()
+            Button("画面にピン留め (⌘⇧P)") { onPin() }
         } label: {
             Image(systemName: "square.and.arrow.up")
         }
         .menuStyle(.borderlessButton)
         .frame(width: 22)
-        .help("別名保存 / 共有")
+        .help("別名保存 / 共有 / ピン留め")
 
         Divider().frame(height: 18)
 
@@ -1807,15 +1788,29 @@ struct CompactToolbar: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
+                // Line width
+                if canvas.currentTool.usesLineWidth {
+                    Picker("", selection: $canvas.currentLineWidth) {
+                        Text("S").tag(LineWidth.thin)
+                        Text("M").tag(LineWidth.medium)
+                        Text("L").tag(LineWidth.thick)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 60)
+                    .onChange(of: canvas.currentLineWidth) { _, _ in canvas.applyCurrentLineWidthToSelection() }
+                }
+            }
+            HStack(spacing: 8) {
                 // Opacity
                 HStack(spacing: 4) {
                     Image(systemName: "circle.lefthalf.filled").font(.system(size: 9)).foregroundStyle(.secondary)
                     Slider(value: $canvas.currentOpacity, in: 0.1...1.0, step: 0.05)
-                        .frame(width: 64).controlSize(.mini)
+                        .frame(width: 80).controlSize(.mini)
                         .onChange(of: canvas.currentOpacity) { _, _ in canvas.applyCurrentOpacityToSelection() }
                     Text("\(Int(canvas.currentOpacity * 100))%")
                         .font(.system(size: 9, design: .monospaced)).frame(width: 28)
                 }
+                Spacer()
                 // Line style
                 Picker("", selection: $canvas.currentLineStyle) {
                     LineStylePreview(style: .solid).tag(LineStyle.solid)
