@@ -620,6 +620,20 @@ struct CompactToolbar: View {
             .disabled(canvas.backgroundImage == nil)
             .keyboardShortcut("k", modifiers: .command)
 
+            Button(action: { canvas.rotateImage(clockwise: false) }) {
+                Image(systemName: "rotate.left")
+            }
+            .help("90°左に回転 (⌘⌥←)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+
+            Button(action: { canvas.rotateImage(clockwise: true) }) {
+                Image(systemName: "rotate.right")
+            }
+            .help("90°右に回転 (⌘⌥→)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+
             Button(action: onCopy) {
                 Image(systemName: "doc.on.clipboard")
             }
@@ -1228,6 +1242,7 @@ struct HelpPopoverContent: View {
         ("その他", [
             ("⌘↑ / ⌘↓", "履歴の前/次"),
             ("⌘K", "切り取りモード"),
+            ("⌘⌥← / ⌘⌥→", "90°回転（左/右）"),
             ("⌘⇧R", "前回範囲を再撮影"),
             ("⌘C", "クリップボードにコピー"),
             ("⌘S", "ファイルに保存"),

@@ -1360,6 +1360,50 @@ final class CanvasViewModel: ObservableObject {
         cropEnd = nil
     }
 
+    // MARK: - Image Rotation
+
+    func rotateImage(clockwise: Bool) {
+        guard let src = backgroundImage else { return }
+        let w = src.width, h = src.height
+        guard let ctx = CGContext(
+            data: nil, width: h, height: w,
+            bitsPerComponent: src.bitsPerComponent,
+            bytesPerRow: 0,
+            space: src.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: src.bitmapInfo.rawValue
+        ) else { return }
+
+        if clockwise {
+            ctx.translateBy(x: CGFloat(h), y: 0)
+            ctx.rotate(by: .pi / 2)
+        } else {
+            ctx.translateBy(x: 0, y: CGFloat(w))
+            ctx.rotate(by: -.pi / 2)
+        }
+        ctx.draw(src, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
+        guard let rotated = ctx.makeImage() else { return }
+
+        let oldW = canvasSize.width, oldH = canvasSize.height
+
+        // Transform each annotation so it stays in place on the new (swapped) canvas
+        // 90° CW: (x, y) → (oldH - y, x)  →  transform: translate(0, oldH) then rotate -π/2 (screen coords)
+        // 90° CCW: (x, y) → (y, oldW - x)  →  transform: translate(oldW, 0) then rotate +π/2 (screen coords)
+        let rotT: CGAffineTransform = clockwise
+            ? CGAffineTransform(rotationAngle: .pi / 2).concatenating(CGAffineTransform(translationX: oldH, y: 0))
+            : CGAffineTransform(rotationAngle: -.pi / 2).concatenating(CGAffineTransform(translationX: 0, y: oldW))
+
+        for i in 0..<annotations.count {
+            annotations[i].transform = annotations[i].transform.concatenating(rotT)
+        }
+
+        backgroundImage = rotated
+        canvasSize = CGSize(width: oldH, height: oldW)
+        undoManager.removeAllActions()
+        updateUndoRedoState()
+        recomputeAllFilterPreviews()
+        objectWillChange.send()
+    }
+
     // MARK: - Undo/Redo
 
     @Published var canUndo: Bool = false
