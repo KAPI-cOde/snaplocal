@@ -32,7 +32,9 @@ final class CaptureEngine: @unchecked Sendable {
     private let hotkey: HotkeyConfig
     private let completion: CaptureCompletion
     private var hotkeyRef: EventHotKeyRef?
+    private var regionHotkeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
+    var regionCaptureAction: (@Sendable () -> Void)?
 
     init(hotkey: HotkeyConfig, completion: @escaping CaptureCompletion) {
         self.hotkey = hotkey
@@ -50,10 +52,18 @@ final class CaptureEngine: @unchecked Sendable {
 
         let selfRef = Unmanaged.passUnretained(self).toOpaque()
         let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
-            guard let userData = userData else { return OSStatus(eventNotHandledErr) }
+            guard let userData = userData, let event = event else { return OSStatus(eventNotHandledErr) }
             let engine = Unmanaged<CaptureEngine>.fromOpaque(userData).takeUnretainedValue()
+            var hkID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                              EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &hkID)
             DispatchQueue.main.async {
-                engine.captureScreen()
+                if hkID.id == 2 {
+                    engine.regionCaptureAction?()
+                } else {
+                    engine.captureScreen()
+                }
             }
             return noErr
         }, 1, &eventSpec, selfRef, &eventHandler)
@@ -63,6 +73,7 @@ final class CaptureEngine: @unchecked Sendable {
             return
         }
 
+        // Full-screen hotkey (user-configurable)
         let hotkeyID = EventHotKeyID(signature: OSType(0x534E4C43), id: 1) // 'SNLC'
         let registerStatus = RegisterEventHotKey(
             hotkey.keyCode,
@@ -72,19 +83,20 @@ final class CaptureEngine: @unchecked Sendable {
             0,
             &hotkeyRef
         )
-
         if registerStatus != noErr {
             logger.error("Failed to register hotkey: \\(registerStatus)")
         }
+
+        // Region capture hotkey: ⌘⇧4 (hardcoded; key 21 = 4)
+        let cmdShift = UInt32(cmdKey | shiftKey)
+        let regionID = EventHotKeyID(signature: OSType(0x534E4C43), id: 2)
+        RegisterEventHotKey(21, cmdShift, regionID, GetApplicationEventTarget(), 0, &regionHotkeyRef)
     }
 
     nonisolated func unregisterHotkey() {
-        if let hotkeyRef = hotkeyRef {
-            UnregisterEventHotKey(hotkeyRef)
-        }
-        if let eventHandler = eventHandler {
-            RemoveEventHandler(eventHandler)
-        }
+        if let hotkeyRef = hotkeyRef { UnregisterEventHotKey(hotkeyRef) }
+        if let regionHotkeyRef = regionHotkeyRef { UnregisterEventHotKey(regionHotkeyRef) }
+        if let eventHandler = eventHandler { RemoveEventHandler(eventHandler) }
     }
 
     // MARK: - Screen Capture

@@ -122,6 +122,9 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 self?.handleCaptureResult(result)
             }
         }
+        captureEngine?.regionCaptureAction = { [weak self] in
+            Task { @MainActor in self?.captureRegion() }
+        }
         captureEngine?.registerHotkey()
         refreshHistory()
 
