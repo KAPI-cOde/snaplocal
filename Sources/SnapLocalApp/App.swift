@@ -2388,6 +2388,27 @@ struct AnnotationCanvasView: View {
                         .contrast(viewModel.adjustContrast)
                         .saturation(viewModel.adjustSaturation)
                     annotationLayer(size: proxy.size)
+                    // Pixel grid overlay at zoom ≥ 4×
+                    if zoom >= 4.0, let img = viewModel.backgroundImage {
+                        let cellW = proxy.size.width / CGFloat(img.width)
+                        let cellH = proxy.size.height / CGFloat(img.height)
+                        Canvas { ctx, size in
+                            let opacity = min(0.35, Double((zoom - 4) / 4) * 0.35)
+                            ctx.stroke(
+                                {
+                                    var p = Path()
+                                    var x: CGFloat = 0
+                                    while x <= size.width { p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: size.height)); x += cellW }
+                                    var y: CGFloat = 0
+                                    while y <= size.height { p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: size.width, y: y)); y += cellH }
+                                    return p
+                                }(),
+                                with: .color(.primary.opacity(opacity)),
+                                style: StrokeStyle(lineWidth: 0.5)
+                            )
+                        }
+                        .allowsHitTesting(false)
+                    }
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "camera.viewfinder")
