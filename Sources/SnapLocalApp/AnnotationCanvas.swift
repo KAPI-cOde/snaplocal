@@ -2069,6 +2069,10 @@ final class CanvasViewModel: ObservableObject {
         adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1; adjustSharpness = 0
     }
 
+    var hasActiveAdjustments: Bool {
+        adjustBrightness != 0 || adjustContrast != 1 || adjustSaturation != 1 || adjustSharpness != 0
+    }
+
     // MARK: - Decoration (beautify / export wrapper)
 
     @Published var decorationEnabled: Bool = false

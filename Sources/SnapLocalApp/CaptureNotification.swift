@@ -126,11 +126,15 @@ struct CaptureNotificationView: View {
     let onDismiss: () -> Void
     var onHoverChanged: ((Bool) -> Void)? = nil
 
-    @State private var timerProgress: CGFloat = 1.0
     @State private var isHUDHovered = false
     @State private var thumbnailHovered = false
     @State private var isDragging = false
     @State private var copiedFeedback = false
+    // Time-based progress tracking (avoids SwiftUI animation state bug)
+    @State private var lastResumeTime: Date = .now
+    @State private var pausedElapsed: Double = 0
+    @State private var isProgressPaused: Bool = false
+    private let hudDuration: Double = 5.0
 
     private var aspectRatio: CGFloat {
         guard image.height > 0 else { return 1 }
@@ -238,15 +242,21 @@ struct CaptureNotificationView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(alignment: .bottom) {
-            GeometryReader { geo in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.accentColor.opacity(isHUDHovered ? 0.25 : 0.5))
-                    .frame(width: geo.size.width * timerProgress, height: 2.5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            TimelineView(.periodic(from: .now, by: 1.0 / 30)) { tl in
+                let elapsed = isProgressPaused
+                    ? pausedElapsed
+                    : pausedElapsed + tl.date.timeIntervalSince(lastResumeTime)
+                let progress = max(0, CGFloat(1.0 - elapsed / hudDuration))
+                GeometryReader { geo in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor.opacity(isHUDHovered ? 0.25 : 0.5))
+                        .frame(width: geo.size.width * progress, height: 2.5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 2.5)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 3)
             }
-            .frame(height: 2.5)
-            .padding(.horizontal, 14)
-            .padding(.bottom, 3)
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14)
@@ -256,18 +266,17 @@ struct CaptureNotificationView: View {
             isHUDHovered = hovering
             onHoverChanged?(hovering)
             if hovering {
-                // Freeze progress bar at current position by interrupting animation
-                withAnimation(.linear(duration: 0)) { }
+                isProgressPaused = true
+                pausedElapsed += Date.now.timeIntervalSince(lastResumeTime)
             } else {
-                // Resume: animate remaining progress proportional to 4s
-                let remaining = 4.0 * timerProgress
-                withAnimation(.linear(duration: max(0.1, remaining))) { timerProgress = 0 }
+                isProgressPaused = false
+                lastResumeTime = .now
             }
         }
         .onAppear {
-            withAnimation(.linear(duration: 5)) {
-                timerProgress = 0
-            }
+            lastResumeTime = .now
+            pausedElapsed = 0
+            isProgressPaused = false
         }
     }
 

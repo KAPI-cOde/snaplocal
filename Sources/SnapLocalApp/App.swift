@@ -972,16 +972,31 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     // MARK: - History
 
+    private var loadHistoryTask: Task<Void, Never>? = nil
+
     func loadHistoryItem(_ item: VaultItem) {
-        guard let cgImage = cgImage(from: item.imageData) else { return }
         // Save current annotations before switching
         if let id = currentVaultID, !canvas.annotations.isEmpty {
-            Task { await vault.updateAnnotations(id: id, annotations: canvas.annotations) }
+            let anns = canvas.annotations
+            let v = vault
+            Task { await v.updateAnnotations(id: id, annotations: anns) }
         }
-        canvas.resetAndLoad(image: cgImage, annotations: item.annotations)
+        // Set selection immediately for responsive UI
         currentVaultID = item.id
         selectedHistoryID = item.id
-        showStatus("履歴を読み込みました")
+        // Load image off the main thread to avoid blocking on large PNGs
+        loadHistoryTask?.cancel()
+        let url = item.imageURL
+        let annotations = item.annotations
+        loadHistoryTask = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let nsImage = NSImage(contentsOf: url),
+                  let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.canvas.resetAndLoad(image: cgImage, annotations: annotations)
+                self?.showStatus("履歴を読み込みました")
+            }
+        }
     }
 
     private func cgImage(from data: Data) -> CGImage? {
@@ -1534,8 +1549,9 @@ struct CompactToolbar: View {
 
         Button { showAdjustments.toggle() } label: {
             Image(systemName: "slider.horizontal.3")
+                .foregroundStyle(canvas.hasActiveAdjustments ? Color.accentColor : Color.primary)
         }
-        .help("明るさ・コントラスト・彩度")
+        .help(canvas.hasActiveAdjustments ? "明るさ・コントラスト・彩度（調整中）" : "明るさ・コントラスト・彩度")
         .popover(isPresented: $showAdjustments, arrowEdge: .bottom) {
             adjustmentsPopover
         }
@@ -2546,11 +2562,14 @@ private struct HistoryItemRow: View {
                 .padding(2)
             }
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .bottomTrailing) {
             if item.notes != nil {
                 Image(systemName: "note.text")
                     .font(.system(size: 7))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(.white)
+                    .padding(2)
+                    .background(Color.black.opacity(0.45))
+                    .clipShape(RoundedRectangle(cornerRadius: 2))
                     .padding(2)
             }
         }
@@ -2635,6 +2654,7 @@ struct HistoryItemPopover: View {
     var onUpdateNotes: ((VaultItem, String?) -> Void)?
 
     @State private var notesText: String
+    @State private var fullImage: NSImage? = nil
 
     init(item: VaultItem, onUpdateNotes: ((VaultItem, String?) -> Void)?) {
         self.item = item
@@ -2644,11 +2664,14 @@ struct HistoryItemPopover: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            if let nsImage = NSImage(data: item.imageData) {
+            // Show thumbnail immediately, swap to full image once loaded async
+            let displayImage: NSImage? = fullImage ?? NSImage(data: item.thumbnailData)
+            if let nsImage = displayImage {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: 360, maxHeight: 240)
+                    .animation(.easeIn(duration: 0.15), value: fullImage != nil)
             } else {
                 Color.clear.frame(width: 120, height: 80)
             }
@@ -2698,6 +2721,14 @@ struct HistoryItemPopover: View {
                 }
         }
         .padding(8)
+        .task {
+            guard fullImage == nil else { return }
+            let url = item.imageURL
+            let loaded = await Task.detached(priority: .userInitiated) {
+                NSImage(contentsOf: url)
+            }.value
+            fullImage = loaded
+        }
     }
 }
 
