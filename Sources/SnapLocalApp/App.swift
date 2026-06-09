@@ -646,6 +646,7 @@ struct CompactToolbar: View {
     @Binding var sidebarVisible: Bool
     @State private var showHelp = false
     @State private var showSettings = false
+    @State private var showAdjustments = false
     @ObservedObject private var settings = SettingsManager.shared
 
     var body: some View {
@@ -784,6 +785,15 @@ struct CompactToolbar: View {
             .disabled(canvas.backgroundImage == nil)
             .menuStyle(.borderlessButton)
             .frame(width: 22)
+
+            Button { showAdjustments.toggle() } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .help("明るさ・コントラスト・彩度")
+            .disabled(canvas.backgroundImage == nil)
+            .popover(isPresented: $showAdjustments, arrowEdge: .bottom) {
+                adjustmentsPopover
+            }
 
             Button(action: onCopy) {
                 Image(systemName: "doc.on.clipboard")
@@ -1090,6 +1100,43 @@ struct CompactToolbar: View {
             .help("履歴を表示/非表示 (⌘⇧H)")
             .keyboardShortcut("h", modifiers: [.command, .shift])
         }
+    }
+
+    private var adjustmentsPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("画像調整").font(.headline).padding(.bottom, 2)
+            HStack {
+                Text("明るさ").frame(width: 60, alignment: .trailing)
+                Slider(value: $canvas.adjustBrightness, in: -0.5...0.5)
+                    .frame(width: 140)
+                Text(String(format: "%+.2f", canvas.adjustBrightness))
+                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+            }
+            HStack {
+                Text("コントラスト").frame(width: 60, alignment: .trailing)
+                Slider(value: $canvas.adjustContrast, in: 0.5...2.0)
+                    .frame(width: 140)
+                Text(String(format: "%.2f", canvas.adjustContrast))
+                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+            }
+            HStack {
+                Text("彩度").frame(width: 60, alignment: .trailing)
+                Slider(value: $canvas.adjustSaturation, in: 0.0...2.0)
+                    .frame(width: 140)
+                Text(String(format: "%.2f", canvas.adjustSaturation))
+                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+            }
+            HStack {
+                Button("リセット") { canvas.resetAdjustments() }
+                    .controlSize(.small)
+                Spacer()
+                Button("適用") { canvas.bakeAdjustments(); showAdjustments = false }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .padding(14)
+        .frame(width: 280)
     }
 
     @ViewBuilder
@@ -2011,6 +2058,9 @@ struct AnnotationCanvasView: View {
                     Image(decorative: image, scale: 1.0, orientation: .up)
                         .resizable()
                         .scaledToFit()
+                        .brightness(viewModel.adjustBrightness)
+                        .contrast(viewModel.adjustContrast)
+                        .saturation(viewModel.adjustSaturation)
                     annotationLayer(size: proxy.size)
                 } else {
                     VStack(spacing: 12) {

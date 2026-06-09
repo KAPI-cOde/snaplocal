@@ -271,6 +271,10 @@ final class CanvasViewModel: ObservableObject {
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
     @Published var loadToken: UUID = UUID()
+    // Non-destructive image adjustments (pending until baked)
+    @Published var adjustBrightness: Double = 0.0   // -0.5 … 0.5
+    @Published var adjustContrast: Double = 1.0     // 0.5 … 2.0
+    @Published var adjustSaturation: Double = 1.0   // 0.0 … 2.0
     @Published var showTextInput = false
     @Published var textInputRect: CGRect = .zero
     @Published var textInputString = ""
@@ -1453,6 +1457,28 @@ final class CanvasViewModel: ObservableObject {
         cropStart = nil
         cropEnd = nil
         cropAspectRatio = nil
+    }
+
+    // MARK: - Image Adjustments
+
+    func bakeAdjustments() {
+        guard adjustBrightness != 0 || adjustContrast != 1 || adjustSaturation != 1,
+              let src = backgroundImage else { return }
+        let ci = CIImage(cgImage: src)
+        let f = CIFilter.colorControls()
+        f.inputImage = ci
+        f.brightness = Float(adjustBrightness)
+        f.contrast = Float(adjustContrast)
+        f.saturation = Float(adjustSaturation)
+        guard let output = f.outputImage else { return }
+        let ctx = CIContext()
+        guard let baked = ctx.createCGImage(output, from: output.extent) else { return }
+        backgroundImage = baked
+        adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1
+    }
+
+    func resetAdjustments() {
+        adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1
     }
 
     // MARK: - Image Rotation
