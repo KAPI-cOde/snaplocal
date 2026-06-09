@@ -5,6 +5,41 @@ import AppKit
 import AudioToolbox
 import SwiftUI
 
+// MARK: - Scroll Wheel modifier
+
+private struct ScrollWheelModifier: ViewModifier {
+    let handler: (CGPoint) -> Void
+    func body(content: Content) -> some View {
+        content.background(ScrollWheelCapture(handler: handler))
+    }
+}
+
+private struct ScrollWheelCapture: NSViewRepresentable {
+    let handler: (CGPoint) -> Void
+    func makeNSView(context: Context) -> ScrollWheelView {
+        let v = ScrollWheelView(); v.handler = handler; return v
+    }
+    func updateNSView(_ v: ScrollWheelView, context: Context) { v.handler = handler }
+}
+
+private class ScrollWheelView: NSView {
+    var handler: ((CGPoint) -> Void)?
+    override var acceptsFirstResponder: Bool { true }
+    override func scrollWheel(with event: NSEvent) {
+        handler?(CGPoint(x: event.scrollingDeltaX, y: event.scrollingDeltaY))
+    }
+}
+
+extension View {
+    func onScrollWheel(_ handler: @escaping (CGPoint) -> Void) -> some View {
+        modifier(ScrollWheelModifier(handler: handler))
+    }
+}
+
+extension CGFloat {
+    func clampedTo(min lo: CGFloat, max hi: CGFloat) -> CGFloat { Swift.min(hi, Swift.max(lo, self)) }
+}
+
 // MARK: - PinManager
 
 @MainActor
@@ -39,15 +74,21 @@ final class PinnedImageWindow: NSObject {
     var onClose: (() -> Void)?
     private var panel: NSPanel?
     private let cgImage: CGImage
+    private var currentW: CGFloat = 0
+    private var currentH: CGFloat = 0
+    private let minDim: CGFloat = 80
+    private let maxDim: CGFloat = 1600
 
     init(image: CGImage) {
         self.cgImage = image
         super.init()
 
-        let maxDim: CGFloat = 680
-        let scale = min(maxDim / CGFloat(image.width), maxDim / CGFloat(image.height), 1.0)
+        let initialMax: CGFloat = 680
+        let scale = min(initialMax / CGFloat(image.width), initialMax / CGFloat(image.height), 1.0)
         let w = CGFloat(image.width) * scale
         let h = CGFloat(image.height) * scale
+        currentW = w; currentH = h
+        let aspectRatio = w / max(h, 1)
 
         let p = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: w, height: h),
@@ -64,8 +105,20 @@ final class PinnedImageWindow: NSObject {
         p.isReleasedWhenClosed = false
 
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-        let view = PinnedContentView(image: nsImage, onClose: { [weak self] in self?.close() },
-                                      onCopy: { NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects([nsImage]) })
+        let view = PinnedContentView(
+            image: nsImage,
+            onClose: { [weak self] in self?.close() },
+            onCopy: { NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects([nsImage]) },
+            onScale: { [weak self] factor in
+                guard let self, let p = self.panel else { return }
+                let newW = (self.currentW * factor).clampedTo(min: self.minDim, max: self.maxDim)
+                let newH = newW / aspectRatio
+                let center = CGPoint(x: p.frame.midX, y: p.frame.midY)
+                let newOrigin = CGPoint(x: center.x - newW / 2, y: center.y - newH / 2)
+                p.setFrame(NSRect(x: newOrigin.x, y: newOrigin.y, width: newW, height: newH), display: true, animate: false)
+                self.currentW = newW; self.currentH = newH
+            }
+        )
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: w, height: h)
         host.autoresizingMask = [.width, .height]
@@ -105,7 +158,9 @@ private struct PinnedContentView: View {
     let image: NSImage
     let onClose: () -> Void
     let onCopy: () -> Void
+    var onScale: ((CGFloat) -> Void)? = nil   // called with new scale multiplier
     @State private var isHovering = false
+    @State private var opacity: Double = 1.0
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -118,6 +173,17 @@ private struct PinnedContentView: View {
                         .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
                 )
                 .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+
+            // Opacity indicator badge (when opacity < 1)
+            if opacity < 0.95 && isHovering {
+                Text("\(Int(opacity * 100))%")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
 
             // Close button (appears on hover)
             if isHovering {
@@ -132,10 +198,30 @@ private struct PinnedContentView: View {
                 .transition(.scale(scale: 0.7).combined(with: .opacity))
             }
         }
+        .opacity(opacity)
         .animation(.easeInOut(duration: 0.15), value: isHovering)
         .onHover { isHovering = $0 }
+        .gesture(
+            MagnifyGesture()
+                .onChanged { v in onScale?(v.magnification) }
+        )
+        .onScrollWheel { delta in
+            if NSEvent.modifierFlags.contains(.option) {
+                // ⌥+scroll: change opacity
+                let newOpacity = min(1.0, max(0.1, opacity - delta.y * 0.05))
+                withAnimation(.easeOut(duration: 0.1)) { opacity = newOpacity }
+            } else {
+                // scroll: resize window
+                let scale = 1.0 + delta.y * -0.04
+                onScale?(scale)
+            }
+        }
         .contextMenu {
             Button("コピー") { onCopy() }
+            Divider()
+            Button("不透明度 100%") { withAnimation { opacity = 1.0 } }
+            Button("不透明度 75%")  { withAnimation { opacity = 0.75 } }
+            Button("不透明度 50%")  { withAnimation { opacity = 0.5 } }
             Divider()
             Button("閉じる") { onClose() }
         }

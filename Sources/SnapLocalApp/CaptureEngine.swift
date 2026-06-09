@@ -233,6 +233,10 @@ final class CaptureEngine: @unchecked Sendable {
     }
 
     private func captureWindowImage(_ window: SCWindow) async throws -> CGImage {
+        // Try CGWindowListCreateImage first for shadow-inclusive capture
+        if let cgResult = captureWindowWithShadow(window) { return cgResult }
+
+        // Fallback: ScreenCaptureKit (no shadow)
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
         let scale = NSScreen.main?.backingScaleFactor ?? 2.0
@@ -256,6 +260,18 @@ final class CaptureEngine: @unchecked Sendable {
         try? await stream.stopCapture()
         try? stream.removeStreamOutput(output, type: .screen)
         return cgImage
+    }
+
+    private func captureWindowWithShadow(_ window: SCWindow) -> CGImage? {
+        let windowID = CGWindowID(window.windowID)
+        // .null rect + no .boundsIgnoreFraming → bounds includes the window shadow
+        let image = CGWindowListCreateImage(
+            .null,
+            .optionIncludingWindow,
+            windowID,
+            .bestResolution
+        )
+        return image
     }
 
     private func captureWithScreenCaptureKit() async throws -> CGImage {

@@ -2203,6 +2203,34 @@ struct HistoryRail: View {
                 }
                 return .ignored
             }
+            .onKeyPress(characters: .init(charactersIn: "\u{F700}\u{F701}"), phases: [.down, .repeat]) { press in
+                // ↑/↓ keyboard navigation in history
+                let list = displayedHistory
+                guard !list.isEmpty else { return .ignored }
+                let currentIdx = list.firstIndex(where: { $0.id == selectedID }) ?? -1
+                let delta = press.key == .upArrow ? -1 : 1
+                let nextIdx = max(0, min(list.count - 1, currentIdx + delta))
+                let nextItem = list[nextIdx]
+                if nextItem.id != selectedID {
+                    onSelect(nextItem)
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(nextItem.id, anchor: .center)
+                    }
+                }
+                return .handled
+            }
+            .onKeyPress(.return) {
+                if let id = selectedID, let item = displayedHistory.first(where: { $0.id == id }) {
+                    onSelect(item); return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.deleteForward) {
+                if let id = selectedID, let item = displayedHistory.first(where: { $0.id == id }) {
+                    onDelete(item); return .handled
+                }
+                return .ignored
+            }
             } // ScrollViewReader
 
             Divider()
