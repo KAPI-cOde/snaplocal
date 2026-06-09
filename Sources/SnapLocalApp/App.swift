@@ -2112,6 +2112,13 @@ struct AnnotationCanvasView: View {
                     Button("複製 (⌘D)") { viewModel.duplicateSelectedAnnotation() }
                     Button("前面へ (⌘])") { viewModel.bringSelectedToFront() }
                     Button("背面へ (⌘[)") { viewModel.sendSelectedToBack() }
+                    if [AnnotationType.rectangle, .ellipse, .roundedRect, .highlight, .spotlight].contains(ann.type) {
+                        Divider()
+                        Button("この範囲で切り取り") {
+                            let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
+                            viewModel.cropToRect(bounds)
+                        }
+                    }
                     Divider()
                     if !ann.isLocked {
                         Button("削除", role: .destructive) { viewModel.deleteSelectedAnnotation() }

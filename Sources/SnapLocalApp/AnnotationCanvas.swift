@@ -1472,6 +1472,27 @@ final class CanvasViewModel: ObservableObject {
         cropAspectRatio = nil
     }
 
+    // Crop directly to a canvas-space rect (from annotation bounds)
+    func cropToRect(_ canvasRect: CGRect) {
+        guard canvasRect.width > 4, canvasRect.height > 4,
+              let bgImage = backgroundImage,
+              canvasSize.width > 0, canvasSize.height > 0 else { return }
+        let scaleX = CGFloat(bgImage.width) / canvasSize.width
+        let scaleY = CGFloat(bgImage.height) / canvasSize.height
+        let pixelRect = CGRect(
+            x: canvasRect.minX * scaleX, y: canvasRect.minY * scaleY,
+            width: canvasRect.width * scaleX, height: canvasRect.height * scaleY
+        ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
+        guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
+              let cropped = bgImage.cropping(to: pixelRect) else { return }
+        backgroundImage = cropped
+        annotations.removeAll()
+        selectedAnnotationID = nil
+        undoManager.removeAllActions()
+        updateUndoRedoState()
+        recomputeAllFilterPreviews()
+    }
+
     // MARK: - Image Adjustments
 
     func bakeAdjustments() {
