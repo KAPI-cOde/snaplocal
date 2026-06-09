@@ -1912,7 +1912,8 @@ struct HelpPopoverContent: View {
             ("ピンチ / スクロール", "ズーム・パン"),
             ("Space+ドラッグ", "パン"),
             ("⌘+ / ⌘-", "ズームイン/アウト"),
-            ("⌘0", "ズームリセット"),
+            ("⌘0", "ズームリセット (100%)"),
+            ("⌘F", "フィット表示"),
         ]),
         ("その他", [
             ("⌘↑ / ⌘↓", "履歴の前/次"),
@@ -2601,6 +2602,19 @@ struct AnnotationCanvasView: View {
             .onKeyPress("0", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
                 zoom = 1.0; baseZoom = 1.0
+                panOffset = .zero; basePan = .zero
+                return .handled
+            }
+            .onKeyPress("f", phases: .down) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                // Fit canvas to viewport
+                let img = viewModel.backgroundImage
+                let iw = img.map { CGFloat($0.width) } ?? viewModel.canvasSize.width
+                let ih = img.map { CGFloat($0.height) } ?? viewModel.canvasSize.height
+                guard iw > 0, ih > 0 else { return .ignored }
+                let fitZoom = min(viewModel.canvasSize.width / iw, viewModel.canvasSize.height / ih)
+                zoom = max(0.25, min(8.0, fitZoom))
+                baseZoom = zoom
                 panOffset = .zero; basePan = .zero
                 return .handled
             }
