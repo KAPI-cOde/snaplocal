@@ -21,6 +21,7 @@ enum SettingsKey: String {
     case launchAtLogin = "launch.atLogin"
     case recentCustomColors = "color.recentCustomColors"
     case filenameTemplate = "filename.template"
+    case captureWithCursor = "capture.withCursor"
 }
 
 // MARK: - Settings Manager
@@ -130,6 +131,13 @@ final class SettingsManager: ObservableObject {
         let illegal = CharacterSet(charactersIn: ":/\\?%*|\"<>")
         result = result.components(separatedBy: illegal).joined(separator: "-")
         return result.isEmpty ? "SnapLocal-\(df.string(from: date))-\(tf.string(from: date))" : result
+    }
+
+    // MARK: - Capture Cursor
+
+    var captureWithCursor: Bool {
+        get { defaults.bool(forKey: SettingsKey.captureWithCursor.rawValue) }
+        set { defaults.set(newValue, forKey: SettingsKey.captureWithCursor.rawValue) }
     }
 
     // MARK: - Recent Custom Colors (up to 5 hex strings "RRGGBBAA")

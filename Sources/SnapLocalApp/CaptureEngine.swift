@@ -185,7 +185,7 @@ final class CaptureEngine: @unchecked Sendable {
         config.width = Int(CGFloat(display.width) * displayScale)
         config.height = Int(CGFloat(display.height) * displayScale)
         config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        config.showsCursor = false
+        config.showsCursor = await MainActor.run { SettingsManager.shared.captureWithCursor }
         config.capturesAudio = false
         config.scalesToFit = false
 
@@ -238,7 +238,7 @@ final class CaptureEngine: @unchecked Sendable {
         let scale = NSScreen.main?.backingScaleFactor ?? 2.0
         config.width = max(1, Int(window.frame.width * scale))
         config.height = max(1, Int(window.frame.height * scale))
-        config.showsCursor = false
+        config.showsCursor = await MainActor.run { SettingsManager.shared.captureWithCursor }
         config.capturesAudio = false
         config.scalesToFit = false
 
@@ -292,7 +292,7 @@ final class CaptureEngine: @unchecked Sendable {
         configuration.width = Int(CGFloat(display.width) * displayScale)
         configuration.height = Int(CGFloat(display.height) * displayScale)
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        configuration.showsCursor = false
+        configuration.showsCursor = await MainActor.run { SettingsManager.shared.captureWithCursor }
         configuration.capturesAudio = false
         // Don't use scalesToFit - we set exact pixel dimensions
         configuration.scalesToFit = false

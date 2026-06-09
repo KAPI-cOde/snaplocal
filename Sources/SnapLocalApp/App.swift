@@ -1931,6 +1931,13 @@ struct SettingsSheet: View {
                     .pickerStyle(.menu)
                 }
 
+                Section("キャプチャ") {
+                    Toggle("カーソルを含める", isOn: Binding(
+                        get: { settings.captureWithCursor },
+                        set: { settings.captureWithCursor = $0 }
+                    ))
+                }
+
                 Section("通知") {
                     Toggle("撮影完了を通知する", isOn: Binding(
                         get: { settings.notificationsEnabled },
