@@ -404,6 +404,27 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         NSPasteboard.general.writeObjects([nsImage])
     }
 
+    func copySelectedRegion() {
+        guard let id = canvas.selectedAnnotationID,
+              let ann = canvas.annotations.first(where: { $0.id == id }),
+              let bgImage = canvas.backgroundImage,
+              canvas.canvasSize.width > 0, canvas.canvasSize.height > 0 else {
+            showStatus("コピーする領域を選択してください")
+            return
+        }
+        let bounds = ann.bounds(in: CGRect(origin: .zero, size: canvas.canvasSize))
+        let scaleX = CGFloat(bgImage.width) / canvas.canvasSize.width
+        let scaleY = CGFloat(bgImage.height) / canvas.canvasSize.height
+        let pixelRect = CGRect(
+            x: bounds.minX * scaleX, y: bounds.minY * scaleY,
+            width: bounds.width * scaleX, height: bounds.height * scaleY
+        ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
+        guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
+              let cropped = bgImage.cropping(to: pixelRect) else { return }
+        copyImageToClipboard(cropped)
+        showStatus("選択範囲をコピーしました (\(Int(pixelRect.width))×\(Int(pixelRect.height)) px)")
+    }
+
     // MARK: - Capture result
 
     func handleCaptureResult(_ result: Result<CGImage, Error>) {
@@ -1925,7 +1946,8 @@ struct ContentView: View {
                     onOpenPermissions: state.openScreenRecordingSettings,
                     onFocusSearch: { state.searchFocusTrigger.toggle() },
                     onNavigateHistory: { delta in state.navigateHistory(by: delta) },
-                    onCopyOriginal: state.copyOriginalToClipboard
+                    onCopyOriginal: state.copyOriginalToClipboard,
+                    onCopyRegion: state.copySelectedRegion
                 )
                     .frame(minWidth: 600, minHeight: 400)
                     .background(Color(nsColor: .windowBackgroundColor))
@@ -1995,6 +2017,7 @@ struct AnnotationCanvasView: View {
     var onFocusSearch: (() -> Void)? = nil
     var onNavigateHistory: ((Int) -> Void)? = nil
     var onCopyOriginal: (() -> Void)? = nil
+    var onCopyRegion: (() -> Void)? = nil
 
     @FocusState private var textFieldFocused: Bool
     @FocusState private var canvasFocused: Bool
@@ -2114,6 +2137,7 @@ struct AnnotationCanvasView: View {
                     Button("背面へ (⌘[)") { viewModel.sendSelectedToBack() }
                     if [AnnotationType.rectangle, .ellipse, .roundedRect, .highlight, .spotlight].contains(ann.type) {
                         Divider()
+                        Button("この範囲をコピー (⌘⌥⇧C)") { onCopyRegion?() }
                         Button("この範囲で切り取り") {
                             let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
                             viewModel.cropToRect(bounds)
@@ -2202,6 +2226,9 @@ struct AnnotationCanvasView: View {
             .onKeyPress("q") { if !viewModel.showTextInput { viewModel.currentTool = .measure }; return .handled }
             .onKeyPress("o") { if !viewModel.showTextInput { viewModel.currentTool = .spotlight }; return .handled }
             .onKeyPress("c", phases: .down) { press in
+                if press.modifiers.contains([.command, .option, .shift]) {
+                    onCopyRegion?(); return .handled
+                }
                 guard press.modifiers.contains([.command, .option]) else { return .ignored }
                 onCopyOriginal?(); return .handled
             }
