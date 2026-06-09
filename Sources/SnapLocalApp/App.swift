@@ -345,6 +345,26 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         showStatus("オリジナル（アノテーションなし）をコピーしました")
     }
 
+    func openInPreview() {
+        // If there's a saved vault item for the current canvas, open it directly
+        if let id = currentVaultID,
+           let item = history.first(where: { $0.id == id }) {
+            NSWorkspace.shared.open([item.imageURL], withAppBundleIdentifier: "com.apple.Preview",
+                                    options: [], additionalEventParamDescriptor: nil, launchIdentifiers: nil)
+            return
+        }
+        // Otherwise render annotations to a temp file
+        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
+              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            showStatus("画像がありません"); return
+        }
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SnapLocal-preview-\(UUID().uuidString).png")
+        guard (try? data.write(to: tmpURL)) != nil else { showStatus("一時ファイル作成失敗"); return }
+        NSWorkspace.shared.open([tmpURL], withAppBundleIdentifier: "com.apple.Preview",
+                                options: [], additionalEventParamDescriptor: nil, launchIdentifiers: nil)
+    }
+
     func shareCurrentImage() {
         guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
               let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
@@ -1245,6 +1265,10 @@ struct HistoryRail: View {
                             Button("ファイルに保存…") { onExport(item) }
                             Button("Finderで表示") {
                                 NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
+                            }
+                            Button("Previewで開く") {
+                                NSWorkspace.shared.open([item.imageURL], withAppBundleIdentifier: "com.apple.Preview",
+                                                        options: [], additionalEventParamDescriptor: nil, launchIdentifiers: nil)
                             }
                             Button("ファイルパスをコピー") {
                                 NSPasteboard.general.clearContents()
