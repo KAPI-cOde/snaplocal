@@ -1928,6 +1928,8 @@ struct AnnotationCanvasView: View {
     @State private var panOffset: CGSize = .zero
     @State private var basePan: CGSize = .zero
     @State private var isPanning = false
+    @State private var hoverLocation: CGPoint? = nil
+    @State private var hoverColorHex: String? = nil
 
     private func updateCursor() {
         guard isHovering else { return }
@@ -1944,6 +1946,33 @@ struct AnnotationCanvasView: View {
     private func toCanvas(_ point: CGPoint, size: CGSize) -> CGPoint {
         let cx = size.width / 2, cy = size.height / 2
         return CGPoint(x: (point.x - cx) / zoom + cx, y: (point.y - cy) / zoom + cy)
+    }
+
+    private func eyedropperSwatchView(hex: String, viewSize: CGSize, at loc: CGPoint) -> some View {
+        let swatchW: CGFloat = 100, swatchH: CGFloat = 28
+        let offsetX: CGFloat = 20, offsetY: CGFloat = 20
+        let x = min(loc.x + offsetX, viewSize.width - swatchW - 4)
+        let y = min(loc.y + offsetY, viewSize.height - swatchH - 4)
+        let nsColor = ColorWellView.hexToNSColor(hex)
+        let color = nsColor.map { Color(nsColor: $0) } ?? Color.clear
+        return ZStack(alignment: .topLeading) {
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(color)
+                    .frame(width: 16, height: 16)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.6), lineWidth: 1))
+                Text("#" + hex.prefix(6).lowercased())
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 7))
+            .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
+            .offset(x: x, y: y)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 
     var body: some View {
@@ -2057,6 +2086,13 @@ struct AnnotationCanvasView: View {
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
                         .padding(8)
                         .onTapGesture { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
+                }
+            }
+            .overlay {
+                if viewModel.currentTool == .colorPicker,
+                   let loc = hoverLocation,
+                   let hex = hoverColorHex {
+                    eyedropperSwatchView(hex: hex, viewSize: proxy.size, at: loc)
                 }
             }
             .focusable()
@@ -2267,9 +2303,32 @@ struct AnnotationCanvasView: View {
                     updateCursor()
                 } else {
                     NSCursor.arrow.set()
+                    hoverLocation = nil
+                    hoverColorHex = nil
                 }
             }
-            .onChange(of: viewModel.currentTool) { _, _ in updateCursor() }
+            .onContinuousHover { phase in
+                if case .active(let location) = phase {
+                    if viewModel.currentTool == .colorPicker {
+                        hoverLocation = location
+                        let canvasLoc = toCanvas(location, size: proxy.size)
+                        hoverColorHex = viewModel.sampleColor(at: canvasLoc)
+                    } else {
+                        hoverLocation = nil
+                        hoverColorHex = nil
+                    }
+                } else {
+                    hoverLocation = nil
+                    hoverColorHex = nil
+                }
+            }
+            .onChange(of: viewModel.currentTool) { _, _ in
+                updateCursor()
+                if viewModel.currentTool != .colorPicker {
+                    hoverLocation = nil
+                    hoverColorHex = nil
+                }
+            }
             .onChange(of: viewModel.loadToken) { _, _ in
                 zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero
             }
