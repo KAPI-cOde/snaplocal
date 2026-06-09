@@ -831,7 +831,7 @@ struct CompactToolbar: View {
                     toolButton(tool, canvas: canvas)
                 }
                 Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
-                ForEach([DrawingTool.text, .step, .callout, .highlight, .pencil, .stamp, .redact], id: \.self) { tool in
+                ForEach([DrawingTool.text, .step, .callout, .highlight, .pencil, .stamp, .redact, .spotlight], id: \.self) { tool in
                     toolButton(tool, canvas: canvas)
                 }
             }
@@ -2193,6 +2193,7 @@ struct AnnotationCanvasView: View {
             .onKeyPress("g") { if !viewModel.showTextInput { viewModel.currentTool = .stamp }; return .handled }
             .onKeyPress("i") { if !viewModel.showTextInput { viewModel.currentTool = .colorPicker }; return .handled }
             .onKeyPress("q") { if !viewModel.showTextInput { viewModel.currentTool = .measure }; return .handled }
+            .onKeyPress("o") { if !viewModel.showTextInput { viewModel.currentTool = .spotlight }; return .handled }
             .onKeyPress("c", phases: .down) { press in
                 guard press.modifiers.contains([.command, .option]) else { return .ignored }
                 onCopyOriginal?(); return .handled
@@ -2531,6 +2532,21 @@ struct AnnotationCanvasView: View {
                         context.stroke(Path(bounds), with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
                     }
+                } else if annotation.type == .spotlight {
+                    // Spotlight: dim the whole canvas, punch out the ellipse
+                    let spotPath = annotation.path(in: canvasRect)
+                    context.drawLayer { ctx in
+                        ctx.fill(Path(canvasRect), with: .color(.black.opacity(0.6 * annotationOpacity)))
+                        ctx.blendMode = .destinationOut
+                        ctx.fill(spotPath, with: .color(.black))
+                    }
+                    // Bright ring around spotlight
+                    context.stroke(spotPath, with: .color(.white.opacity(0.6 * annotationOpacity)),
+                                   style: StrokeStyle(lineWidth: 2))
+                    if annotation.id == viewModel.selectedAnnotationID {
+                        context.stroke(spotPath, with: .color(.accentColor),
+                                       style: StrokeStyle(lineWidth: 2.5, dash: [5, 3]))
+                    }
                 } else if !annotation.hasStrokeRepresentation {
                     let bounds = annotation.bounds(in: canvasRect)
                     // Show placeholder while dragging (cached preview belongs to old position)
@@ -2702,6 +2718,16 @@ struct AnnotationCanvasView: View {
                     case .highlight:
                         preview = Path(CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                               width: abs(end.x - start.x), height: abs(end.y - start.y)))
+                    case .spotlight:
+                        let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                                       width: abs(end.x - start.x), height: abs(end.y - start.y))
+                        context.drawLayer { ctx in
+                            ctx.fill(Path(canvasRect), with: .color(.black.opacity(0.5)))
+                            ctx.blendMode = .destinationOut
+                            ctx.fill(Path(ellipseIn: r), with: .color(.black))
+                        }
+                        context.stroke(Path(ellipseIn: r), with: .color(.white.opacity(0.6)),
+                                       style: StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
                     default: break
                     }
                     if !preview.isEmpty {

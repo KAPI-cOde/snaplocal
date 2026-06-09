@@ -50,6 +50,7 @@ enum AnnotationType: String, Codable, CaseIterable {
     case callout = "callout"
     case highlight = "highlight"
     case pencil = "pencil"
+    case spotlight = "spotlight"
 }
 
 enum AnnotationColor: String, Codable, CaseIterable {
@@ -118,6 +119,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     case stamp = "stamp"
     case colorPicker = "colorPicker"
     case measure = "measure"
+    case spotlight = "spotlight"
 
     var systemImage: String {
         switch self {
@@ -136,6 +138,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .stamp: return "face.smiling"
         case .colorPicker: return "eyedropper.halffull"
         case .measure: return "ruler"
+        case .spotlight: return "spotlight"
         }
     }
 
@@ -156,12 +159,14 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .stamp: return "スタンプ"
         case .colorPicker: return "スポイト"
         case .measure: return "定規"
+        case .spotlight: return "スポットライト"
         }
     }
 
     var annotationType: AnnotationType? {
         switch self {
         case .select, .redact, .stamp, .colorPicker, .measure: return nil
+        case .spotlight: return .spotlight
         case .line: return .line
         case .arrow: return .arrow
         case .rectangle: return .rectangle
@@ -178,7 +183,7 @@ enum DrawingTool: String, Codable, CaseIterable {
     var usesLineWidth: Bool {
         switch self {
         case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout, .pencil: return true
-        case .select, .redact, .highlight, .stamp, .colorPicker, .measure: return false
+        case .select, .redact, .highlight, .stamp, .colorPicker, .measure, .spotlight: return false
         }
     }
 }
@@ -1353,6 +1358,14 @@ final class CanvasViewModel: ObservableObject {
             annotation = AnyAnnotation(HighlightAnnotation(color: color, rect: rect))
         case .text, .pencil:
             return
+        case .spotlight:
+            let rect = CGRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: abs(end.x - start.x),
+                height: abs(end.y - start.y)
+            )
+            annotation = AnyAnnotation(SpotlightAnnotation(rect: rect))
         }
 
         var mutableAnnotation = annotation
@@ -1729,6 +1742,19 @@ final class CanvasViewModel: ObservableObject {
                 NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: false)
                 NSAttributedString(string: text, attributes: attrs).draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
+            } else if annotation.type == .spotlight {
+                // Spotlight: dark overlay with ellipse punched out
+                cgCtx.setFillColor(CGColor(gray: 0, alpha: 0.6 * annotation.opacity))
+                cgCtx.fill(fullRect)
+                cgCtx.setBlendMode(.clear)
+                let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
+                cgCtx.addPath(cgPath)
+                cgCtx.fillPath()
+                cgCtx.setBlendMode(.normal)
+                cgCtx.setStrokeColor(CGColor(gray: 1, alpha: 0.6 * annotation.opacity))
+                cgCtx.setLineWidth(2 * strokeScale)
+                cgCtx.addPath(cgPath)
+                cgCtx.strokePath()
             } else if annotation.type == .highlight {
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
                 cgCtx.addPath(cgPath)
