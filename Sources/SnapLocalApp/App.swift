@@ -796,6 +796,7 @@ struct HistoryRail: View {
 
             Divider()
 
+            ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
                     ForEach(history) { item in
@@ -840,6 +841,7 @@ struct HistoryRail: View {
                                 }
                             }
                         }
+                        .id(item.id)
                         .buttonStyle(.plain)
                         .onHover { hovering in hoveredItemID = hovering ? item.id : nil }
                         .popover(isPresented: Binding(
@@ -877,6 +879,14 @@ struct HistoryRail: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 6)
             }
+            .onChange(of: selectedID) { _, newID in
+                if let id = newID {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+            } // ScrollViewReader
 
             Divider()
             HStack(spacing: 0) {
