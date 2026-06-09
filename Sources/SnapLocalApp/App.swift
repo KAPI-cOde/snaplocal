@@ -371,9 +371,15 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         Task {
             do {
                 let windows = try await CaptureEngine.availableWindows()
-                windowPickerItems = windows
-                showWindowPicker = true
-                showStatus("ウィンドウを選択してください")
+                showStatus("ウィンドウにカーソルを合わせてクリック")
+                WindowHoverCapture.start(windows: windows) { [weak self] selected in
+                    guard let self else { return }
+                    if let win = selected {
+                        self.captureWindowNow(win)
+                    } else {
+                        self.showStatus("キャンセルしました")
+                    }
+                }
             } catch {
                 showStatus("ウィンドウ一覧の取得に失敗しました")
             }
