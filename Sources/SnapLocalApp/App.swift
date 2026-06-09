@@ -11,7 +11,45 @@ import ScreenCaptureKit
 import PDFKit
 import Combine
 
+extension Notification.Name {
+    static let snapLocalZoomIn    = Notification.Name("snaplocal.zoom.in")
+    static let snapLocalZoomOut   = Notification.Name("snaplocal.zoom.out")
+    static let snapLocalZoomReset = Notification.Name("snaplocal.zoom.reset")
+    static let snapLocalZoomFit   = Notification.Name("snaplocal.zoom.fit")
+}
+
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
+
+// MARK: - Zoom Notification Handler
+
+private struct ZoomNotificationHandler: ViewModifier {
+    @Binding var zoom: CGFloat
+    @Binding var baseZoom: CGFloat
+    @Binding var panOffset: CGSize
+    @Binding var basePan: CGSize
+    let canvasSize: CGSize
+    let imageSize: CGSize?
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomIn)) { _ in
+                zoom = min(8.0, zoom * 1.25); baseZoom = zoom
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomOut)) { _ in
+                zoom = max(0.25, zoom / 1.25); baseZoom = zoom
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomReset)) { _ in
+                zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomFit)) { _ in
+                guard let sz = imageSize, sz.width > 0, sz.height > 0 else { return }
+                let fitW = canvasSize.width / sz.width
+                let fitH = canvasSize.height / sz.height
+                zoom = max(0.25, min(8.0, min(fitW, fitH))); baseZoom = zoom
+                panOffset = .zero; basePan = .zero
+            }
+    }
+}
 
 @main
 struct SnapLocalApp: App {
@@ -26,6 +64,43 @@ struct SnapLocalApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .appSettings) {}
+
+            // File menu extras
+            CommandGroup(after: .saveItem) {
+                Button("別名で保存…") { appState.saveAnnotatedImageAs() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                Button("履歴をZIPで書き出し") { appState.exportHistoryAsZip() }
+            }
+
+            // Capture menu
+            CommandMenu("キャプチャ") {
+                Button("全画面撮影") { appState.captureNow() }
+                    .keyboardShortcut("2", modifiers: [.command, .shift])
+                Button("範囲選択撮影") { appState.captureRegion() }
+                    .keyboardShortcut("4", modifiers: [.command, .shift])
+                Button("ウィンドウ撮影") { appState.captureWindowMode() }
+                    .keyboardShortcut("3", modifiers: [.command, .shift])
+                Button("前回の範囲を再撮影") { appState.repeatLastRegionCapture() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Divider()
+                Menu("遅延撮影") {
+                    Button("3秒後") { appState.captureWithDelay(3) }
+                    Button("5秒後") { appState.captureWithDelay(5) }
+                    Button("10秒後") { appState.captureWithDelay(10) }
+                }
+            }
+
+            // View menu
+            CommandMenu("表示") {
+                Button("ズームイン") { NotificationCenter.default.post(name: .snapLocalZoomIn, object: nil) }
+                    .keyboardShortcut("+", modifiers: .command)
+                Button("ズームアウト") { NotificationCenter.default.post(name: .snapLocalZoomOut, object: nil) }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("実寸 (100%)") { NotificationCenter.default.post(name: .snapLocalZoomReset, object: nil) }
+                    .keyboardShortcut("0", modifiers: .command)
+                Button("フィット表示") { NotificationCenter.default.post(name: .snapLocalZoomFit, object: nil) }
+                    .keyboardShortcut("f", modifiers: .command)
+            }
         }
 
         MenuBarExtra("SnapLocal", systemImage: "camera.viewfinder") {
@@ -2517,6 +2592,12 @@ struct AnnotationCanvasView: View {
             .onAppear { viewModel.canvasSize = proxy.size; viewModel.currentZoom = zoom }
             .onChange(of: proxy.size) { _, newSize in viewModel.canvasSize = newSize }
             .onChange(of: zoom) { _, z in viewModel.currentZoom = z }
+            .modifier(ZoomNotificationHandler(
+                zoom: $zoom, baseZoom: $baseZoom,
+                panOffset: $panOffset, basePan: $basePan,
+                canvasSize: viewModel.canvasSize,
+                imageSize: viewModel.backgroundImage.map { CGSize(width: $0.width, height: $0.height) }
+            ))
             .overlay(textInputOverlay)
             .overlay(
                 ScrollWheelHandler { dx, dy, isCmd in
@@ -2586,7 +2667,8 @@ struct AnnotationCanvasView: View {
             }
             .onKeyPress("a", phases: .down) { press in
                 guard !viewModel.showTextInput, press.modifiers.contains(.command) else { return .ignored }
-                viewModel.selectedAnnotationIDs = Set(viewModel.annotations.map { $0.id })
+                let allIDs: Set<UUID> = Set(viewModel.annotations.map { $0.id })
+                viewModel.selectedAnnotationIDs = allIDs
                 viewModel.selectedAnnotationID = viewModel.annotations.last?.id
                 viewModel.objectWillChange.send()
                 return .handled
@@ -2608,11 +2690,12 @@ struct AnnotationCanvasView: View {
             .onKeyPress("f", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
                 // Fit canvas to viewport
-                let img = viewModel.backgroundImage
-                let iw = img.map { CGFloat($0.width) } ?? viewModel.canvasSize.width
-                let ih = img.map { CGFloat($0.height) } ?? viewModel.canvasSize.height
+                let iw: CGFloat = viewModel.backgroundImage.map { CGFloat($0.width) } ?? viewModel.canvasSize.width
+                let ih: CGFloat = viewModel.backgroundImage.map { CGFloat($0.height) } ?? viewModel.canvasSize.height
                 guard iw > 0, ih > 0 else { return .ignored }
-                let fitZoom = min(viewModel.canvasSize.width / iw, viewModel.canvasSize.height / ih)
+                let fitW = viewModel.canvasSize.width / iw
+                let fitH = viewModel.canvasSize.height / ih
+                let fitZoom: CGFloat = min(fitW, fitH)
                 zoom = max(0.25, min(8.0, fitZoom))
                 baseZoom = zoom
                 panOffset = .zero; basePan = .zero
@@ -2637,7 +2720,8 @@ struct AnnotationCanvasView: View {
             }
             .onKeyPress(.tab, phases: .down) { press in
                 guard !viewModel.showTextInput else { return .ignored }
-                if viewModel.currentTool == .select && !viewModel.annotations.isEmpty {
+                let isSelectMode = viewModel.currentTool == .select
+                if isSelectMode && !viewModel.annotations.isEmpty {
                     // Tab cycles through annotations when in select mode
                     let anns = viewModel.annotations
                     let currentIdx = anns.firstIndex { $0.id == viewModel.selectedAnnotationID } ?? -1
@@ -2678,7 +2762,8 @@ struct AnnotationCanvasView: View {
                     viewModel.clearAllAnnotations()
                     return .handled
                 }
-                if press.modifiers.isEmpty || press.modifiers == .option {
+                let mods = press.modifiers
+                if mods.isEmpty || mods == .option {
                     viewModel.deleteSelectedAnnotation()
                     return .handled
                 }
@@ -2736,10 +2821,12 @@ struct AnnotationCanvasView: View {
             .onKeyPress(characters: .init(charactersIn: "[]{}"), phases: .down) { press in
                 guard !viewModel.showTextInput else { return .ignored }
                 let ch = press.key.character
-                if press.modifiers.contains(.command) {
+                let isCmd = press.modifiers.contains(.command)
+                let isShift = press.modifiers.contains(.shift)
+                if isCmd {
                     if ch == "[" { viewModel.sendSelectedToBack() }
-                    else if ch == "]" { viewModel.bringSelectedToFront() }
-                } else if press.modifiers.contains(.shift) {
+                    if ch == "]" { viewModel.bringSelectedToFront() }
+                } else if isShift {
                     // Shift+[ = { and Shift+] = } → adjust opacity ±10%
                     let delta: Double = (ch == "{") ? -0.1 : 0.1
                     viewModel.currentOpacity = max(0.1, min(1.0, viewModel.currentOpacity + delta))
@@ -2759,10 +2846,10 @@ struct AnnotationCanvasView: View {
                 if viewModel.isCropMode && viewModel.cropStart != nil {
                     viewModel.confirmCrop(); return .handled
                 }
-                if viewModel.currentTool == .select,
-                   let id = viewModel.selectedAnnotationID,
-                   let ann = viewModel.annotations.first(where: { $0.id == id }),
-                   ann.type == .text {
+                let isSelectTool = viewModel.currentTool == .select
+                let selID = viewModel.selectedAnnotationID
+                let selAnn = selID.flatMap { id in viewModel.annotations.first(where: { $0.id == id }) }
+                if isSelectTool, selAnn?.type == .text {
                     viewModel.beginEditingSelectedText(); return .handled
                 }
                 return .ignored
