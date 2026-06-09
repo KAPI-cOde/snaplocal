@@ -167,7 +167,7 @@ struct CaptureNotificationView: View {
                             Text("編集")
                                 .font(.system(size: DS.FontSize.caption2, weight: .semibold))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, DS.Space.xxs)
                         .padding(.vertical, 2)
                         .background(.ultraThinMaterial)
