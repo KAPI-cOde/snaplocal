@@ -70,6 +70,9 @@ actor PersistentVault {
     private var manifest: [UUID: VaultManifestEntry] = [:]
     private var orderedIDs: [UUID] = []         // newest first
     private let thumbnailSize = CGSize(width: 200, height: 130)
+    /// サムネイルJPEGのメモリキャッシュ。allItems()/search()が呼ばれるたびに
+    /// 全件をディスクから読み直すのを防ぐ。コスト=バイト数、上限50MB。
+    private let thumbDataCache = NSCache<NSString, NSData>()
 
     init(directory: URL? = nil) {
         let dir = directory ?? {
@@ -79,6 +82,7 @@ actor PersistentVault {
         self.baseDirectory = dir
         self.thumbDirectory = dir.appendingPathComponent("thumbnails", isDirectory: true)
         self.indexURL = dir.appendingPathComponent("index.json")
+        thumbDataCache.totalCostLimit = 50 * 1024 * 1024
         // Setup inline (can't call isolated methods from actor init in Swift 6)
         let fm = FileManager.default
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -109,6 +113,9 @@ actor PersistentVault {
         } catch {
             return nil
         }
+        thumbDataCache.setObject(thumbData as NSData,
+                                 forKey: thumbFilename as NSString,
+                                 cost: thumbData.count)
 
         let annotationsData = try? JSONEncoder().encode(annotations)
         let entry = VaultManifestEntry(
@@ -181,6 +188,9 @@ actor PersistentVault {
         let thumbURL = baseDirectory.appendingPathComponent(entry.thumbFilename)
         if let thumbData = jpegThumbnail(from: annotatedImage) {
             try? thumbData.write(to: thumbURL, options: .atomic)
+            thumbDataCache.setObject(thumbData as NSData,
+                                     forKey: entry.thumbFilename as NSString,
+                                     cost: thumbData.count)
         }
     }
 
@@ -189,6 +199,7 @@ actor PersistentVault {
         guard let entry = manifest[id] else { return }
         try? FileManager.default.removeItem(at: baseDirectory.appendingPathComponent(entry.filename))
         try? FileManager.default.removeItem(at: baseDirectory.appendingPathComponent(entry.thumbFilename))
+        thumbDataCache.removeObject(forKey: entry.thumbFilename as NSString)
         manifest.removeValue(forKey: id)
         orderedIDs.removeAll { $0 == id }
         saveManifest()
@@ -216,7 +227,7 @@ actor PersistentVault {
         manifest[newID] = entry
         orderedIDs.insert(newID, at: 0)
         saveManifest()
-        let thumbData = (try? Data(contentsOf: dstThumb)) ?? Data()
+        let thumbData = cachedThumbnailData(for: entry)
         let annotations = entry.annotationsData
             .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
         return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
@@ -230,8 +241,7 @@ actor PersistentVault {
         orderedIDs.compactMap { id -> VaultItem? in
             guard let entry = manifest[id] else { return nil }
             let imageURL = baseDirectory.appendingPathComponent(entry.filename)
-            let thumbURL = baseDirectory.appendingPathComponent(entry.thumbFilename)
-            let thumbData = (try? Data(contentsOf: thumbURL)) ?? Data()
+            let thumbData = cachedThumbnailData(for: entry)
             let annotations = entry.annotationsData
                 .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
             return VaultItem(
@@ -264,6 +274,17 @@ actor PersistentVault {
     }
 
     // MARK: - Private
+
+    /// キャッシュ経由でサムネイルJPEGを読む。キーは thumbFilename(UUID入り)。
+    private func cachedThumbnailData(for entry: VaultManifestEntry) -> Data {
+        let key = entry.thumbFilename as NSString
+        if let cached = thumbDataCache.object(forKey: key) { return cached as Data }
+        guard let data = try? Data(contentsOf: baseDirectory.appendingPathComponent(entry.thumbFilename)) else {
+            return Data()
+        }
+        thumbDataCache.setObject(data as NSData, forKey: key, cost: data.count)
+        return data
+    }
 
     private func setupDirectories() {
         let fm = FileManager.default
