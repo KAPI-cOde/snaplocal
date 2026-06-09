@@ -739,7 +739,20 @@ struct CompactToolbar: View {
                 .buttonStyle(.plain)
                 .frame(width: 18, height: 18)
                 .help(color.rawValue)
+                .simultaneousGesture(TapGesture().onEnded {
+                    canvas.currentCustomColorHex = nil
+                    canvas.applyCustomColorToSelection(hex: nil)
+                })
             }
+
+            // Custom color well
+            ColorWellView(colorHex: $canvas.currentCustomColorHex) { hex in
+                canvas.currentCustomColorHex = hex
+                canvas.applyCustomColorToSelection(hex: hex)
+            }
+            .frame(width: 18, height: 18)
+            .cornerRadius(3)
+            .help("カスタムカラー（クリックで色を選択）")
 
             Divider().frame(height: 18)
 
@@ -1062,6 +1075,59 @@ struct HistoryRail: View {
 }
 
 // MARK: - Hint Row
+
+// MARK: - Color Well View
+
+struct ColorWellView: NSViewRepresentable {
+    @Binding var colorHex: String?
+    var onColorPicked: (String?) -> Void
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let well = NSColorWell(style: .minimal)
+        well.isBordered = false
+        well.color = colorHex.flatMap { Self.hexToNSColor($0) } ?? .red
+        well.target = context.coordinator
+        well.action = #selector(Coordinator.colorChanged(_:))
+        return well
+    }
+
+    func updateNSView(_ nsView: NSColorWell, context: Context) {
+        context.coordinator.onColorPicked = onColorPicked
+        if let hex = colorHex, let c = Self.hexToNSColor(hex) {
+            nsView.color = c
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onColorPicked: onColorPicked) }
+
+    static func hexToNSColor(_ hex: String) -> NSColor? {
+        guard hex.count == 8,
+              let r = UInt8(hex.prefix(2), radix: 16),
+              let g = UInt8(hex.dropFirst(2).prefix(2), radix: 16),
+              let b = UInt8(hex.dropFirst(4).prefix(2), radix: 16),
+              let a = UInt8(hex.dropFirst(6).prefix(2), radix: 16) else { return nil }
+        return NSColor(red: CGFloat(r)/255, green: CGFloat(g)/255, blue: CGFloat(b)/255, alpha: CGFloat(a)/255)
+    }
+
+    static func nsColorToHex(_ c: NSColor) -> String {
+        let rgb = c.usingColorSpace(.sRGB) ?? c
+        let r = UInt8(max(0, min(255, rgb.redComponent * 255)))
+        let g = UInt8(max(0, min(255, rgb.greenComponent * 255)))
+        let b = UInt8(max(0, min(255, rgb.blueComponent * 255)))
+        let a = UInt8(max(0, min(255, rgb.alphaComponent * 255)))
+        return String(format: "%02X%02X%02X%02X", r, g, b, a)
+    }
+
+    class Coordinator: NSObject {
+        var onColorPicked: (String?) -> Void
+        init(onColorPicked: @escaping (String?) -> Void) { self.onColorPicked = onColorPicked }
+
+        @objc func colorChanged(_ sender: NSColorWell) {
+            let hex = ColorWellView.nsColorToHex(sender.color)
+            onColorPicked(hex)
+        }
+    }
+}
 
 // MARK: - Scroll Wheel Zoom/Pan Helper
 
@@ -1913,7 +1979,7 @@ struct AnnotationCanvasView: View {
                 let annotationOpacity = annotation.opacity
                 if annotation.type == .highlight {
                     let path = annotation.path(in: canvasRect)
-                    context.fill(path, with: .color(annotation.color.color.opacity(0.38 * annotationOpacity)))
+                    context.fill(path, with: .color(annotation.resolvedColor.opacity(0.38 * annotationOpacity)))
                     if annotation.id == viewModel.selectedAnnotationID || viewModel.selectedAnnotationIDs.contains(annotation.id) {
                         context.stroke(path, with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
@@ -1924,7 +1990,7 @@ struct AnnotationCanvasView: View {
                     if annotation.id == viewModel.selectedAnnotationID {
                         context.fill(circlePath, with: .color(.white.opacity(0.5)))
                     }
-                    context.fill(circlePath, with: .color(annotation.color.color.opacity(annotationOpacity)))
+                    context.fill(circlePath, with: .color(annotation.resolvedColor.opacity(annotationOpacity)))
                     let textColor: Color = annotation.color == .yellow || annotation.color == .white ? .black : .white
                     let fs = min(bounds.width, bounds.height) * 0.5
                     context.draw(
@@ -1951,7 +2017,7 @@ struct AnnotationCanvasView: View {
                     context.draw(
                         Text(text)
                             .font(.system(size: fontSize, weight: .semibold))
-                            .foregroundColor(annotation.color.color.opacity(annotationOpacity)),
+                            .foregroundColor(annotation.resolvedColor.opacity(annotationOpacity)),
                         in: bounds
                     )
                     if annotation.id == viewModel.selectedAnnotationID {
@@ -1988,12 +2054,12 @@ struct AnnotationCanvasView: View {
                         }
                     }
                     if annotation.isFilled {
-                        context.fill(path, with: .color(annotation.color.color.opacity(0.35 * annotationOpacity)))
-                        context.stroke(path, with: .color(annotation.color.color.opacity(annotationOpacity)), style: strokeStyle)
+                        context.fill(path, with: .color(annotation.resolvedColor.opacity(0.35 * annotationOpacity)))
+                        context.stroke(path, with: .color(annotation.resolvedColor.opacity(annotationOpacity)), style: strokeStyle)
                     } else {
-                        context.stroke(path, with: .color(annotation.color.color.opacity(annotationOpacity)), style: strokeStyle)
+                        context.stroke(path, with: .color(annotation.resolvedColor.opacity(annotationOpacity)), style: strokeStyle)
                         if annotation.type == .arrow {
-                            context.fill(path, with: .color(annotation.color.color.opacity(annotationOpacity)))
+                            context.fill(path, with: .color(annotation.resolvedColor.opacity(annotationOpacity)))
                         }
                     }
                     if annotation.id == viewModel.selectedAnnotationID {

@@ -23,6 +23,27 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var opacity: Double = 1.0
     var isLocked: Bool = false
     var lineStyle: LineStyle = .solid
+    var customColorHex: String? = nil   // "RRGGBBAA" when set; overrides color
+
+    var resolvedColor: Color {
+        guard let hex = customColorHex, hex.count == 8,
+              let rv = UInt8(hex.prefix(2), radix: 16),
+              let gv = UInt8(hex.dropFirst(2).prefix(2), radix: 16),
+              let bv = UInt8(hex.dropFirst(4).prefix(2), radix: 16),
+              let av = UInt8(hex.dropFirst(6).prefix(2), radix: 16)
+        else { return color.color }
+        return Color(red: Double(rv)/255, green: Double(gv)/255, blue: Double(bv)/255, opacity: Double(av)/255)
+    }
+
+    var resolvedCGColor: CGColor {
+        guard let hex = customColorHex, hex.count == 8,
+              let rv = UInt8(hex.prefix(2), radix: 16),
+              let gv = UInt8(hex.dropFirst(2).prefix(2), radix: 16),
+              let bv = UInt8(hex.dropFirst(4).prefix(2), radix: 16),
+              let av = UInt8(hex.dropFirst(6).prefix(2), radix: 16)
+        else { return color.cgColor }
+        return CGColor(red: CGFloat(rv)/255, green: CGFloat(gv)/255, blue: CGFloat(bv)/255, alpha: CGFloat(av)/255)
+    }
 
     // Captures base path with .identity transform; AnyAnnotation.transform applied on top in path(in:)
     private let _basePath: (CGRect) -> Path
@@ -87,11 +108,12 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     func encode(to encoder: Encoder) throws {
         try _encode(encoder)
         // Write opacity alongside concrete annotation keys (shared keyed container)
-        if opacity != 1.0 || isLocked || lineStyle != .solid {
+        if opacity != 1.0 || isLocked || lineStyle != .solid || customColorHex != nil {
             var container = encoder.container(keyedBy: CodingKeys.self)
             if opacity != 1.0 { try container.encode(opacity, forKey: .opacity) }
             if isLocked { try container.encode(isLocked, forKey: .isLocked) }
             if lineStyle != .solid { try container.encode(lineStyle, forKey: .lineStyle) }
+            if let hex = customColorHex { try container.encode(hex, forKey: .customColorHex) }
         }
     }
 
@@ -143,12 +165,13 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
         self.lineStyle = try container.decodeIfPresent(LineStyle.self, forKey: .lineStyle) ?? .solid
+        self.customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
         self._basePath = wrapped._basePath
         self._applyFilter = wrapped._applyFilter
         self._encode = wrapped._encode
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, color, lineWidth, transform, opacity, isLocked, lineStyle
+        case id, type, color, lineWidth, transform, opacity, isLocked, lineStyle, customColorHex
     }
 }

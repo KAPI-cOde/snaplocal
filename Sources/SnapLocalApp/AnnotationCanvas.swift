@@ -235,6 +235,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentOpacity: Double = 1.0
     @Published var currentTextBackground: Bool = false
     @Published var currentLineStyle: LineStyle = .solid
+    @Published var currentCustomColorHex: String? = nil
     @Published var snapGuides: [SnapGuide] = []
     @Published var annotationsHidden: Bool = false
     @Published var dragState = DragState()
@@ -280,6 +281,15 @@ final class CanvasViewModel: ObservableObject {
             guard var ann = annotations.first(where: { $0.id == id }),
                   ann.hasStrokeRepresentation, ann.lineWidth != currentLineWidth else { continue }
             ann.lineWidth = currentLineWidth
+            updateAnnotation(ann)
+        }
+    }
+
+    func applyCustomColorToSelection(hex: String?) {
+        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        for id in ids {
+            guard var ann = annotations.first(where: { $0.id == id }) else { continue }
+            ann.customColorHex = hex
             updateAnnotation(ann)
         }
     }
@@ -458,6 +468,7 @@ final class CanvasViewModel: ObservableObject {
                 }
                 currentOpacity = annotation.opacity
                 currentLineStyle = annotation.lineStyle
+                currentCustomColorHex = annotation.customColorHex
                 if annotation.type == .text {
                     currentTextBackground = annotation.textHasBackground
                 }
@@ -1213,6 +1224,7 @@ final class CanvasViewModel: ObservableObject {
         var mutableAnnotation = annotation
         mutableAnnotation.opacity = currentOpacity
         mutableAnnotation.lineStyle = currentLineStyle
+        mutableAnnotation.customColorHex = currentCustomColorHex
         addAnnotation(mutableAnnotation)
         selectedAnnotationID = mutableAnnotation.id
     }
@@ -1402,7 +1414,7 @@ final class CanvasViewModel: ObservableObject {
                 let rect = annotation.bounds(in: viewRect).applying(toImage)
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
                 cgCtx.addPath(cgPath)
-                cgCtx.setFillColor(annotation.color.cgColor)
+                cgCtx.setFillColor(annotation.resolvedCGColor)
                 cgCtx.fillPath()
                 let textColor: NSColor = (annotation.color == .yellow || annotation.color == .white)
                     ? .black : .white
@@ -1437,7 +1449,7 @@ final class CanvasViewModel: ObservableObject {
                 }
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: fs * strokeScale, weight: .semibold),
-                    .foregroundColor: NSColor(cgColor: annotation.color.cgColor) ?? .labelColor
+                    .foregroundColor: NSColor(cgColor: annotation.resolvedCGColor) ?? .labelColor
                 ]
                 NSGraphicsContext.saveGraphicsState()
                 NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: false)
@@ -1446,21 +1458,21 @@ final class CanvasViewModel: ObservableObject {
             } else if annotation.type == .highlight {
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
                 cgCtx.addPath(cgPath)
-                cgCtx.setFillColor(annotation.color.cgColor.copy(alpha: 0.38) ?? annotation.color.cgColor)
+                cgCtx.setFillColor(annotation.resolvedCGColor.copy(alpha: 0.38) ?? annotation.resolvedCGColor)
                 cgCtx.fillPath()
             } else {
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
                 if annotation.isFilled {
                     cgCtx.addPath(cgPath)
-                    cgCtx.setFillColor(annotation.color.cgColor.copy(alpha: 0.35) ?? annotation.color.cgColor)
+                    cgCtx.setFillColor(annotation.resolvedCGColor.copy(alpha: 0.35) ?? annotation.resolvedCGColor)
                     cgCtx.fillPath()
                 } else if annotation.type == .arrow {
                     cgCtx.addPath(cgPath)
-                    cgCtx.setFillColor(annotation.color.cgColor)
+                    cgCtx.setFillColor(annotation.resolvedCGColor)
                     cgCtx.fillPath()
                 }
                 cgCtx.addPath(cgPath)
-                cgCtx.setStrokeColor(annotation.color.cgColor)
+                cgCtx.setStrokeColor(annotation.resolvedCGColor)
                 let lw = annotation.lineWidth.rawValue * strokeScale
                 cgCtx.setLineWidth(lw)
                 cgCtx.setLineCap(.round)
