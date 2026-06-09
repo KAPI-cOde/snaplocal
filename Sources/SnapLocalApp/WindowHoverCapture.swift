@@ -269,55 +269,70 @@ private final class WindowOverlayView: NSView {
     private func drawBadge(for window: SCWindow, windowLocalFrame: CGRect, in ctx: CGContext) {
         let appName = window.owningApplication?.applicationName ?? ""
         let title = window.title ?? ""
-        let label: String
+        let nameLabel: String
         if title.isEmpty || title == appName {
-            label = appName.isEmpty ? "Window" : appName
+            nameLabel = appName.isEmpty ? "Window" : appName
         } else if appName.isEmpty {
-            label = title
+            nameLabel = title
         } else {
-            label = "\(appName)  —  \(title)"
+            nameLabel = "\(appName)  —  \(title)"
         }
 
-        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.white,
-        ]
-        let str = NSAttributedString(string: label, attributes: attrs)
-        let strSize = str.size()
+        // Pixel dimensions using screen backing scale
+        let scale = window_(for: windowLocalFrame) ?? 2.0
+        let pxW = Int(window.frame.width * scale)
+        let pxH = Int(window.frame.height * scale)
+        let sizeLabel = "\(pxW) × \(pxH)"
+
+        let nameFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let sizeFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        let nameAttrs: [NSAttributedString.Key: Any] = [.font: nameFont, .foregroundColor: NSColor.white]
+        let sizeAttrs: [NSAttributedString.Key: Any] = [.font: sizeFont, .foregroundColor: NSColor.white.withAlphaComponent(0.65)]
+        let nameStr = NSAttributedString(string: nameLabel, attributes: nameAttrs)
+        let sizeStr = NSAttributedString(string: sizeLabel, attributes: sizeAttrs)
+        let nameSize = nameStr.size()
+        let sizeSize = sizeStr.size()
+        let innerW = max(nameSize.width, sizeSize.width)
+        let innerH = nameSize.height + 2 + sizeSize.height
 
         let hPad: CGFloat = 10
-        let vPad: CGFloat = 5
-        let badgeW = min(strSize.width + hPad * 2, windowLocalFrame.width - 8)
-        let badgeH = strSize.height + vPad * 2
+        let vPad: CGFloat = 7
+        let badgeW = min(innerW + hPad * 2, windowLocalFrame.width - 8)
+        let badgeH = innerH + vPad * 2
         let badgeX = windowLocalFrame.midX - badgeW / 2
         let badgeMinY = windowLocalFrame.minY - badgeH - 8
-
-        // Place below window, or inside if too close to screen bottom
         let badgeY = badgeMinY >= 0 ? badgeMinY : windowLocalFrame.minY + 8
 
         let badgeRect = CGRect(x: badgeX, y: badgeY, width: badgeW, height: badgeH)
-        let badgePath = CGPath(roundedRect: badgeRect, cornerWidth: 5, cornerHeight: 5, transform: nil)
+        let badgePath = CGPath(roundedRect: badgeRect, cornerWidth: 6, cornerHeight: 6, transform: nil)
 
-        // Badge background
-        ctx.setFillColor(NSColor(red: 0.05, green: 0.05, blue: 0.12, alpha: 0.88).cgColor)
-        ctx.addPath(badgePath)
-        ctx.fillPath()
+        ctx.setFillColor(NSColor(red: 0.05, green: 0.05, blue: 0.12, alpha: 0.90).cgColor)
+        ctx.addPath(badgePath); ctx.fillPath()
+        ctx.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.55).cgColor)
+        ctx.setLineWidth(1); ctx.addPath(badgePath); ctx.strokePath()
 
-        // Badge border
-        ctx.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.6).cgColor)
-        ctx.setLineWidth(1)
-        ctx.addPath(badgePath)
-        ctx.strokePath()
-
-        // Badge text (clip to badge rect to handle long titles)
         ctx.saveGState()
         ctx.addPath(badgePath)
         ctx.clip()
-        let textX = badgeRect.minX + hPad
-        let textY = badgeRect.minY + vPad
-        str.draw(at: CGPoint(x: textX, y: textY))
+        // Name on top, size below
+        let nameX = badgeRect.minX + hPad
+        let nameY = badgeRect.minY + vPad + sizeSize.height + 2
+        let sizeX = badgeRect.minX + hPad
+        let sizeY = badgeRect.minY + vPad
+        nameStr.draw(at: CGPoint(x: nameX, y: nameY))
+        sizeStr.draw(at: CGPoint(x: sizeX, y: sizeY))
         ctx.restoreGState()
+    }
+
+    // Best-guess backing scale for the window's screen
+    private func window_(for localFrame: CGRect) -> CGFloat? {
+        // Find the NSScreen whose frame contains the center of the local rect
+        let centerNS = CGPoint(
+            x: screenFrame.minX + localFrame.midX,
+            y: screenFrame.minY + localFrame.midY
+        )
+        return NSScreen.screens.first(where: { $0.frame.contains(centerNS) })?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
     }
 
     private func drawHint(in ctx: CGContext) {
