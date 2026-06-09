@@ -1289,7 +1289,7 @@ final class CanvasViewModel: ObservableObject {
             case .medium: size = 36
             case .thick:  size = 48
             }
-            let stepNum = annotations.filter { $0.type == .step }.count + 1
+            let stepNum = (annotations.compactMap { $0.stepNumber }.max() ?? 0) + 1
             let rect = CGRect(x: start.x - size / 2, y: start.y - size / 2, width: size, height: size)
             let a = StepAnnotation(color: color, lineWidth: lineWidth, rect: rect, stepNumber: stepNum)
             annotation = AnyAnnotation(a)
@@ -1611,11 +1611,17 @@ final class CanvasViewModel: ObservableObject {
         let toImage = CGAffineTransform(scaleX: scaleX, y: scaleY)
         let strokeScale = min(scaleX, scaleY)
 
+        // Ordinal step numbers: position in annotation list, so deletion keeps 1,2,3 sequence
+        var exportStepOrdinal = 0
+        let stepOrdinals: [UUID: Int] = Dictionary(uniqueKeysWithValues: annotations.filter { $0.type == .step }.map { ann in
+            exportStepOrdinal += 1; return (ann.id, exportStepOrdinal)
+        })
+
         for annotation in annotations {
             guard annotation.hasStrokeRepresentation else { continue }
             cgCtx.saveGState()
             cgCtx.setAlpha(annotation.opacity)
-            if annotation.type == .step, let n = annotation.stepNumber {
+            if annotation.type == .step, let n = stepOrdinals[annotation.id] {
                 let rect = annotation.bounds(in: viewRect).applying(toImage)
                 let cgPath = annotation.path(in: viewRect).applying(toImage).cgPath
                 cgCtx.addPath(cgPath)

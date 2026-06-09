@@ -2204,6 +2204,12 @@ struct AnnotationCanvasView: View {
 
             guard !viewModel.annotationsHidden else { return }
 
+            // Ordinal step numbers: display 1,2,3 regardless of stored stepNumber
+            var ordinalStep = 0
+            let stepOrdinals: [UUID: Int] = Dictionary(uniqueKeysWithValues: viewModel.annotations.filter { $0.type == .step }.map { ann in
+                ordinalStep += 1; return (ann.id, ordinalStep)
+            })
+
             for annotation in viewModel.annotations {
                 let annotationOpacity = annotation.opacity
                 if annotation.type == .highlight {
@@ -2213,7 +2219,7 @@ struct AnnotationCanvasView: View {
                         context.stroke(path, with: .color(.accentColor),
                                        style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
                     }
-                } else if annotation.type == .step, let n = annotation.stepNumber {
+                } else if annotation.type == .step, let n = stepOrdinals[annotation.id] {
                     let bounds = annotation.bounds(in: canvasRect)
                     let circlePath = annotation.path(in: canvasRect)
                     if annotation.id == viewModel.selectedAnnotationID {
