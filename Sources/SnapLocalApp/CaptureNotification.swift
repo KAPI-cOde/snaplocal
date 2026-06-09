@@ -88,14 +88,14 @@ final class CaptureNotificationWindow {
         }
     }
 
-    // Pause dismiss timer while HUD is hovered; resume with full 4s when mouse leaves
+    // Pause dismiss timer while HUD is hovered; resume with full hudDuration when mouse leaves
     func handleHoverChange(_ hovering: Bool) {
         isHovered = hovering
         if hovering {
             dismissTimer?.cancel()
             dismissTimer = nil
         } else {
-            scheduleDismiss(delay: 4)
+            scheduleDismiss(delay: 5)
         }
     }
 
@@ -269,8 +269,10 @@ struct CaptureNotificationView: View {
                 isProgressPaused = true
                 pausedElapsed += Date.now.timeIntervalSince(lastResumeTime)
             } else {
-                isProgressPaused = false
+                // Reset to full duration so progress bar and dismiss timer are always in sync
+                pausedElapsed = 0
                 lastResumeTime = .now
+                isProgressPaused = false
             }
         }
         .onAppear {

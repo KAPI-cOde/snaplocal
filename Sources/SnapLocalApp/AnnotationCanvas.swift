@@ -1012,17 +1012,14 @@ final class CanvasViewModel: ObservableObject {
             let innerRect = CGRect(origin: .zero, size: canvasSize)
             if let hitAnn = annotations.reversed().first(where: { !$0.isLocked && $0.hitTest(localPoint, in: innerRect) }) {
                 dragState.start(at: localPoint)
-                if !selectedAnnotationIDs.contains(hitAnn.id) {
-                    selectedAnnotationID = hitAnn.id
-                    selectedAnnotationIDs = [hitAnn.id]
-                }
-                if let id = selectedAnnotationID, let ann = annotations.first(where: { $0.id == id }) {
-                    dragStartAnnotation = ann
-                    let bounds = ann.bounds(in: innerRect)
-                    dragState.dragOffset = CGSize(width: localPoint.x - bounds.midX,
-                                                  height: localPoint.y - bounds.midY)
-                    multiDragStartPositions = [:]
-                }
+                // Always make the hit annotation the primary selection for grab-move
+                selectedAnnotationID = hitAnn.id
+                selectedAnnotationIDs = [hitAnn.id]
+                let bounds = hitAnn.bounds(in: innerRect)
+                dragStartAnnotation = hitAnn
+                dragState.dragOffset = CGSize(width: localPoint.x - bounds.midX,
+                                              height: localPoint.y - bounds.midY)
+                multiDragStartPositions = [:]
                 isGrabMoving = true
                 return
             }
@@ -1538,6 +1535,11 @@ final class CanvasViewModel: ObservableObject {
             isDraggingAnnotation = false
             snapGuides = []
             _ = dragState.end()
+            // Restore hoveredAnnotationID so cursor doesn't flicker back to crosshair
+            let innerRect = CGRect(origin: .zero, size: canvasSize)
+            hoveredAnnotationID = annotations.reversed().first(where: {
+                !$0.isLocked && $0.hitTest(point, in: innerRect)
+            })?.id
             if let original = dragStartAnnotation,
                let index = annotations.firstIndex(where: { $0.id == original.id }) {
                 let orig = original

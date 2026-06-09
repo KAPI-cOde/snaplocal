@@ -136,32 +136,47 @@ struct SnapLocalApp: App {
 struct MenuBarQuickActions: View {
     @ObservedObject var state: SnapLocalState
 
+    private func openItem(_ item: VaultItem) {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        state.loadHistoryItem(item)
+    }
+
     var body: some View {
-        // Last capture thumbnail row
-        if let last = state.history.first, let nsImage = NSImage(data: last.thumbnailData) {
-            Button {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.windows.first?.makeKeyAndOrderFront(nil)
-                state.loadHistoryItem(last)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 80, height: 52)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(last.title ?? "最新のスクリーンショット")
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                        Text(last.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+        // Recent captures — last 5 as clickable rows
+        let recent = Array(state.history.prefix(5))
+        if !recent.isEmpty {
+            ForEach(recent) { item in
+                Button {
+                    openItem(item)
+                } label: {
+                    HStack(spacing: 8) {
+                        if let nsImage = NSImage(data: item.thumbnailData) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 56, height: 36)
+                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                        } else {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.15))
+                                .frame(width: 56, height: 36)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title ?? item.dimensionLabel)
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+                            Text(item.createdAt.formatted(date: .omitted, time: .shortened))
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
                     }
                 }
             }
             Divider()
         }
+
         Button("全画面撮影 (⌘⇧2)") { state.captureNow() }
         Button("範囲選択撮影 (⌘⇧4)") { state.captureRegion() }
         Button("前回の範囲を再撮影 (⌘⇧R)") { state.repeatLastRegionCapture() }
@@ -183,7 +198,7 @@ struct MenuBarQuickActions: View {
         Divider()
         Button("SnapLocalを表示") {
             NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
         }
         Divider()
         Button("終了") { NSApp.terminate(nil) }
@@ -1188,6 +1203,8 @@ struct CompactToolbar: View {
     @Binding var sidebarVisible: Bool
     var onCaptureToClipboard: (() -> Void)? = nil
     var onCaptureRegionToClipboard: (() -> Void)? = nil
+    var currentOCRText: String = ""
+    @State private var showOCRPanel = false
     @State private var showHelp = false
     @State private var showSettings = false
     @State private var showAdjustments = false
@@ -1613,6 +1630,18 @@ struct CompactToolbar: View {
 
     @ViewBuilder
     private var imageOnlyExportControls: some View {
+        // OCR text panel — show when the current image has recognized text
+        if !currentOCRText.isEmpty {
+            Button { showOCRPanel.toggle() } label: {
+                Image(systemName: "text.viewfinder")
+                    .foregroundStyle(showOCRPanel ? Color.accentColor : Color.primary)
+            }
+            .help("OCRテキストを表示・コピー")
+            .popover(isPresented: $showOCRPanel, arrowEdge: .bottom) {
+                OCRTextPanel(text: currentOCRText)
+            }
+        }
+
         Button(action: onCopy) {
             Image(systemName: "doc.on.clipboard")
         }
@@ -1807,8 +1836,8 @@ struct CompactToolbar: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
-                // Line width
-                if canvas.currentTool.usesLineWidth {
+                // Line width — show for drawing tools, or when an annotation is selected (select tool)
+                if canvas.currentTool.usesLineWidth || canvas.selectedAnnotationID != nil {
                     Picker("", selection: $canvas.currentLineWidth) {
                         Text("S").tag(LineWidth.thin)
                         Text("M").tag(LineWidth.medium)
@@ -1830,15 +1859,16 @@ struct CompactToolbar: View {
                         .font(.system(size: 9, design: .monospaced)).frame(width: 28)
                 }
                 Spacer()
-                // Line style
-                Picker("", selection: $canvas.currentLineStyle) {
-                    LineStylePreview(style: .solid).tag(LineStyle.solid)
-                    LineStylePreview(style: .dashed).tag(LineStyle.dashed)
-                    LineStylePreview(style: .dotted).tag(LineStyle.dotted)
+                // Line style — only when line controls are relevant
+                if canvas.currentTool.usesLineWidth || canvas.selectedAnnotationID != nil {
+                    Picker("", selection: $canvas.currentLineStyle) {
+                        LineStylePreview(style: .solid).tag(LineStyle.solid)
+                        LineStylePreview(style: .dashed).tag(LineStyle.dashed)
+                        LineStylePreview(style: .dotted).tag(LineStyle.dotted)
+                    }
+                    .pickerStyle(.segmented).frame(width: 72)
+                    .onChange(of: canvas.currentLineStyle) { _, _ in canvas.applyCurrentLineStyleToSelection() }
                 }
-                .pickerStyle(.segmented).frame(width: 72)
-                .disabled(!canvas.currentTool.usesLineWidth)
-                .onChange(of: canvas.currentLineStyle) { _, _ in canvas.applyCurrentLineStyleToSelection() }
             }
         }
         .padding(10)
@@ -2655,6 +2685,7 @@ struct HistoryItemPopover: View {
 
     @State private var notesText: String
     @State private var fullImage: NSImage? = nil
+    @State private var ocrCopied = false
 
     init(item: VaultItem, onUpdateNotes: ((VaultItem, String?) -> Void)?) {
         self.item = item
@@ -2663,64 +2694,83 @@ struct HistoryItemPopover: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            // Show thumbnail immediately, swap to full image once loaded async
+        VStack(spacing: 0) {
+            // Preview image
             let displayImage: NSImage? = fullImage ?? NSImage(data: item.thumbnailData)
             if let nsImage = displayImage {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxWidth: 360, maxHeight: 240)
-                    .animation(.easeIn(duration: 0.15), value: fullImage != nil)
+                    .frame(maxWidth: 380, maxHeight: 220)
+                    .clipped()
+                    .animation(.easeIn(duration: 0.12), value: fullImage != nil)
             } else {
-                Color.clear.frame(width: 120, height: 80)
+                Color.secondary.opacity(0.1)
+                    .frame(width: 380, height: 120)
             }
-            let dim = item.dimensionLabel
-            if !dim.isEmpty {
-                Text(dim)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
+
+            // OCR text — selectable, shown immediately if available
             if !item.ocrText.isEmpty {
                 Divider()
-                HStack(alignment: .top, spacing: 6) {
-                    Text(item.ocrText)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(item.ocrText, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.clipboard")
-                            .font(.system(size: 10))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("テキスト")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(item.ocrText, forType: .string)
+                            ocrCopied = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { ocrCopied = false }
+                        } label: {
+                            Label(ocrCopied ? "コピー済" : "全コピー",
+                                  systemImage: ocrCopied ? "checkmark" : "doc.on.clipboard")
+                                .font(.system(size: 10))
+                                .foregroundStyle(ocrCopied ? .green : Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.borderless)
-                    .help("テキストをコピー")
+                    // Selectable text via TextEditor (read-only binding workaround)
+                    TextEditor(text: .constant(item.ocrText))
+                        .font(.system(size: 11))
+                        .scrollContentBackground(.hidden)
+                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                        .frame(height: 72)
                 }
-                .frame(width: 360)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
+
             Divider()
-            TextEditor(text: $notesText)
-                .font(.system(size: 12))
-                .frame(width: 360, height: 56)
-                .scrollContentBackground(.hidden)
-                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(alignment: .topLeading) {
-                    if notesText.isEmpty {
-                        Text("メモを追加…")
-                            .foregroundStyle(.tertiary)
-                            .font(.system(size: 12))
-                            .padding(.top, 4).padding(.leading, 4)
-                            .allowsHitTesting(false)
+
+            // Notes
+            VStack(alignment: .leading, spacing: 4) {
+                Text("メモ")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $notesText)
+                    .font(.system(size: 12))
+                    .frame(height: 52)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                    .overlay(alignment: .topLeading) {
+                        if notesText.isEmpty {
+                            Text("メモを追加…")
+                                .foregroundStyle(.tertiary)
+                                .font(.system(size: 12))
+                                .padding(.top, 4).padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
                     }
-                }
-                .onChange(of: notesText) { _, newVal in
-                    onUpdateNotes?(item, newVal.isEmpty ? nil : newVal)
-                }
+                    .onChange(of: notesText) { _, newVal in
+                        onUpdateNotes?(item, newVal.isEmpty ? nil : newVal)
+                    }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .padding(8)
+        .frame(width: 380)
         .task {
             guard fullImage == nil else { return }
             let url = item.imageURL
@@ -2728,6 +2778,51 @@ struct HistoryItemPopover: View {
                 NSImage(contentsOf: url)
             }.value
             fullImage = loaded
+        }
+    }
+}
+
+// MARK: - OCR Text Panel
+
+struct OCRTextPanel: View {
+    let text: String
+    @State private var copiedAll = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("OCRテキスト")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    withAnimation { copiedAll = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copiedAll = false }
+                } label: {
+                    Label(copiedAll ? "コピー済" : "全コピー",
+                          systemImage: copiedAll ? "checkmark" : "doc.on.clipboard")
+                        .font(.system(size: 10))
+                        .foregroundStyle(copiedAll ? Color.green : Color.accentColor)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            Divider()
+
+            ScrollView(.vertical, showsIndicators: true) {
+                // Use TextEditor for native selectable text
+                TextEditor(text: .constant(text))
+                    .font(.system(size: 12))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 80)
+                    .padding(8)
+            }
+            .frame(width: 340, height: 220)
         }
     }
 }
@@ -3041,6 +3136,7 @@ struct HelpPopoverContent: View {
             ("⌘⌥C", "オリジナルをコピー（アノテーションなし）"),
             ("⌘⌥⇧C", "選択範囲を画像でコピー"),
             ("⌘⌥T", "選択範囲のテキストをOCR・コピー"),
+            ("⌘⌥R", "Finderで表示"),
             ("⌘S", "ファイルに保存"),
             ("⌘⇧S", "別名で保存"),
             ("⌘⇧E", "共有（AirDrop・メール等）"),
@@ -3407,7 +3503,11 @@ struct ContentView: View {
                 },
                 sidebarVisible: $sidebarVisible,
                 onCaptureToClipboard: state.captureNowToClipboard,
-                onCaptureRegionToClipboard: state.captureRegionToClipboard
+                onCaptureRegionToClipboard: state.captureRegionToClipboard,
+                currentOCRText: {
+                    guard let id = state.selectedHistoryID else { return "" }
+                    return state.history.first(where: { $0.id == id })?.ocrText ?? ""
+                }()
             )
             .sheet(isPresented: $state.showWindowPicker) {
                 WindowPickerSheet(
@@ -3574,6 +3674,7 @@ struct AnnotationCanvasView: View {
     @State private var panOffset: CGSize = .zero
     @State private var basePan: CGSize = .zero
     @State private var isPanning = false
+    @State private var isPanDragging = false
     @State private var hoverLocation: CGPoint? = nil
     @State private var hoverColorHex: String? = nil
     @State private var hoverCanvasPoint: CGPoint? = nil
@@ -3584,7 +3685,12 @@ struct AnnotationCanvasView: View {
     private func updateCursor() {
         guard isHovering else { return }
         if isPanning {
-            NSCursor.openHand.set()
+            (isPanDragging ? NSCursor.closedHand : NSCursor.openHand).set()
+            return
+        }
+        // closedHand while actively drag-moving an annotation (any tool)
+        if viewModel.isGrabMoving || viewModel.isDraggingAnnotation {
+            NSCursor.closedHand.set()
             return
         }
         switch viewModel.currentTool {
@@ -4451,8 +4557,10 @@ struct AnnotationCanvasView: View {
                 ordinalStep += 1; return (ann.id, ordinalStep)
             })
 
-            // Hover glow: draw a faint accent outline behind the hovered annotation (select mode only)
-            if viewModel.currentTool == .select,
+            // Hover glow: faint accent outline behind hovered annotation (select + grab-capable tools)
+            let grabCapableTools: Set<DrawingTool> = [.select, .arrow, .line, .rectangle, .ellipse,
+                .roundedRect, .callout, .highlight, .step, .redact, .spotlight]
+            if grabCapableTools.contains(viewModel.currentTool),
                let hid = viewModel.hoveredAnnotationID,
                hid != viewModel.selectedAnnotationID,
                let hovered = viewModel.annotations.first(where: { $0.id == hid }) {
@@ -4874,13 +4982,17 @@ struct AnnotationCanvasView: View {
     private func panGesture() -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
+                isPanDragging = true
+                updateCursor()
                 panOffset = CGSize(
                     width: basePan.width + value.translation.width,
                     height: basePan.height + value.translation.height
                 )
             }
             .onEnded { value in
+                isPanDragging = false
                 basePan = panOffset
+                updateCursor()
             }
     }
 
@@ -4894,10 +5006,12 @@ struct AnnotationCanvasView: View {
                     canvasFocused = true
                     viewModel.handleDragStart(at: loc, in: rect)
                 }
+                updateCursor()
             }
             .onEnded { value in
                 let loc = toCanvas(value.location, size: size)
                 viewModel.handleDragEnd(at: loc, in: rect)
+                updateCursor()
             }
     }
 
