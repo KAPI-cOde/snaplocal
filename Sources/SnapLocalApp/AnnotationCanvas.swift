@@ -1465,11 +1465,12 @@ final class CanvasViewModel: ObservableObject {
         ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
         guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
               let cropped = bgImage.cropping(to: pixelRect) else { return }
+        let prevImage = bgImage
+        let prevAnnotations = annotations
         backgroundImage = cropped
         annotations.removeAll()
         selectedAnnotationID = nil
-        undoManager.removeAllActions()
-        updateUndoRedoState()
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
         recomputeAllFilterPreviews()
     }
 
@@ -1493,12 +1494,36 @@ final class CanvasViewModel: ObservableObject {
         ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
         guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
               let cropped = bgImage.cropping(to: pixelRect) else { return }
+        let prevImage = bgImage
+        let prevAnnotations = annotations
         backgroundImage = cropped
         annotations.removeAll()
         selectedAnnotationID = nil
-        undoManager.removeAllActions()
-        updateUndoRedoState()
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
         recomputeAllFilterPreviews()
+    }
+
+    // Register undo for a background image replacement (saves previous image + annotations)
+    private func registerBackgroundUndo(previousImage: CGImage, previousAnnotations: [AnyAnnotation]) {
+        undoManager.registerUndo(withTarget: self) { [previousImage, previousAnnotations] vm in
+            let currentImage = vm.backgroundImage
+            let currentAnnotations = vm.annotations
+            vm.backgroundImage = previousImage
+            vm.annotations = previousAnnotations
+            vm.selectedAnnotationID = nil
+            vm.selectedAnnotationIDs = []
+            vm.updateUndoRedoState()
+            vm.recomputeAllFilterPreviews()
+            vm.undoManager.registerUndo(withTarget: vm) { [currentImage, currentAnnotations] vm2 in
+                vm2.backgroundImage = currentImage
+                vm2.annotations = currentAnnotations
+                vm2.selectedAnnotationID = nil
+                vm2.selectedAnnotationIDs = []
+                vm2.updateUndoRedoState()
+                vm2.recomputeAllFilterPreviews()
+            }
+        }
+        updateUndoRedoState()
     }
 
     // MARK: - Image Adjustments
@@ -1515,8 +1540,11 @@ final class CanvasViewModel: ObservableObject {
         guard let output = f.outputImage else { return }
         let ctx = CIContext()
         guard let baked = ctx.createCGImage(output, from: output.extent) else { return }
+        let prevImage = src
+        let prevAnnotations = annotations
         backgroundImage = baked
         adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
     }
 
     func resetAdjustments() {
@@ -1628,10 +1656,11 @@ final class CanvasViewModel: ObservableObject {
             annotations[i].transform = annotations[i].transform.concatenating(rotT)
         }
 
+        let prevImage = src
+        let prevAnnotations = annotations
         backgroundImage = rotated
         canvasSize = CGSize(width: oldH, height: oldW)
-        undoManager.removeAllActions()
-        updateUndoRedoState()
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
         recomputeAllFilterPreviews()
         objectWillChange.send()
     }
@@ -1664,9 +1693,10 @@ final class CanvasViewModel: ObservableObject {
         for i in 0..<annotations.count {
             annotations[i].transform = annotations[i].transform.concatenating(flipT)
         }
+        let prevImage = src
+        let prevAnnotations = annotations
         backgroundImage = flipped
-        undoManager.removeAllActions()
-        updateUndoRedoState()
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
         recomputeAllFilterPreviews()
         objectWillChange.send()
     }
@@ -1693,10 +1723,11 @@ final class CanvasViewModel: ObservableObject {
             annotations[i].transform = annotations[i].transform.concatenating(scaleT)
         }
 
+        let prevImage = src
+        let prevAnnotations = annotations
         backgroundImage = resized
         canvasSize = CGSize(width: CGFloat(newW), height: CGFloat(newH))
-        undoManager.removeAllActions()
-        updateUndoRedoState()
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
         recomputeAllFilterPreviews()
         loadToken = UUID()
         objectWillChange.send()
