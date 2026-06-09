@@ -209,6 +209,15 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         return false
     }
 
+    func pinCurrentImage() {
+        guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage else {
+            showStatus("ピン留めする画像がありません")
+            return
+        }
+        PinManager.shared.pin(image: image)
+        showStatus("画面にピン留めしました")
+    }
+
     func copyToClipboard() {
         guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage else {
             showStatus("コピーする画像がありません")
@@ -383,6 +392,7 @@ struct CompactToolbar: View {
     let onCapture: () -> Void
     let onCaptureRegion: () -> Void
     let onCaptureWindow: () -> Void
+    let onPin: () -> Void
     let onSave: () -> Void
     let onSaveAs: () -> Void
     let onCopy: () -> Void
@@ -442,6 +452,13 @@ struct CompactToolbar: View {
             }
             .help("ウィンドウ撮影 (⌘⇧3)")
             .keyboardShortcut("3", modifiers: [.command, .shift])
+
+            Button(action: onPin) {
+                Image(systemName: "pin.fill")
+            }
+            .help("画面にピン留め (⌘⇧P)")
+            .disabled(canvas.backgroundImage == nil)
+            .keyboardShortcut("p", modifiers: [.command, .shift])
 
             Button(action: onPaste) {
                 Image(systemName: "doc.on.clipboard.fill")
@@ -1139,6 +1156,7 @@ struct ContentView: View {
                 onCapture: state.captureNow,
                 onCaptureRegion: state.captureRegion,
                 onCaptureWindow: state.captureWindowMode,
+                onPin: state.pinCurrentImage,
                 onSave: state.saveAnnotatedImage,
                 onSaveAs: state.saveAnnotatedImageAs,
                 onCopy: state.copyToClipboard,
