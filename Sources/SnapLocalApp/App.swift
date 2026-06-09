@@ -159,6 +159,9 @@ struct MenuBarQuickActions: View {
         Button("前回の範囲を再撮影 (⌘⇧R)") { state.repeatLastRegionCapture() }
         Button("ウィンドウ撮影 (⌘⇧3)") { state.captureWindowMode() }
         Divider()
+        Button("全画面→クリップボードのみ (⌘⌃2)") { state.captureNowToClipboard() }
+        Button("範囲→クリップボードのみ (⌘⌃4)") { state.captureRegionToClipboard() }
+        Divider()
         Menu("遅延撮影") {
             Button("3秒後") { state.captureWithDelay(3) }
             Button("5秒後") { state.captureWithDelay(5) }
