@@ -133,6 +133,14 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         captureEngine?.registerHotkey()
         refreshHistory()
 
+        // AppIntents notifications
+        NotificationCenter.default.addObserver(forName: .intentCaptureScreen, object: nil, queue: .main) { [weak self] _ in
+            self?.captureNow()
+        }
+        NotificationCenter.default.addObserver(forName: .intentCaptureRegion, object: nil, queue: .main) { [weak self] _ in
+            self?.captureRegion()
+        }
+
         // Auto-save annotations 3 seconds after last change
         canvas.$annotations
             .dropFirst()
