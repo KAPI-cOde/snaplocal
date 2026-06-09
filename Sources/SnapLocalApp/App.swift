@@ -496,13 +496,16 @@ struct CompactToolbar: View {
 
             Divider().frame(height: 18)
 
-            Picker("", selection: $canvas.currentTool) {
-                ForEach(DrawingTool.allCases, id: \.self) { tool in
-                    Image(systemName: tool.systemImage).tag(tool)
+            // Tool buttons: two logical groups separated by mini-divider
+            HStack(spacing: 2) {
+                ForEach([DrawingTool.select, .line, .arrow, .rectangle, .ellipse, .roundedRect], id: \.self) { tool in
+                    toolButton(tool, canvas: canvas)
+                }
+                Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
+                ForEach([DrawingTool.text, .step, .callout, .highlight, .redact], id: \.self) { tool in
+                    toolButton(tool, canvas: canvas)
                 }
             }
-            .pickerStyle(.segmented)
-            .frame(width: 320)
 
             if canvas.currentTool == .redact {
                 Picker("", selection: $canvas.currentRedactMode) {
@@ -638,6 +641,25 @@ struct CompactToolbar: View {
                 SettingsSheet()
             }
         }
+    }
+
+    @ViewBuilder
+    private func toolButton(_ tool: DrawingTool, canvas: CanvasViewModel) -> some View {
+        let isSelected = canvas.currentTool == tool
+        Button(action: { canvas.currentTool = tool }) {
+            Image(systemName: tool.systemImage)
+                .frame(width: 22, height: 22)
+                .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isSelected ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .help("\(tool.displayName)")
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
     }
 }
 
