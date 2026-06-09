@@ -16,6 +16,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var transform: CGAffineTransform
     var textContent: String?
     var textFontSize: CGFloat?
+    var textHasBackground: Bool
     var isFilled: Bool
     var stepNumber: Int?
     var hasStrokeRepresentation: Bool
@@ -35,6 +36,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.transform = annotation.transform
         self.textContent = (annotation as? TextAnnotation)?.text
         self.textFontSize = (annotation as? TextAnnotation)?.fontSize
+        self.textHasBackground = (annotation as? TextAnnotation)?.hasBackground ?? false
         self.isFilled = (annotation as? RectangleAnnotation)?.isFilled
             ?? (annotation as? EllipseAnnotation)?.isFilled
             ?? (annotation as? RoundedRectAnnotation)?.isFilled
@@ -130,6 +132,7 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.transform = decodedTransform
         self.textContent = wrapped.textContent
         self.textFontSize = wrapped.textFontSize
+        self.textHasBackground = wrapped.textHasBackground
         self.isFilled = wrapped.isFilled
         self.stepNumber = wrapped.stepNumber
         self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation

@@ -213,6 +213,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentFontSize: CGFloat = 18
     @Published var currentFilled: Bool = false
     @Published var currentOpacity: Double = 1.0
+    @Published var currentTextBackground: Bool = false
     @Published var dragState = DragState()
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
@@ -409,6 +410,9 @@ final class CanvasViewModel: ObservableObject {
                     currentFilled = annotation.isFilled
                 }
                 currentOpacity = annotation.opacity
+                if annotation.type == .text {
+                    currentTextBackground = annotation.textHasBackground
+                }
                 return
             }
         }
@@ -1014,14 +1018,19 @@ final class CanvasViewModel: ObservableObject {
             var a = TextAnnotation(color: existing.color, lineWidth: existing.lineWidth,
                                    rect: bounds, text: trimmed)
             a.fontSize = existing.textFontSize ?? currentFontSize
-            let newAnnotation = AnyAnnotation(a)
+            a.hasBackground = existing.textHasBackground
+            var newAnnotation = AnyAnnotation(a)
+            newAnnotation.opacity = existing.opacity
             addAnnotation(newAnnotation)
             selectedAnnotationID = newAnnotation.id
         } else {
             var a = TextAnnotation(color: currentColor, lineWidth: currentLineWidth,
                                    rect: textInputRect, text: trimmed)
             a.fontSize = currentFontSize
-            addAnnotation(AnyAnnotation(a))
+            a.hasBackground = currentTextBackground
+            var newAnnotation = AnyAnnotation(a)
+            newAnnotation.opacity = currentOpacity
+            addAnnotation(newAnnotation)
         }
     }
 
@@ -1189,6 +1198,15 @@ final class CanvasViewModel: ObservableObject {
             } else if annotation.type == .text, let text = annotation.textContent {
                 let rect = annotation.bounds(in: viewRect).applying(toImage)
                 let fs = annotation.textFontSize ?? max(rect.height * 0.6, 14)
+                if annotation.textHasBackground {
+                    let bgNS: NSColor = annotation.color == .white ? NSColor.black.withAlphaComponent(0.82) : NSColor.white.withAlphaComponent(0.82)
+                    cgCtx.setFillColor(bgNS.cgColor)
+                    let bgRect = rect.insetBy(dx: -4, dy: -2)
+                    let radius = min(bgRect.width, bgRect.height) * 0.15
+                    let bgPath = CGPath(roundedRect: bgRect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+                    cgCtx.addPath(bgPath)
+                    cgCtx.fillPath()
+                }
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: fs * strokeScale, weight: .semibold),
                     .foregroundColor: NSColor(cgColor: annotation.color.cgColor) ?? .labelColor

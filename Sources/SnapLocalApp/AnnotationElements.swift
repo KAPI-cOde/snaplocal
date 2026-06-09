@@ -174,6 +174,7 @@ struct TextAnnotation: AnnotationElement {
     var rect: CGRect
     var text: String
     var fontSize: CGFloat = 18
+    var hasBackground: Bool = false
 
     func path(in rect: CGRect) -> Path {
         let r = self.rect.applying(transform)

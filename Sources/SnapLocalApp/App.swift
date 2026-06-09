@@ -664,6 +664,13 @@ struct CompactToolbar: View {
                 .pickerStyle(.segmented)
                 .frame(width: 90)
                 .help("テキストサイズ")
+
+                Toggle(isOn: $canvas.currentTextBackground) {
+                    Image(systemName: canvas.currentTextBackground ? "textformat.alt" : "textformat")
+                }
+                .toggleStyle(.button)
+                .help(canvas.currentTextBackground ? "背景あり（クリックで背景なしへ）" : "背景なし（クリックで背景ありへ）")
+                .controlSize(.small)
             }
 
             // Opacity slider — always visible
@@ -1840,6 +1847,14 @@ struct AnnotationCanvasView: View {
                 } else if annotation.type == .text, let text = annotation.textContent {
                     let bounds = annotation.bounds(in: canvasRect)
                     let fontSize = annotation.textFontSize ?? max(bounds.height * 0.7, 14)
+                    if annotation.textHasBackground {
+                        let bgColor: Color = annotation.color == .white ? .black : .white
+                        let bgBounds = bounds.insetBy(dx: -4, dy: -2)
+                        context.fill(
+                            RoundedRectangle(cornerRadius: 4).path(in: bgBounds),
+                            with: .color(bgColor.opacity(0.82 * annotationOpacity))
+                        )
+                    }
                     context.draw(
                         Text(text)
                             .font(.system(size: fontSize, weight: .semibold))
