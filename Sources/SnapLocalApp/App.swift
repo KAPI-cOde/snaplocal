@@ -1078,6 +1078,30 @@ struct HistoryRail: View {
         }
     }
 
+    private enum DateGroup: String {
+        case today = "今日"
+        case yesterday = "昨日"
+        case thisWeek = "今週"
+        case older = "それ以前"
+    }
+
+    private func dateGroup(for date: Date) -> DateGroup {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return .today }
+        if cal.isDateInYesterday(date) { return .yesterday }
+        if let daysAgo = cal.dateComponents([.day], from: date, to: Date()).day, daysAgo < 7 { return .thisWeek }
+        return .older
+    }
+
+    private var groupedHistory: [(DateGroup, [VaultItem])] {
+        let order: [DateGroup] = [.today, .yesterday, .thisWeek, .older]
+        let grouped = Dictionary(grouping: history, by: { dateGroup(for: $0.createdAt) })
+        return order.compactMap { g in
+            guard let items = grouped[g], !items.isEmpty else { return nil }
+            return (g, items)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
@@ -1107,8 +1131,17 @@ struct HistoryRail: View {
 
             ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 6) {
-                    ForEach(history) { item in
+                VStack(spacing: 0) {
+                    ForEach(groupedHistory, id: \.0.rawValue) { group, items in
+                        Text(group.rawValue)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 6)
+                            .padding(.top, 8)
+                            .padding(.bottom, 2)
+                        VStack(spacing: 6) {
+                        ForEach(items) { item in
                         let isSelected = item.id == selectedID
                         Button(action: { onSelect(item) }) {
                             VStack(spacing: 3) {
@@ -1240,10 +1273,12 @@ struct HistoryRail: View {
                         }
                         .help(item.createdAt.formatted(date: .complete, time: .shortened)
                               + (item.ocrText.isEmpty ? "" : "\n" + String(item.ocrText.prefix(80))))
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
+                        }   // ForEach(items)
+                        }   // VStack for items
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 4)
+                    }   // ForEach(groupedHistory)
+                }   // outer VStack
             }
             .onChange(of: selectedID) { _, newID in
                 if let id = newID {
