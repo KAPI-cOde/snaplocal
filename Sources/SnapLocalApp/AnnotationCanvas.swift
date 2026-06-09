@@ -704,24 +704,41 @@ final class CanvasViewModel: ObservableObject {
     static let annotationPasteboardType = NSPasteboard.PasteboardType("com.snaplocal.annotation.v1")
 
     func copySelectedAnnotationToClipboard() {
-        guard let id = selectedAnnotationID,
-              let annotation = annotations.first(where: { $0.id == id }),
-              let data = try? JSONEncoder().encode(annotation) else { return }
+        let ids: Set<UUID> = selectedAnnotationIDs.isEmpty
+            ? (selectedAnnotationID.map { [$0] } ?? [])
+            : selectedAnnotationIDs
+        let selected = annotations.filter { ids.contains($0.id) }
+        guard !selected.isEmpty, let data = try? JSONEncoder().encode(selected) else { return }
         NSPasteboard.general.addTypes([Self.annotationPasteboardType], owner: nil)
         NSPasteboard.general.setData(data, forType: Self.annotationPasteboardType)
     }
 
-    /// Returns true if annotation was pasted from clipboard.
+    /// Returns true if annotation(s) were pasted from clipboard.
     @discardableResult
     func pasteAnnotationFromClipboard() -> Bool {
-        guard let data = NSPasteboard.general.data(forType: Self.annotationPasteboardType),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        guard let data = NSPasteboard.general.data(forType: Self.annotationPasteboardType) else { return false }
+        // Try multi-annotation array first, then fall back to single annotation
+        let offset = CGAffineTransform(translationX: 10, y: 10)
+        if var anns = try? JSONDecoder().decode([AnyAnnotation].self, from: data), !anns.isEmpty {
+            var lastID: UUID?
+            for i in anns.indices {
+                anns[i].id = UUID()
+                anns[i].applyTransform(offset)
+                addAnnotation(anns[i])
+                lastID = anns[i].id
+            }
+            selectedAnnotationIDs = Set(anns.map { $0.id })
+            selectedAnnotationID = lastID
+            return true
+        }
+        // Legacy: single annotation JSON
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
         json["id"] = UUID().uuidString
         guard let newData = try? JSONSerialization.data(withJSONObject: json),
-              var newAnnotation = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) else { return false }
-        newAnnotation.applyTransform(CGAffineTransform(translationX: 10, y: 10))
-        addAnnotation(newAnnotation)
-        selectedAnnotationID = newAnnotation.id
+              var ann = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) else { return false }
+        ann.applyTransform(offset)
+        addAnnotation(ann)
+        selectedAnnotationID = ann.id
         return true
     }
 
