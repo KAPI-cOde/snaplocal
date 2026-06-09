@@ -53,8 +53,8 @@ struct CompactToolbar: View {
             }
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, DS.Space.s)
+        .padding(.vertical, DS.Space.xs)
         .background(.ultraThinMaterial)
         // Hidden keyboard shortcut buttons that were moved to menus
         .background {
@@ -267,7 +267,7 @@ struct CompactToolbar: View {
                     HStack(spacing: 3) {
                         Image(systemName: "eyedropper.full")
                         Text("画面全体")
-                            .font(.system(size: 10))
+                            .font(.system(size: DS.FontSize.caption))
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -297,7 +297,7 @@ struct CompactToolbar: View {
                                     .font(.system(size: 16))
                                     .frame(width: 26, height: 26)
                                     .background(canvas.currentStamp == emoji ? Color.accentColor.opacity(0.25) : Color.clear,
-                                                in: RoundedRectangle(cornerRadius: 4))
+                                                in: RoundedRectangle(cornerRadius: DS.Radius.small))
                             }
                             .buttonStyle(.plain)
                         }
@@ -524,7 +524,7 @@ struct CompactToolbar: View {
         if !canvas.annotations.isEmpty {
             let selCount = canvas.selectedAnnotationIDs.count
             Text(selCount > 1 ? "\(selCount)/\(canvas.annotations.count)" : "\(canvas.annotations.count)")
-                .font(.system(size: 9, design: .monospaced))
+                .font(.system(size: DS.FontSize.caption2, design: .monospaced))
                 .foregroundStyle(selCount > 1 ? Color.accentColor : Color.secondary)
                 .monospacedDigit()
                 .help(selCount > 1
@@ -653,9 +653,9 @@ struct CompactToolbar: View {
                     if let hex { settings.addRecentCustomColor(hex) }
                 }
                 .frame(width: 28, height: 22)
-                .cornerRadius(4)
+                .cornerRadius(DS.Radius.small)
                 Text("カスタムカラー")
-                    .font(.system(size: 11))
+                    .font(.system(size: DS.FontSize.caption))
                     .foregroundStyle(.secondary)
                 Spacer()
                 // Line width — show for drawing tools, or when an annotation is selected (select tool)
@@ -678,7 +678,7 @@ struct CompactToolbar: View {
                         .frame(width: 80).controlSize(.mini)
                         .onChange(of: canvas.currentOpacity) { _, _ in canvas.applyCurrentOpacityToSelection() }
                     Text("\(Int(canvas.currentOpacity * 100))%")
-                        .font(.system(size: 9, design: .monospaced)).frame(width: 28)
+                        .font(.system(size: DS.FontSize.caption2, design: .monospaced)).frame(width: 28)
                 }
                 Spacer()
                 // Line style — only when line controls are relevant
@@ -693,7 +693,7 @@ struct CompactToolbar: View {
                 }
             }
         }
-        .padding(10)
+        .padding(DS.Space.m)
         .frame(width: 320)
     }
 
@@ -720,7 +720,7 @@ struct CompactToolbar: View {
             SettingsSheet()
         }
 
-        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible.toggle() } }) {
+        Button(action: { withAnimation(DS.Anim.smooth) { sidebarVisible.toggle() } }) {
             Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
                 .symbolVariant(sidebarVisible ? .none : .slash)
         }
@@ -736,28 +736,28 @@ struct CompactToolbar: View {
                 Slider(value: $canvas.adjustBrightness, in: -0.5...0.5)
                     .frame(width: 140)
                 Text(String(format: "%+.2f", canvas.adjustBrightness))
-                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
             }
             HStack {
                 Text("コントラスト").frame(width: 60, alignment: .trailing)
                 Slider(value: $canvas.adjustContrast, in: 0.5...2.0)
                     .frame(width: 140)
                 Text(String(format: "%.2f", canvas.adjustContrast))
-                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
             }
             HStack {
                 Text("彩度").frame(width: 60, alignment: .trailing)
                 Slider(value: $canvas.adjustSaturation, in: 0.0...2.0)
                     .frame(width: 140)
                 Text(String(format: "%.2f", canvas.adjustSaturation))
-                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
             }
             HStack {
                 Text("シャープ").frame(width: 60, alignment: .trailing)
                 Slider(value: $canvas.adjustSharpness, in: 0.0...1.0)
                     .frame(width: 140)
                 Text(String(format: "%.2f", canvas.adjustSharpness))
-                    .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
             }
             HStack {
                 Button("リセット") { canvas.resetAdjustments() }
@@ -768,7 +768,7 @@ struct CompactToolbar: View {
                     .controlSize(.small)
             }
         }
-        .padding(14)
+        .padding(DS.Space.m)
         .frame(width: 280)
     }
 
@@ -779,7 +779,7 @@ struct CompactToolbar: View {
             Slider(value: value, in: 0...500, step: 10)
             Text("\(Int(value.wrappedValue))")
                 .frame(width: 36, alignment: .trailing)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: DS.FontSize.caption, design: .monospaced))
         }
     }
 
@@ -796,7 +796,7 @@ struct CompactToolbar: View {
                     Slider(value: $extendAll, in: 0...500, step: 10)
                     Text("\(Int(extendAll))")
                         .frame(width: 36, alignment: .trailing)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: DS.FontSize.caption, design: .monospaced))
                 }
             } else {
                 extendPaddingRow(label: "上 (px)", value: $extendTop)
@@ -840,7 +840,7 @@ struct CompactToolbar: View {
                 .buttonStyle(.borderedProminent)
             }
         }
-        .padding(20)
+        .padding(DS.Space.l)
         .frame(width: 360)
     }
 
@@ -873,24 +873,24 @@ struct CompactToolbar: View {
                     Group {
                         switch canvas.decorationBackgroundStyle {
                         case 1:
-                            RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.15))
+                            RoundedRectangle(cornerRadius: DS.Radius.medium).fill(Color(white: 0.15))
                         case 2:
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: DS.Radius.medium)
                                 .fill(LinearGradient(
                                     colors: [Color(cgColor: gc1), Color(cgColor: gc2)],
                                     startPoint: .topLeading, endPoint: .bottomTrailing))
                         case 3:
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: DS.Radius.medium)
                                 .fill(Color.secondary.opacity(0.12))
-                                .overlay(RoundedRectangle(cornerRadius: 6)
+                                .overlay(RoundedRectangle(cornerRadius: DS.Radius.medium)
                                     .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4,2]))
                                     .foregroundStyle(.secondary.opacity(0.4)))
                         case 4:
-                            RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.3))
+                            RoundedRectangle(cornerRadius: DS.Radius.medium).fill(Color.gray.opacity(0.3))
                                 .overlay(Image(systemName: "photo.fill")
                                     .font(.system(size: 18)).foregroundStyle(.secondary.opacity(0.5)))
                         default:
-                            RoundedRectangle(cornerRadius: 6).fill(Color.white)
+                            RoundedRectangle(cornerRadius: DS.Radius.medium).fill(Color.white)
                         }
                     }
                     .frame(width: outerW, height: outerH)
@@ -907,20 +907,20 @@ struct CompactToolbar: View {
                                 radius: showShadow ? 8 : 0, y: showShadow ? 4 : 0)
                         .overlay(
                             Text("プレビュー")
-                                .font(.system(size: 9))
+                                .font(.system(size: DS.FontSize.caption2))
                                 .foregroundStyle(.secondary)
                         )
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .padding(8)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium))
+                .padding(DS.Space.xs)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: DS.Radius.medium))
                 Spacer()
             }
-            .animation(.easeOut(duration: 0.2), value: canvas.decorationPadding)
-            .animation(.easeOut(duration: 0.2), value: canvas.decorationCornerRadius)
-            .animation(.easeOut(duration: 0.15), value: canvas.decorationShadow)
-            .animation(.easeOut(duration: 0.15), value: canvas.decorationBackgroundStyle)
-            .animation(.easeOut(duration: 0.15), value: canvas.decorationGradientIndex)
+            .animation(DS.Anim.smooth, value: canvas.decorationPadding)
+            .animation(DS.Anim.smooth, value: canvas.decorationCornerRadius)
+            .animation(DS.Anim.base, value: canvas.decorationShadow)
+            .animation(DS.Anim.base, value: canvas.decorationBackgroundStyle)
+            .animation(DS.Anim.base, value: canvas.decorationGradientIndex)
             .opacity(isEnabled ? 1 : 0.4)
 
             Divider()
@@ -946,21 +946,21 @@ struct CompactToolbar: View {
                     Slider(value: $canvas.decorationPadding, in: 0...120, step: 4)
                         .frame(width: 130)
                     Text("\(Int(canvas.decorationPadding))px")
-                        .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                        .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
                 }
                 HStack {
                     Text("角丸").frame(width: 70, alignment: .trailing)
                     Slider(value: $canvas.decorationCornerRadius, in: 0...40, step: 2)
                         .frame(width: 130)
                     Text("\(Int(canvas.decorationCornerRadius))px")
-                        .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+                        .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
                 }
                 Toggle("ドロップシャドウ", isOn: $canvas.decorationShadow)
             }
             .disabled(!canvas.decorationEnabled)
             .opacity(canvas.decorationEnabled ? 1 : 0.4)
         }
-        .padding(14)
+        .padding(DS.Space.m)
         .frame(width: 320)
     }
 
@@ -991,7 +991,7 @@ struct CompactToolbar: View {
         }
         .frame(width: 22, height: 22)
         .onTapGesture { canvas.decorationGradientIndex = idx }
-        .shadow(color: .black.opacity(0.2), radius: 2)
+        .shadow(DS.Shadow.overlay)
     }
 
     @ViewBuilder
@@ -1001,9 +1001,9 @@ struct CompactToolbar: View {
             Image(systemName: tool.systemImage)
                 .frame(width: 22, height: 22)
                 .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 4))
+                            in: RoundedRectangle(cornerRadius: DS.Radius.small))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: DS.Radius.small)
                         .stroke(isSelected ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
                 )
                 .contentShape(Rectangle())
@@ -1024,7 +1024,7 @@ struct OCRTextPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("OCRテキスト")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: DS.FontSize.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
@@ -1035,24 +1035,23 @@ struct OCRTextPanel: View {
                 } label: {
                     Label(copiedAll ? "コピー済" : "全コピー",
                           systemImage: copiedAll ? "checkmark" : "doc.on.clipboard")
-                        .font(.system(size: 10))
+                        .font(.system(size: DS.FontSize.caption))
                         .foregroundStyle(copiedAll ? Color.green : Color.accentColor)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+            .padding(.horizontal, DS.Space.s)
+            .padding(.vertical, DS.Space.xs)
 
             Divider()
 
             ScrollView(.vertical, showsIndicators: true) {
                 // Use TextEditor for native selectable text
                 TextEditor(text: .constant(text))
-                    .font(.system(size: 12))
+                    .font(.system(size: DS.FontSize.body))
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 80)
-                    .padding(8)
+                    .padding(DS.Space.xs)
             }
             .frame(width: 340, height: 220)
         }
