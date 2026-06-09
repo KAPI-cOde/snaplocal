@@ -42,6 +42,7 @@ struct CompactToolbar: View {
     @State private var extendLeft: CGFloat = 40
     @State private var extendBgChoice: Int = 0   // 0=white 1=black 2=transparent
     @ObservedObject private var settings = SettingsManager.shared
+    @Namespace private var toolSelectionNS
 
     var body: some View {
         HStack(spacing: 6) {
@@ -988,11 +989,24 @@ struct CompactToolbar: View {
 
     @ViewBuilder
     private func toolButton(_ tool: DrawingTool, canvas: CanvasViewModel) -> some View {
+        let isSelected = canvas.currentTool == tool
         Button(action: { canvas.currentTool = tool }) {
             Image(systemName: tool.systemImage)
         }
         .help(tool.helpText)
-        .buttonStyle(DSToolButtonStyle(isActive: canvas.currentTool == tool))
+        .buttonStyle(DSToolButtonStyle(isActive: isSelected, showsActiveBackground: false))
+        .background {
+            // 選択背景はmatchedGeometryEffectで共有し、ツール間をスライドさせる
+            if isSelected {
+                RoundedRectangle(cornerRadius: DS.Radius.small)
+                    .fill(Color.accentColor.opacity(0.18))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.Radius.small)
+                            .stroke(Color.accentColor.opacity(0.55), lineWidth: 1)
+                    )
+                    .matchedGeometryEffect(id: "toolSelectionIndicator", in: toolSelectionNS)
+            }
+        }
     }
 }
 

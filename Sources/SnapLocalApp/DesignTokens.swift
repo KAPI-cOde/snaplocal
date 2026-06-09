@@ -90,18 +90,23 @@ extension View {
 
 /// ツールバーのアイコンボタン用スタイル。
 /// 選択状態の強調・ホバー背景・押下スケール・無効時ディムを統一的に提供する。
+/// `showsActiveBackground: false` にすると選択背景を描かない
+/// (matchedGeometryEffectのスライドインジケータを外側で重ねる場合に使う)。
 struct DSToolButtonStyle: ButtonStyle {
     var isActive: Bool = false
     var size: CGFloat = 22
+    var showsActiveBackground: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
-        StyledLabel(configuration: configuration, isActive: isActive, size: size)
+        StyledLabel(configuration: configuration, isActive: isActive, size: size,
+                    showsActiveBackground: showsActiveBackground)
     }
 
     private struct StyledLabel: View {
         let configuration: Configuration
         let isActive: Bool
         let size: CGFloat
+        let showsActiveBackground: Bool
         @State private var hovering = false
         @Environment(\.isEnabled) private var isEnabled
 
@@ -110,13 +115,14 @@ struct DSToolButtonStyle: ButtonStyle {
                 .frame(width: size, height: size)
                 .foregroundStyle(isActive ? Color.accentColor : Color.primary)
                 .background(
-                    isActive ? Color.accentColor.opacity(0.18)
-                             : (hovering && isEnabled) ? Color.primary.opacity(0.08)
+                    (isActive && showsActiveBackground) ? Color.accentColor.opacity(0.18)
+                             : (hovering && isEnabled && !isActive) ? Color.primary.opacity(0.08)
                              : Color.clear,
                     in: RoundedRectangle(cornerRadius: DS.Radius.small))
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.Radius.small)
-                        .stroke(isActive ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
+                        .stroke((isActive && showsActiveBackground)
+                                ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
                 )
                 .contentShape(Rectangle())
                 .opacity(isEnabled ? 1 : 0.35)
