@@ -4043,21 +4043,35 @@ struct AnnotationCanvasView: View {
                             !$0.isLocked && $0.hitTest(canvasLoc, in: CGRect(origin: .zero, size: viewModel.canvasSize))
                         })
                         viewModel.hoveredAnnotationID = hit?.id
-                        // Check if hovering over a resize handle of the selected annotation
+                        // Check if hovering over a resize/endpoint handle of the selected annotation
                         if let selID = viewModel.selectedAnnotationID,
-                           let ann = viewModel.annotations.first(where: { $0.id == selID }),
-                           CanvasViewModel.isResizable(ann.type) {
-                            let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
-                            let corners = viewModel.handleCorners(for: bounds)
-                            var hi = viewModel.hitTestHandle(at: canvasLoc, corners: corners)
-                            if hi == nil, ann.type == .callout, let baseTail = ann.calloutTailPoint {
-                                let tailCanvas = baseTail.applying(ann.transform)
-                                let r: CGFloat = 10
-                                if abs(canvasLoc.x - tailCanvas.x) <= r && abs(canvasLoc.y - tailCanvas.y) <= r {
-                                    hi = 8
+                           let ann = viewModel.annotations.first(where: { $0.id == selID }) {
+                            let r: CGFloat = 10
+                            if CanvasViewModel.isResizable(ann.type) {
+                                let bounds = ann.bounds(in: CGRect(origin: .zero, size: viewModel.canvasSize))
+                                let corners = viewModel.handleCorners(for: bounds)
+                                var hi = viewModel.hitTestHandle(at: canvasLoc, corners: corners)
+                                if hi == nil, ann.type == .callout, let baseTail = ann.calloutTailPoint {
+                                    let tailCanvas = baseTail.applying(ann.transform)
+                                    if abs(canvasLoc.x - tailCanvas.x) <= r && abs(canvasLoc.y - tailCanvas.y) <= r {
+                                        hi = 8
+                                    }
                                 }
+                                hoverHandleIndex = hi
+                            } else if (ann.type == .arrow || ann.type == .line),
+                                      let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
+                                let t = ann.transform
+                                let startC = baseStart.applying(t), endC = baseEnd.applying(t)
+                                if abs(canvasLoc.x - endC.x) <= r && abs(canvasLoc.y - endC.y) <= r {
+                                    hoverHandleIndex = 10
+                                } else if abs(canvasLoc.x - startC.x) <= r && abs(canvasLoc.y - startC.y) <= r {
+                                    hoverHandleIndex = 9
+                                } else {
+                                    hoverHandleIndex = nil
+                                }
+                            } else {
+                                hoverHandleIndex = nil
                             }
-                            hoverHandleIndex = hi
                         } else {
                             hoverHandleIndex = nil
                         }
@@ -4434,6 +4448,24 @@ struct AnnotationCanvasView: View {
                     context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.2)))
                     context.fill(Path(ellipseIn: inner), with: .color(.white))
                     context.stroke(Path(ellipseIn: inner), with: .color(Color.orange), lineWidth: 1.5)
+                }
+            }
+
+            // Arrow / Line endpoint handles (single selection)
+            if viewModel.currentTool == .select,
+               viewModel.selectedAnnotationIDs.count <= 1,
+               let id = viewModel.selectedAnnotationID,
+               let ann = viewModel.annotations.first(where: { $0.id == id }),
+               (ann.type == .arrow || ann.type == .line),
+               let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
+                let t = ann.transform
+                for (pt, isEnd) in [(baseStart.applying(t), false), (baseEnd.applying(t), true)] {
+                    let hs: CGFloat = 5.5
+                    let outer = CGRect(x: pt.x - hs - 1, y: pt.y - hs - 1, width: (hs+1)*2, height: (hs+1)*2)
+                    let inner = CGRect(x: pt.x - hs, y: pt.y - hs, width: hs*2, height: hs*2)
+                    context.fill(Path(ellipseIn: outer), with: .color(.black.opacity(0.2)))
+                    context.fill(Path(ellipseIn: inner), with: .color(.white))
+                    context.stroke(Path(ellipseIn: inner), with: .color(isEnd ? .accentColor : Color.secondary), lineWidth: 1.5)
                 }
             }
 

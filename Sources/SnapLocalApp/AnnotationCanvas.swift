@@ -418,6 +418,9 @@ final class CanvasViewModel: ObservableObject {
     private var isUndoing = false
     private var dragStartAnnotation: AnyAnnotation? = nil
     private var calloutTailBakedBase: CalloutAnnotation? = nil
+    // index 9 = start endpoint, 10 = end endpoint for line/arrow
+    private var endpointDragBakedStart: CGPoint = .zero
+    private var endpointDragBakedEnd: CGPoint = .zero
 
     // MARK: - Style persistence
 
@@ -1039,6 +1042,29 @@ final class CanvasViewModel: ObservableObject {
                 }
             }
 
+            // Arrow / Line endpoint handles (indices 9=start, 10=end) — single selection
+            if let id = selectedAnnotationID,
+               selectedAnnotationIDs.count <= 1,
+               let ann = annotations.first(where: { $0.id == id }),
+               (ann.type == .arrow || ann.type == .line),
+               let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
+                let t = ann.transform
+                let startCanvas = baseStart.applying(t)
+                let endCanvas   = baseEnd.applying(t)
+                let r: CGFloat = 10
+                let hitStart = abs(localPoint.x - startCanvas.x) <= r && abs(localPoint.y - startCanvas.y) <= r
+                let hitEnd   = abs(localPoint.x - endCanvas.x)   <= r && abs(localPoint.y - endCanvas.y)   <= r
+                if hitStart || hitEnd {
+                    // Bake current transform into absolute canvas coords
+                    endpointDragBakedStart = startCanvas
+                    endpointDragBakedEnd   = endCanvas
+                    dragState.start(at: localPoint)
+                    resizingHandleIndex = hitEnd ? 10 : 9
+                    dragStartAnnotation = ann
+                    return
+                }
+            }
+
             if NSEvent.modifierFlags.contains(.option) {
                 // Option+drag: duplicate the hit annotation and drag the copy
                 let innerRect = CGRect(origin: .zero, size: canvasSize)
@@ -1255,6 +1281,43 @@ final class CanvasViewModel: ObservableObject {
                 newAnn.customColorHex = origAnn.customColorHex
                 if let index = annotations.firstIndex(where: { $0.id == id }) {
                     annotations[index] = newAnn
+                }
+                objectWillChange.send()
+                return
+            }
+
+            // Arrow / Line endpoint drag (handle index 9=start, 10=end)
+            if let handleIdx = resizingHandleIndex, (handleIdx == 9 || handleIdx == 10),
+               let id = selectedAnnotationID,
+               let origAnn = dragStartAnnotation,
+               let data = try? JSONEncoder().encode(origAnn) {
+                // Shift-constrain to 45° increments
+                var pt = localPoint
+                if NSEvent.modifierFlags.contains(.shift) {
+                    let anchor = handleIdx == 9 ? endpointDragBakedEnd : endpointDragBakedStart
+                    pt = shiftConstrainedPoint(pt, from: anchor)
+                }
+                var json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+                let t = origAnn.transform
+                func encodePoint(_ p: CGPoint) -> [String: Double] { ["x": Double(p.x), "y": Double(p.y)] }
+                if handleIdx == 9 {
+                    json["startPoint"] = encodePoint(pt)
+                    json["endPoint"]   = encodePoint(endpointDragBakedEnd)
+                } else {
+                    json["startPoint"] = encodePoint(endpointDragBakedStart)
+                    json["endPoint"]   = encodePoint(pt)
+                }
+                // Reset transform to identity (coords now baked in canvas space)
+                json["transform"] = ["a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0]
+                if let newData = try? JSONSerialization.data(withJSONObject: json),
+                   var newAnn = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) {
+                    newAnn.opacity = origAnn.opacity
+                    newAnn.isLocked = origAnn.isLocked
+                    newAnn.lineStyle = origAnn.lineStyle
+                    newAnn.customColorHex = origAnn.customColorHex
+                    if let index = annotations.firstIndex(where: { $0.id == id }) {
+                        annotations[index] = newAnn
+                    }
                 }
                 objectWillChange.send()
                 return

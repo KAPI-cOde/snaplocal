@@ -26,6 +26,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var lineStyle: LineStyle = .solid
     var customColorHex: String? = nil   // "RRGGBBAA" when set; overrides color
     var calloutTailPoint: CGPoint? = nil  // pre-transform tail point for callout; canvas coords = this.applying(transform)
+    var lineStartPoint: CGPoint? = nil   // pre-transform start for line/arrow
+    var lineEndPoint: CGPoint? = nil     // pre-transform end for line/arrow
 
     var resolvedColor: Color {
         guard let hex = customColorHex, hex.count == 8,
@@ -70,6 +72,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.arrowDoubleSided = (annotation as? ArrowAnnotation)?.doubleSided ?? false
         self.hasStrokeRepresentation = annotation.hasStrokeRepresentation
         self.calloutTailPoint = (annotation as? CalloutAnnotation)?.tailPoint
+        self.lineStartPoint = (annotation as? LineAnnotation)?.startPoint ?? (annotation as? ArrowAnnotation)?.startPoint
+        self.lineEndPoint = (annotation as? LineAnnotation)?.endPoint ?? (annotation as? ArrowAnnotation)?.endPoint
 
         var base = annotation
         base.transform = .identity
@@ -172,6 +176,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
         self.arrowDoubleSided = wrapped.arrowDoubleSided
         self.hasStrokeRepresentation = wrapped.hasStrokeRepresentation
         self.calloutTailPoint = wrapped.calloutTailPoint
+        self.lineStartPoint = wrapped.lineStartPoint
+        self.lineEndPoint = wrapped.lineEndPoint
         self.opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
         self.lineStyle = try container.decodeIfPresent(LineStyle.self, forKey: .lineStyle) ?? .solid
