@@ -411,6 +411,18 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func deleteAllHistory() {
+        Task {
+            for item in history { await vault.delete(id: item.id) }
+            canvas.backgroundImage = nil
+            canvas.annotations.removeAll()
+            currentVaultID = nil
+            selectedHistoryID = nil
+            await loadHistory()
+            showStatus("すべての履歴を削除しました")
+        }
+    }
+
     func renameHistoryItem(_ item: VaultItem, title: String?) {
         Task {
             await vault.updateTitle(id: item.id, title: title)
@@ -1075,12 +1087,14 @@ struct HistoryRail: View {
     let onSearch: () -> Void
     let onExport: (VaultItem) -> Void
     var onRename: ((VaultItem, String?) -> Void)? = nil
+    var onDeleteAll: (() -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
     @State private var hoveredItemID: UUID? = nil
     @State private var renamingItemID: UUID? = nil
     @State private var renameText: String = ""
+    @State private var showDeleteAllConfirm = false
 
     private let thumbW: CGFloat = 68
     private let thumbH: CGFloat = 46
@@ -1325,7 +1339,19 @@ struct HistoryRail: View {
                         .font(.caption2)
                 }
                 .buttonStyle(.borderless)
-                .padding(.trailing, 4)
+                if let onDeleteAll {
+                    Button(action: { showDeleteAllConfirm = true }) {
+                        Image(systemName: "trash")
+                            .font(.caption2)
+                            .foregroundStyle(.red.opacity(0.7))
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.trailing, 4)
+                    .confirmationDialog("すべての履歴を削除しますか？\nこの操作は取り消せません。", isPresented: $showDeleteAllConfirm, titleVisibility: .visible) {
+                        Button("すべて削除", role: .destructive) { onDeleteAll() }
+                        Button("キャンセル", role: .cancel) {}
+                    }
+                }
             }
             .padding(.vertical, 4)
         }
@@ -1855,7 +1881,8 @@ struct ContentView: View {
                         onRefresh: state.refreshHistory,
                         onSearch: state.applySearch,
                         onExport: state.exportHistoryItem,
-                        onRename: state.renameHistoryItem
+                        onRename: state.renameHistoryItem,
+                        onDeleteAll: state.deleteAllHistory
                     )
                     .transition(.move(edge: .trailing))
                 }
