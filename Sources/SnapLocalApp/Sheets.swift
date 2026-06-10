@@ -223,6 +223,9 @@ struct SettingsSheet: View {
                         Button("変更…") { chooseSaveDirectory() }
                             .controlSize(.small)
                     }
+                    Text("Google Drive等の同期フォルダも指定できます。履歴の書き込みは当月分の差分だけなので同期負荷は最小です")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("ファイル名テンプレート")
                             .font(.caption)

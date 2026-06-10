@@ -257,36 +257,46 @@ actor PersistentVault {
         }
     }
 
-    /// index.json に載っていない画像/サムネイルをゴミ箱へ移動する(復元可能)。
+    /// インデックスに載っていない画像/サムネイルをゴミ箱へ移動する(復元可能)。
     /// 「消したはずの画像がディスクに残る」事故を防ぐ起動時クリーンアップ(PLAN.md T5.2)。
     ///
     /// データ安全ガード:
-    /// - manifestが空なら何もしない(index.jsonがクラウド同期競合等で読めなかった場合に
+    /// - manifestが空なら何もしない(インデックスがクラウド同期競合等で読めなかった場合に
     ///   全ファイルを孤児と誤認して履歴全体をゴミ箱送りにする事故を防ぐ)
     /// - vault自身の命名規則 `{UUID}.png/jpg` に一致するファイルだけを対象にする
     ///   (保存先にユーザー自身のPNGがあるフォルダを指定しているケースを保護)
-    func cleanOrphans() -> Int {
+    /// - 更新が `olderThan`(既定48時間)以内のファイルは残す。クラウド同期vaultを
+    ///   複数マシンで使うと、他マシンの画像PNGが先に届きシャードJSONが遅れることがある —
+    ///   その瞬間に起動しても正規の画像を孤児と誤認しない(同期猶予)
+    func cleanOrphans(olderThan grace: TimeInterval = 48 * 3600) -> Int {
         guard !manifest.isEmpty else { return 0 }
         let fm = FileManager.default
+        let cutoff = Date(timeIntervalSinceNow: -grace)
         let validImages = Set(manifest.values.map { $0.filename })
         let validThumbs = Set(manifest.values.map { ($0.thumbFilename as NSString).lastPathComponent })
         func isVaultNamed(_ url: URL) -> Bool {
             UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil
         }
+        func isPastGrace(_ url: URL) -> Bool {
+            let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            return (mtime ?? .distantPast) <= cutoff
+        }
         var trashed = 0
-        if let files = try? fm.contentsOfDirectory(at: baseDirectory, includingPropertiesForKeys: nil) {
+        if let files = try? fm.contentsOfDirectory(at: baseDirectory, includingPropertiesForKeys: [.contentModificationDateKey]) {
             for url in files
             where url.pathExtension.lowercased() == "png"
                 && isVaultNamed(url)
-                && !validImages.contains(url.lastPathComponent) {
+                && !validImages.contains(url.lastPathComponent)
+                && isPastGrace(url) {
                 if (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil { trashed += 1 }
             }
         }
-        if let files = try? fm.contentsOfDirectory(at: thumbDirectory, includingPropertiesForKeys: nil) {
+        if let files = try? fm.contentsOfDirectory(at: thumbDirectory, includingPropertiesForKeys: [.contentModificationDateKey]) {
             for url in files
             where url.pathExtension.lowercased() == "jpg"
                 && isVaultNamed(url)
-                && !validThumbs.contains(url.lastPathComponent) {
+                && !validThumbs.contains(url.lastPathComponent)
+                && isPastGrace(url) {
                 if (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil { trashed += 1 }
             }
         }

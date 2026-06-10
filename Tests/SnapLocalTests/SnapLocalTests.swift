@@ -101,7 +101,7 @@ struct PersistentVaultTests {
         try Data([0x89, 0x50]).write(to: orphanPNG)
         try Data([0xFF, 0xD8]).write(to: orphanJPG)
 
-        let trashed = await vault.cleanOrphans()
+        let trashed = await vault.cleanOrphans(olderThan: 0)
 
         #expect(trashed == 2)
         #expect(!FileManager.default.fileExists(atPath: orphanPNG.path))
@@ -128,6 +128,24 @@ struct PersistentVaultTests {
             thumbFilename: "thumbnails/\(id.uuidString).jpg",
             ocrText: "", annotationsData: nil,
             width: 10, height: 10, title: title, notes: nil)
+    }
+
+    @Test("cleanOrphans keeps recently-modified files (cloud sync grace window)")
+    func cleanOrphansKeepsRecentFiles() async throws {
+        let (vault, dir) = makeTempVault()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        _ = try #require(await vault.save(image: makeTestImage()))
+
+        // 直近に書かれた未登録PNG = 他マシンからの同期で画像が先に届いた状況。
+        // シャードJSONが追いつくまで猶予し、ゴミ箱送りにしてはいけない
+        let syncing = dir.appendingPathComponent("\(UUID().uuidString).png")
+        try Data([0x89, 0x50]).write(to: syncing)
+
+        let trashed = await vault.cleanOrphans()   // 既定の猶予(48h)
+
+        #expect(trashed == 0)
+        #expect(FileManager.default.fileExists(atPath: syncing.path))
     }
 
     @Test("no-op updates do not rewrite the index shard (PLAN.md T5.2)")
