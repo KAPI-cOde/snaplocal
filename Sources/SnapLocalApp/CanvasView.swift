@@ -14,33 +14,44 @@ private struct ZoomNotificationHandler: ViewModifier {
     @Binding var baseZoom: CGFloat
     @Binding var panOffset: CGSize
     @Binding var basePan: CGSize
+    @Binding var userZoomed: Bool
     let canvasSize: CGSize
     let imageSize: CGSize?
+
+    // zoom はscaledToFit済みベースへの倍率なので、フィット = 1.0。
+    // 実寸(画像1px = 画面1デバイスpx)は 1/(backingScale × fitScale)
+    private var fitScale: CGFloat {
+        guard let sz = imageSize, sz.width > 0, sz.height > 0,
+              canvasSize.width > 0, canvasSize.height > 0 else { return 1 }
+        return min(canvasSize.width / sz.width, canvasSize.height / sz.height)
+    }
+    private var naturalZoom: CGFloat {
+        (1.0 / (NSScreen.main?.backingScaleFactor ?? 2.0)) / fitScale
+    }
 
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomIn)) { _ in
                 withAnimation(.easeOut(duration: 0.15)) {
-                    zoom = min(8.0, zoom * 1.25); baseZoom = zoom
+                    zoom = min(8.0, zoom * 1.25); baseZoom = zoom; userZoomed = true
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomOut)) { _ in
                 withAnimation(.easeOut(duration: 0.15)) {
-                    zoom = max(0.25, zoom / 1.25); baseZoom = zoom
+                    zoom = max(0.25, zoom / 1.25); baseZoom = zoom; userZoomed = true
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomReset)) { _ in
                 withAnimation(.easeOut(duration: 0.2)) {
-                    zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero
+                    zoom = max(0.25, min(8.0, naturalZoom)); baseZoom = zoom
+                    panOffset = .zero; basePan = .zero; userZoomed = true
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .snapLocalZoomFit)) { _ in
-                guard let sz = imageSize, sz.width > 0, sz.height > 0 else { return }
-                let fitW = canvasSize.width / sz.width
-                let fitH = canvasSize.height / sz.height
+                guard imageSize != nil else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
-                    zoom = max(0.25, min(4.0, min(fitW, fitH) * 0.9)); baseZoom = zoom
-                    panOffset = .zero; basePan = .zero
+                    zoom = 1.0; baseZoom = 1.0
+                    panOffset = .zero; basePan = .zero; userZoomed = true
                 }
             }
     }
@@ -233,8 +244,33 @@ struct AnnotationCanvasView: View {
     @State private var hoverColorHex: String? = nil
     @State private var hoverCanvasPoint: CGPoint? = nil
     @State private var imageOpacity: Double = 1.0
+    /// ユーザーが手動でズームしたか。false の間は canvasSize の変化(ウィンドウ
+    /// フレーム復元・リサイズ)に追従して自動フィットし直す
+    @State private var userZoomed = false
 
     @State private var hoverHandleIndex: Int? = nil
+
+    // MARK: - Zoom semantics
+    // zoom は「scaledToFit 済みベースサイズへの倍率」。したがってフィット表示 = zoom 1.0。
+    // fitScale = zoom 1.0 のときの画像1pxあたりの表示pt
+    private var fitScale: CGFloat {
+        guard let img = viewModel.backgroundImage,
+              viewModel.canvasSize.width > 0, viewModel.canvasSize.height > 0 else { return 1 }
+        return min(viewModel.canvasSize.width / CGFloat(img.width),
+                   viewModel.canvasSize.height / CGFloat(img.height))
+    }
+    /// 実寸(画像1px = 画面1デバイスpx = 撮影時と同じ大きさ)になる zoom 値
+    private var naturalZoom: CGFloat {
+        (1.0 / (NSScreen.main?.backingScaleFactor ?? 2.0)) / fitScale
+    }
+    /// 読み込み直後の既定: 実寸。ビューポートに収まらない場合のみフィットまで縮小
+    /// (常に zoom ≤ 1.0 なので画像がUIから溢れない)
+    private var autoFitZoom: CGFloat { max(0.25, min(1.0, naturalZoom)) }
+    /// バッジ・状態表示用の実ピクセル比(1.0 = 実寸)
+    private var effectiveZoom: CGFloat {
+        guard viewModel.backgroundImage != nil else { return zoom }
+        return zoom / naturalZoom
+    }
 
     private func updateCursor() {
         guard isHovering else { return }
@@ -314,7 +350,7 @@ struct AnnotationCanvasView: View {
                 if let image = viewModel.backgroundImage {
                     Image(decorative: image, scale: 1.0, orientation: .up)
                         .resizable()
-                        .interpolation(zoom >= 3.0 ? .none : .high)
+                        .interpolation(effectiveZoom >= 3.0 ? .none : .high)
                         .scaledToFit()
                         .brightness(viewModel.adjustBrightness)
                         .contrast(viewModel.adjustContrast)
@@ -334,11 +370,11 @@ struct AnnotationCanvasView: View {
                             .allowsHitTesting(false)
                     }
                     // Pixel grid overlay at zoom ≥ 4×
-                    if zoom >= 4.0, let img = viewModel.backgroundImage {
+                    if effectiveZoom >= 4.0, let img = viewModel.backgroundImage {
                         let cellW = proxy.size.width / CGFloat(img.width)
                         let cellH = proxy.size.height / CGFloat(img.height)
                         Canvas { ctx, size in
-                            let opacity = min(0.35, Double((zoom - 4) / 4) * 0.35)
+                            let opacity = min(0.35, Double((effectiveZoom - 4) / 4) * 0.35)
                             ctx.stroke(
                                 {
                                     var p = Path()
@@ -388,12 +424,14 @@ struct AnnotationCanvasView: View {
             }
             .scaleEffect(zoom, anchor: .center)
             .offset(panOffset)
+            .clipped()   // ズーム・パンした画像がツールバー等のUIへ溢れないように
             .contentShape(Rectangle())
             .gesture(isPanning ? panGesture() : nil)
             .gesture(isPanning ? nil : dragGesture(in: proxy.frame(in: .local), size: proxy.size))
             .gesture(MagnificationGesture()
                 .onChanged { value in
                     zoom = max(0.25, min(8.0, baseZoom * value))
+                    userZoomed = true
                 }
                 .onEnded { value in
                     baseZoom = max(0.25, min(8.0, baseZoom * value))
@@ -444,12 +482,22 @@ struct AnnotationCanvasView: View {
                     }
                 }
             }
-            .onAppear { viewModel.canvasSize = proxy.size; viewModel.currentZoom = zoom }
-            .onChange(of: proxy.size) { _, newSize in viewModel.canvasSize = newSize }
-            .onChange(of: zoom) { _, z in viewModel.currentZoom = z }
+            .onAppear { viewModel.canvasSize = proxy.size; viewModel.currentZoom = effectiveZoom }
+            .onChange(of: proxy.size) { _, newSize in
+                viewModel.canvasSize = newSize
+                // 手動ズーム前ならレイアウト確定に追従して再フィット
+                // (起動時、ウィンドウフレーム復元前の小さいcanvasSizeで計算された
+                //  ズームのまま固まる問題の自己修正)
+                if !userZoomed {
+                    zoom = autoFitZoom; baseZoom = zoom
+                }
+                viewModel.currentZoom = effectiveZoom
+            }
+            .onChange(of: zoom) { _, _ in viewModel.currentZoom = effectiveZoom }
             .modifier(ZoomNotificationHandler(
                 zoom: $zoom, baseZoom: $baseZoom,
                 panOffset: $panOffset, basePan: $basePan,
+                userZoomed: $userZoomed,
                 canvasSize: viewModel.canvasSize,
                 imageSize: viewModel.backgroundImage.map { CGSize(width: $0.width, height: $0.height) }
             ))
@@ -460,7 +508,7 @@ struct AnnotationCanvasView: View {
                         // ⌘+scroll → zoom toward cursor
                         let oldZoom = zoom
                         let newZoom = max(0.25, min(8.0, zoom * (1.0 + dy * 0.02)))
-                        zoom = newZoom; baseZoom = newZoom
+                        zoom = newZoom; baseZoom = newZoom; userZoomed = true
                         // Adjust pan so the canvas point under the cursor stays fixed
                         if let cur = cursor {
                             let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
@@ -484,8 +532,10 @@ struct AnnotationCanvasView: View {
                 .opacity(0)
             )
             .overlay(alignment: .topTrailing) {
-                if abs(zoom - 1.0) > 0.01 {
-                    Text("\(Int(zoom * 100))%")
+                // 100% = 実寸(撮影時と同じ大きさ)。タップで既定表示に戻す
+                let pct = Int(round(effectiveZoom * 100))
+                if viewModel.backgroundImage != nil && pct != 100 {
+                    Text("\(pct)%")
                         .font(.system(size: DS.FontSize.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, DS.Space.xs)
@@ -493,7 +543,10 @@ struct AnnotationCanvasView: View {
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
                         .padding(DS.Space.xs)
                         .onTapGesture {
-                            withAnimation(DS.Anim.smooth) { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
+                            withAnimation(DS.Anim.smooth) {
+                                zoom = autoFitZoom; baseZoom = zoom
+                                panOffset = .zero; basePan = .zero; userZoomed = true
+                            }
                         }
                 }
             }
@@ -626,17 +679,21 @@ struct AnnotationCanvasView: View {
             }
             .onKeyPress("=", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
-                withAnimation(.easeOut(duration: 0.15)) { zoom = min(8.0, zoom * 1.25); baseZoom = zoom }
+                withAnimation(.easeOut(duration: 0.15)) { zoom = min(8.0, zoom * 1.25); baseZoom = zoom; userZoomed = true }
                 return .handled
             }
             .onKeyPress("-", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
-                withAnimation(.easeOut(duration: 0.15)) { zoom = max(0.25, zoom / 1.25); baseZoom = zoom }
+                withAnimation(.easeOut(duration: 0.15)) { zoom = max(0.25, zoom / 1.25); baseZoom = zoom; userZoomed = true }
                 return .handled
             }
             .onKeyPress("0", phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
-                withAnimation(.easeOut(duration: 0.2)) { zoom = 1.0; baseZoom = 1.0; panOffset = .zero; basePan = .zero }
+                // ⌘0 = 実寸(画像1px = 画面1デバイスpx)
+                withAnimation(.easeOut(duration: 0.2)) {
+                    zoom = max(0.25, min(8.0, naturalZoom)); baseZoom = zoom
+                    panOffset = .zero; basePan = .zero; userZoomed = true
+                }
                 return .handled
             }
             .onKeyPress("f", phases: .down) { press in
@@ -651,20 +708,8 @@ struct AnnotationCanvasView: View {
                     }
                     return .ignored
                 }
-                guard press.modifiers.contains(.command) else { return .ignored }
-                // ⌘F = Fit canvas to viewport
-                let iw: CGFloat = viewModel.backgroundImage.map { CGFloat($0.width) } ?? viewModel.canvasSize.width
-                let ih: CGFloat = viewModel.backgroundImage.map { CGFloat($0.height) } ?? viewModel.canvasSize.height
-                guard iw > 0, ih > 0 else { return .ignored }
-                let fitW = viewModel.canvasSize.width / iw
-                let fitH = viewModel.canvasSize.height / ih
-                let fitZoom: CGFloat = min(fitW, fitH)
-                withAnimation(.easeOut(duration: 0.2)) {
-                    zoom = max(0.25, min(8.0, fitZoom))
-                    baseZoom = zoom
-                    panOffset = .zero; basePan = .zero
-                }
-                return .handled
+                // ⌘F は検索フォーカス(後段のハンドラとメニューが担当)。フィットは⌘9
+                return .ignored
             }
             .onKeyPress(.space, phases: .down) { _ in
                 guard !viewModel.showTextInput else { return .ignored }
@@ -975,19 +1020,13 @@ struct AnnotationCanvasView: View {
                 }
             }
             .onChange(of: viewModel.loadToken) { _, _ in
-                // Auto-fit: zoom to fill the canvas view, capped at 4x (good for small region captures)
-                if let img = viewModel.backgroundImage,
-                   viewModel.canvasSize.width > 0, viewModel.canvasSize.height > 0 {
-                    let iw = CGFloat(img.width), ih = CGFloat(img.height)
-                    let fitW = viewModel.canvasSize.width / iw
-                    let fitH = viewModel.canvasSize.height / ih
-                    // Fit image to canvas with 10% margin, cap zoom at 4x to avoid excessive upscaling
-                    let fitZoom = min(fitW, fitH) * 0.9
-                    zoom = max(0.25, min(4.0, fitZoom)); baseZoom = zoom
-                } else {
-                    zoom = 1.0; baseZoom = 1.0
-                }
+                // 既定表示: 実寸(撮影時と同じ大きさ)。ビューポートに収まらない場合のみ
+                // フィットまで縮小(zoom ≤ 1.0 なので小さい画像がUIから溢れない)
+                zoom = viewModel.backgroundImage != nil ? autoFitZoom : 1.0
+                baseZoom = zoom
+                userZoomed = false
                 panOffset = .zero; basePan = .zero
+                viewModel.currentZoom = effectiveZoom
                 imageOpacity = 0
                 withAnimation(.easeOut(duration: 0.25)) { imageOpacity = 1.0 }
             }

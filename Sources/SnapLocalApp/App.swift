@@ -86,6 +86,9 @@ struct SnapLocalApp: App {
                 Button("実寸 (100%)") { NotificationCenter.default.post(name: .snapLocalZoomReset, object: nil) }
                     .keyboardShortcut("0", modifiers: .command)
                 Button("フィット表示") { NotificationCenter.default.post(name: .snapLocalZoomFit, object: nil) }
+                    .keyboardShortcut("9", modifiers: .command)
+                Divider()
+                Button("履歴を検索") { appState.searchFocusTrigger.toggle() }
                     .keyboardShortcut("f", modifiers: .command)
                 Divider()
                 Button("ピン留めウィンドウをすべて閉じる") { PinManager.shared.closeAll() }
@@ -1239,6 +1242,40 @@ struct StatusChip: View {
 
 // MARK: - Content View
 
+// 画像サイズ・ズーム・注釈数のチップ(キャンバス右下)。
+// CanvasViewModel を直接観測して、ズーム変化に即時追従する
+private struct CanvasInfoChip: View {
+    @ObservedObject var canvas: CanvasViewModel
+
+    var body: some View {
+        if let img = canvas.backgroundImage {
+            let zoomPct = Int(round(canvas.currentZoom * 100))
+            let annCount = canvas.annotations.count
+            let selInfo: String = {
+                guard let selID = canvas.selectedAnnotationID,
+                      let ann = canvas.annotations.first(where: { $0.id == selID }),
+                      canvas.canvasSize.width > 0 else { return "" }
+                let b = ann.bounds(in: CGRect(origin: .zero, size: canvas.canvasSize))
+                let sx = CGFloat(img.width) / canvas.canvasSize.width
+                let sy = CGFloat(img.height) / canvas.canvasSize.height
+                let pw = Int(b.width * sx), ph = Int(b.height * sy)
+                let px = Int(b.minX * sx), py = Int(b.minY * sy)
+                return "  [\(pw)×\(ph) @\(px),\(py)]"
+            }()
+            let info = "\(img.width) × \(img.height)  \(zoomPct)%"
+                + (annCount > 0 ? "  ✎\(annCount)" : "")
+                + selInfo
+            Text(info)
+                .font(.system(size: DS.FontSize.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, DS.Space.xs)
+                .padding(.vertical, 3)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
+                .padding([.bottom, .trailing], DS.Space.xs)
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var state: SnapLocalState
     @State private var isDropTargeted = false
@@ -1371,31 +1408,9 @@ struct ContentView: View {
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        if let img = state.canvas.backgroundImage {
-                            let zoomPct = Int(state.canvas.currentZoom * 100)
-                            let annCount = state.canvas.annotations.count
-                            let selInfo: String = {
-                                guard let selID = state.canvas.selectedAnnotationID,
-                                      let ann = state.canvas.annotations.first(where: { $0.id == selID }),
-                                      state.canvas.canvasSize.width > 0 else { return "" }
-                                let b = ann.bounds(in: CGRect(origin: .zero, size: state.canvas.canvasSize))
-                                let sx = CGFloat(img.width) / state.canvas.canvasSize.width
-                                let sy = CGFloat(img.height) / state.canvas.canvasSize.height
-                                let pw = Int(b.width * sx), ph = Int(b.height * sy)
-                                let px = Int(b.minX * sx), py = Int(b.minY * sy)
-                                return "  [\(pw)×\(ph) @\(px),\(py)]"
-                            }()
-                            let info = "\(img.width) × \(img.height)  \(zoomPct)%"
-                                + (annCount > 0 ? "  ✎\(annCount)" : "")
-                                + selInfo
-                            Text(info)
-                                .font(.system(size: DS.FontSize.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, DS.Space.xs)
-                                .padding(.vertical, 3)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
-                                .padding([.bottom, .trailing], DS.Space.xs)
-                        }
+                        // canvas を直接観測する(ContentView は state しか観測しないため、
+                        // ここに直書きするとズーム・注釈数の表示が更新されない)
+                        CanvasInfoChip(canvas: state.canvas)
                     }
 
                 if sidebarVisible {
@@ -1420,6 +1435,16 @@ struct ContentView: View {
                         onReocr: state.reRunOCR
                     )
                     .transition(.move(edge: .trailing))
+                }
+            }
+            .onChange(of: state.searchFocusTrigger) { _, _ in
+                // ⌘F(履歴を検索): サイドバーが閉じていれば開いてから検索欄へフォーカス
+                // (再トグルでHistoryRail側のonChangeを改めて発火させる)
+                if !sidebarVisible {
+                    withAnimation(DS.Anim.smooth) { sidebarVisible = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        state.searchFocusTrigger.toggle()
+                    }
                 }
             }
         }
