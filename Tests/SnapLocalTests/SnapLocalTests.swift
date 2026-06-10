@@ -236,6 +236,65 @@ struct PersistentVaultTests {
         #expect(FileManager.default.fileExists(atPath: indexDir.appendingPathComponent("2020-01 (1).json").path))
     }
 
+    @Test("search matches annotation text from legacy entries without annotationTexts key (PLAN.md T6.2)")
+    func searchMatchesLegacyAnnotationText() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SnapLocalTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let indexDir = dir.appendingPathComponent("index", isDirectory: true)
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+
+        // 旧形式エントリ: annotationsData はあるが annotationTexts キーが無い
+        var entry = makeEntry(createdAt: Date(timeIntervalSince1970: 1_577_900_000), title: "no-match")
+        let textAnn = AnyAnnotation(TextAnnotation(
+            color: .red, rect: CGRect(x: 0, y: 0, width: 100, height: 30), text: "目印テキスト"))
+        entry.annotationsData = try JSONEncoder().encode([textAnn])
+        entry.annotationTexts = nil
+        try JSONEncoder().encode([entry]).write(to: indexDir.appendingPathComponent("2020-01.json"))
+
+        let vault = PersistentVault(directory: dir)
+
+        let hit = await vault.search(query: "目印")
+        #expect(hit.count == 1, "annotation text must be searchable without the additive key (backfilled at load)")
+        let miss = await vault.search(query: "ヒットしない語")
+        #expect(miss.isEmpty)
+    }
+
+    @Test("light-path search over 10k entries stays under 100ms (PLAN.md T6.2)")
+    func searchPerformanceWith10kEntries() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SnapLocalTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let indexDir = dir.appendingPathComponent("index", isDirectory: true)
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+
+        var entries: [VaultManifestEntry] = []
+        entries.reserveCapacity(10_000)
+        for i in 0..<10_000 {
+            var e = makeEntry(createdAt: Date(timeIntervalSince1970: 1_577_900_000 + Double(i) * 60))
+            e.ocrText = "月次レポート ダッシュボード 請求書 entry-\(i) Acme Analytics weekly visitors sign-ups churn rate overview"
+            entries.append(e)
+        }
+        try JSONEncoder().encode(entries).write(to: indexDir.appendingPathComponent("2020-01.json"))
+
+        let vault = PersistentVault(directory: dir)
+
+        let hitStart = Date()
+        let hits = await vault.search(query: "entry-4321")
+        let hitTime = Date().timeIntervalSince(hitStart)
+
+        let missStart = Date()
+        let misses = await vault.search(query: "存在しない検索語")
+        let missTime = Date().timeIntervalSince(missStart)
+
+        #expect(hits.count == 1)
+        #expect(misses.isEmpty)
+        // PLAN.md T6.2 受け入れ条件: 1万件で検索応答 <100ms
+        #expect(hitTime < 0.1, "search over 10k entries must respond in <100ms")
+        #expect(missTime < 0.1)
+        print("[perf] search x10k — hit: \(Int(hitTime * 1000))ms, miss: \(Int(missTime * 1000))ms")
+    }
+
     @Test("allItems with 200 items — warm cache is fast (PLAN.md T5.3/T4.2)")
     func allItemsPerformanceWith200Items() async throws {
         let (vault, dir) = makeTempVault()

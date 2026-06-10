@@ -1181,6 +1181,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private func loadHistory() async {
         let q = searchQuery
         let items = q.isEmpty ? await vault.allItems() : await vault.search(query: q)
+        // 入力が進んで古くなった結果は捨てる(タイプ中の結果順序の乱れ防止)
+        guard q == searchQuery else { return }
         let wasEmpty = history.isEmpty && currentVaultID == nil
         history = items
         // Auto-load the most recent screenshot on first launch
@@ -1189,8 +1191,16 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private var searchDebounceTask: Task<Void, Never>?
+
+    /// 検索フィールドからの呼び出し。1文字ごとに全件スキャンしないよう200msデバウンス(T6.2)
     func applySearch() {
-        Task { await loadHistory() }
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            await self?.loadHistory()
+        }
     }
 
     private func pngData(from image: CGImage) -> Data? {

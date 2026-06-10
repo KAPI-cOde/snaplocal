@@ -15,6 +15,9 @@ struct VaultManifestEntry: Codable, Sendable {
     var thumbFilename: String   // thumbnails/{uuid}.jpg
     var ocrText: String
     var annotationsData: Data?  // JSON-encoded [AnyAnnotation]
+    /// テキストアノテーションの平文(検索用)。annotationsDataのデコードなしに検索できるようにする
+    /// 追加キー(T6.2)— 旧エントリでは nil で、読み込み時に一度だけ補完される
+    var annotationTexts: String? = nil
     var width: Int
     var height: Int
     var title: String?
@@ -73,6 +76,9 @@ actor PersistentVault {
     private var manifest: [UUID: VaultManifestEntry] = [:]
     private var orderedIDs: [UUID] = []         // newest first
     private var shardOf: [UUID: String] = [:]   // entry id → "YYYY-MM"(エントリが属するシャード)
+    /// 検索用テキスト(OCR+タイトル+ノート+注釈平文)のメモリキャッシュ。
+    /// 検索のたびに annotationsData をデコードしない(T6.2)
+    private var searchText: [UUID: String] = [:]
     private let thumbnailSize = CGSize(width: 200, height: 130)
     /// サムネイルJPEGのメモリキャッシュ。allItems()/search()が呼ばれるたびに
     /// 全件をディスクから読み直すのを防ぐ。コスト=バイト数、上限50MB。
@@ -114,6 +120,19 @@ actor PersistentVault {
         self.manifest = loaded.manifest
         self.shardOf = loaded.shardOf
         self.orderedIDs = loaded.manifest.values.sorted { $0.createdAt > $1.createdAt }.map(\.id)
+
+        // T6.2: 検索用テキストキャッシュを構築。annotationTexts 未保存の旧エントリは
+        // ここで一度だけアノテーションをデコードして補完する(メモリ内のみ。
+        // 次にそのエントリが変更された時に追加キーとして永続化される)
+        for (id, entry) in self.manifest {
+            var entry = entry
+            if entry.annotationTexts == nil, let data = entry.annotationsData,
+               let anns = try? JSONDecoder().decode([AnyAnnotation].self, from: data) {
+                entry.annotationTexts = anns.compactMap { $0.textContent }.joined(separator: " ")
+                self.manifest[id] = entry
+            }
+            self.searchText[id] = Self.searchText(for: entry)
+        }
 
         // 3. 移行・競合吸収分をディスクへ反映し、旧 index.json は index.json.bak として退役
         //    (削除はしない — 既存ユーザーの履歴を壊す経路を残さないため)
@@ -162,6 +181,7 @@ actor PersistentVault {
             thumbFilename: thumbFilename,
             ocrText: "",
             annotationsData: annotationsData,
+            annotationTexts: annotations.compactMap { $0.textContent }.joined(separator: " "),
             width: image.width,
             height: image.height
         )
@@ -221,6 +241,7 @@ actor PersistentVault {
         // 内容が同じならシャードを書き直さない(クラウド同期フォルダでの無駄な同期防止)
         guard entry.annotationsData != newData else { return }
         manifest[id]!.annotationsData = newData
+        manifest[id]!.annotationTexts = annotations.compactMap { $0.textContent }.joined(separator: " ")
         persist(id)
     }
 
@@ -316,39 +337,40 @@ actor PersistentVault {
 
     /// All items, newest first
     func allItems() -> [VaultItem] {
-        orderedIDs.compactMap { id -> VaultItem? in
-            guard let entry = manifest[id] else { return nil }
-            let imageURL = baseDirectory.appendingPathComponent(entry.filename)
-            let thumbData = cachedThumbnailData(for: entry)
-            let annotations = entry.annotationsData
-                .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
-            return VaultItem(
-                id: entry.id,
-                createdAt: entry.createdAt,
-                imageURL: imageURL,
-                thumbnailData: thumbData,
-                ocrText: entry.ocrText,
-                annotations: annotations,
-                level: .permanent,
-                title: entry.title,
-                notes: entry.notes,
-                width: entry.width,
-                height: entry.height,
-                isStarred: entry.isStarred
-            )
-        }
+        orderedIDs.compactMap { item(for: $0) }
     }
 
-    /// Search items by OCR text
+    /// Search items by OCR text / title / notes / annotation text.
+    /// 軽量パス(T6.2): テキストだけを先にスキャンし、VaultItem(サムネイル読み・
+    /// アノテーションのJSONデコード)はヒットした分だけ組み立てる
     func search(query: String) -> [VaultItem] {
         guard !query.isEmpty else { return allItems() }
-        return allItems().filter { item in
-            if item.ocrText.localizedCaseInsensitiveContains(query) { return true }
-            if let title = item.title, title.localizedCaseInsensitiveContains(query) { return true }
-            if let notes = item.notes, notes.localizedCaseInsensitiveContains(query) { return true }
-            let annotationText = item.annotations.compactMap { $0.textContent }.joined(separator: " ")
-            return annotationText.localizedCaseInsensitiveContains(query)
-        }
+        return orderedIDs
+            .filter { searchText[$0]?.localizedCaseInsensitiveContains(query) ?? false }
+            .compactMap { item(for: $0) }
+    }
+
+    /// manifest エントリから UI 用の VaultItem を組み立てる(サムネイル読み+アノテーションデコード)
+    private func item(for id: UUID) -> VaultItem? {
+        guard let entry = manifest[id] else { return nil }
+        let imageURL = baseDirectory.appendingPathComponent(entry.filename)
+        let thumbData = cachedThumbnailData(for: entry)
+        let annotations = entry.annotationsData
+            .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
+        return VaultItem(
+            id: entry.id,
+            createdAt: entry.createdAt,
+            imageURL: imageURL,
+            thumbnailData: thumbData,
+            ocrText: entry.ocrText,
+            annotations: annotations,
+            level: .permanent,
+            title: entry.title,
+            notes: entry.notes,
+            width: entry.width,
+            height: entry.height,
+            isStarred: entry.isStarred
+        )
     }
 
     // MARK: - Private
@@ -372,13 +394,21 @@ actor PersistentVault {
 
     // MARK: - Shard persistence (PLAN.md T6.1)
 
-    /// 変更されたエントリが属するシャードだけを書き出す(他の月のファイルは触らない)
+    /// 変更されたエントリが属するシャードだけを書き出す(他の月のファイルは触らない)。
+    /// 検索用テキストキャッシュの更新もここで一元化する
     private func persist(_ id: UUID) {
+        searchText[id] = manifest[id].map { Self.searchText(for: $0) }
         let key = shardOf[id]
             ?? manifest[id].map { Self.monthKey(for: $0.createdAt) }
             ?? Self.monthKey(for: Date())
         shardOf[id] = manifest[id] != nil ? key : nil   // 削除済みならマッピングも消す
         writeShard(key)
+    }
+
+    private static func searchText(for entry: VaultManifestEntry) -> String {
+        [entry.ocrText, entry.title ?? "", entry.notes ?? "", entry.annotationTexts ?? ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
     private func writeShard(_ key: String) {
