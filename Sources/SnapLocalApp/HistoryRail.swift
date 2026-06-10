@@ -629,10 +629,11 @@ struct HistoryItemPopover: View {
         .task {
             guard fullImage == nil else { return }
             let url = item.imageURL
-            let loaded = await Task.detached(priority: .userInitiated) {
-                NSImage(contentsOf: url)
+            // NSImageは非Sendableなので、Dataだけバックグラウンドで読みメインで画像化する
+            let data = await Task.detached(priority: .userInitiated) {
+                try? Data(contentsOf: url)
             }.value
-            fullImage = loaded
+            if let data { fullImage = NSImage(data: data) }
         }
     }
 }
