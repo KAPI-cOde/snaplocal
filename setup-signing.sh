@@ -24,6 +24,7 @@ if security find-identity -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
 fi
 
 TMP="$(mktemp -d)"
+chmod 700 "$TMP"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "自己署名のコード署名証明書を生成中…"
@@ -32,13 +33,12 @@ openssl req -x509 -newkey rsa:2048 -keyout "$TMP/key.pem" -out "$TMP/cert.pem" -
     -addext "extendedKeyUsage=codeSigning" \
     -addext "basicConstraints=critical,CA:false" >/dev/null 2>&1
 
-# ランダムな一時パスフレーズで p12 化(ディスクに平文鍵を残さない)
-P12PASS="$(openssl rand -hex 16)"
-openssl pkcs12 -export -out "$TMP/id.p12" -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
-    -passout "pass:$P12PASS" -name "$IDENTITY" >/dev/null 2>&1
-
+# 注意: PKCS12 経由は OpenSSL 3.x の既定暗号を macOS の security が読めず
+# 「MAC verification failed」になる。鍵と証明書を PEM のまま別々にインポートし、
+# キーチェーン側で公開鍵一致により identity に紐付けさせる(最も互換性が高い)。
 echo "login キーチェーンへインポート中(codesign のみアクセス許可)…"
-security import "$TMP/id.p12" -k "$LOGIN_KC" -P "$P12PASS" -T /usr/bin/codesign
+security import "$TMP/key.pem"  -k "$LOGIN_KC" -T /usr/bin/codesign
+security import "$TMP/cert.pem" -k "$LOGIN_KC" -T /usr/bin/codesign
 
 echo ""
 if security find-identity -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
