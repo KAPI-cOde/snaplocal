@@ -1039,10 +1039,12 @@ struct ColorWellView: NSViewRepresentable {
         return String(format: "%02X%02X%02X%02X", r, g, b, a)
     }
 
+    @MainActor
     class Coordinator: NSObject {
         var onColorPicked: (String?) -> Void
         init(onColorPicked: @escaping (String?) -> Void) { self.onColorPicked = onColorPicked }
 
+        // NSColorWell の target/action はメインスレッドで呼ばれる
         @objc func colorChanged(_ sender: NSColorWell) {
             let hex = ColorWellView.nsColorToHex(sender.color)
             onColorPicked(hex)
