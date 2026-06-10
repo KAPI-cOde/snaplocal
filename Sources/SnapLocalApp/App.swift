@@ -262,12 +262,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             }
         }
 
-        // AppIntents notifications
+        // AppIntents notifications (queue: .main なので assumeIsolated は安全)
         NotificationCenter.default.addObserver(forName: .intentCaptureScreen, object: nil, queue: .main) { [weak self] _ in
-            self?.captureNow()
+            MainActor.assumeIsolated { self?.captureNow() }
         }
         NotificationCenter.default.addObserver(forName: .intentCaptureRegion, object: nil, queue: .main) { [weak self] _ in
-            self?.captureRegion()
+            MainActor.assumeIsolated { self?.captureRegion() }
         }
 
         // Auto-save annotations 3 seconds after last change
@@ -276,17 +276,19 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             .sink { [weak self] _ in self?.scheduleAutoSave() }
             .store(in: &cancellables)
 
-        // Save annotations on quit
+        // Save annotations on quit (queue: .main なので assumeIsolated は安全)
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self, let id = self.currentVaultID, !self.canvas.annotations.isEmpty else { return }
-            let anns = self.canvas.annotations
-            let v = self.vault
-            let sem = DispatchSemaphore(value: 0)
-            Task.detached {
-                await v.updateAnnotations(id: id, annotations: anns)
-                sem.signal()
+            MainActor.assumeIsolated {
+                guard let self, let id = self.currentVaultID, !self.canvas.annotations.isEmpty else { return }
+                let anns = self.canvas.annotations
+                let v = self.vault
+                let sem = DispatchSemaphore(value: 0)
+                Task.detached {
+                    await v.updateAnnotations(id: id, annotations: anns)
+                    sem.signal()
+                }
+                sem.wait()
             }
-            sem.wait()
         }
     }
 

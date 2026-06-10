@@ -206,6 +206,8 @@ final class CaptureEngine: @unchecked Sendable {
     }
 
     /// Fetch list of capturable windows (excludes our own app and wallpaper).
+    /// SCWindowは非SendableなのでMainActorに固定して境界越えを防ぐ。
+    @MainActor
     static func availableWindows() async throws -> [SCWindow] {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let ourBundleID = Bundle.main.bundleIdentifier ?? "com.snaplocal.app"

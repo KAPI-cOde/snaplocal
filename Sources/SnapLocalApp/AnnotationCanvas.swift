@@ -622,7 +622,7 @@ final class CanvasViewModel: ObservableObject {
 
     func addAnnotation(_ annotation: AnyAnnotation) {
         if !isUndoing {
-            undoManager.registerUndo(withTarget: self) { target in
+            undoManager.registerMainActorUndo(withTarget: self) { target in
                 target.isUndoing = true
                 target.removeAnnotation(id: annotation.id)
                 target.isUndoing = false
@@ -646,7 +646,7 @@ final class CanvasViewModel: ObservableObject {
         if let index = annotations.firstIndex(where: { $0.id == id }) {
             let annotation = annotations[index]
             if !isUndoing {
-                undoManager.registerUndo(withTarget: self) { target in
+                undoManager.registerMainActorUndo(withTarget: self) { target in
                     target.isUndoing = true
                     target.annotations.insert(annotation, at: index)
                     if !annotation.hasStrokeRepresentation {
@@ -669,7 +669,7 @@ final class CanvasViewModel: ObservableObject {
         if let index = annotations.firstIndex(where: { $0.id == annotation.id }) {
             let oldAnnotation = annotations[index]
             if !isUndoing {
-                undoManager.registerUndo(withTarget: self) { target in
+                undoManager.registerMainActorUndo(withTarget: self) { target in
                     target.isUndoing = true
                     target.annotations[index] = oldAnnotation
                     target.isUndoing = false
@@ -744,7 +744,7 @@ final class CanvasViewModel: ObservableObject {
             let ids = selectedAnnotationIDs.filter { id in annotations.first(where: { $0.id == id })?.isLocked != true }
             guard !ids.isEmpty else { return }
             let snapshot = annotations
-            undoManager.registerUndo(withTarget: self) { target in
+            undoManager.registerMainActorUndo(withTarget: self) { target in
                 target.isUndoing = true
                 target.annotations = snapshot
                 target.isUndoing = false
@@ -806,7 +806,7 @@ final class CanvasViewModel: ObservableObject {
         let bounds = targets.map { $0.bounds(in: canvas) }
 
         let snapshot = annotations
-        undoManager.registerUndo(withTarget: self) { target in
+        undoManager.registerMainActorUndo(withTarget: self) { target in
             target.isUndoing = true
             target.annotations = snapshot
             target.isUndoing = false
@@ -878,7 +878,7 @@ final class CanvasViewModel: ObservableObject {
     func clearAllAnnotations() {
         guard !annotations.isEmpty else { return }
         let snapshot = annotations
-        undoManager.registerUndo(withTarget: self) { target in
+        undoManager.registerMainActorUndo(withTarget: self) { target in
             target.isUndoing = true
             target.annotations = snapshot
             target.isUndoing = false
@@ -1543,7 +1543,7 @@ final class CanvasViewModel: ObservableObject {
             if let original = dragStartAnnotation,
                let index = annotations.firstIndex(where: { $0.id == original.id }) {
                 let orig = original
-                undoManager.registerUndo(withTarget: self) { target in
+                undoManager.registerMainActorUndo(withTarget: self) { target in
                     target.isUndoing = true
                     target.annotations[index] = orig
                     target.objectWillChange.send()
@@ -1593,7 +1593,7 @@ final class CanvasViewModel: ObservableObject {
             if !multiDragStartPositions.isEmpty {
                 let startPositions = multiDragStartPositions
                 let currentSnapshot = annotations.filter { startPositions[$0.id] != nil }
-                undoManager.registerUndo(withTarget: self) { target in
+                undoManager.registerMainActorUndo(withTarget: self) { target in
                     target.isUndoing = true
                     for (id, startT) in startPositions {
                         if let idx = target.annotations.firstIndex(where: { $0.id == id }) {
@@ -1611,7 +1611,7 @@ final class CanvasViewModel: ObservableObject {
             } else if let original = dragStartAnnotation,
                let index = annotations.firstIndex(where: { $0.id == original.id }) {
                 let orig = original
-                undoManager.registerUndo(withTarget: self) { target in
+                undoManager.registerMainActorUndo(withTarget: self) { target in
                     target.isUndoing = true
                     target.annotations[index] = orig
                     target.objectWillChange.send()
@@ -2025,7 +2025,7 @@ final class CanvasViewModel: ObservableObject {
 
     // Register undo for a background image replacement (saves previous image + annotations)
     private func registerBackgroundUndo(previousImage: CGImage, previousAnnotations: [AnyAnnotation]) {
-        undoManager.registerUndo(withTarget: self) { [previousImage, previousAnnotations] vm in
+        undoManager.registerMainActorUndo(withTarget: self) { [previousImage, previousAnnotations] vm in
             let currentImage = vm.backgroundImage
             let currentAnnotations = vm.annotations
             vm.backgroundImage = previousImage
@@ -2034,7 +2034,7 @@ final class CanvasViewModel: ObservableObject {
             vm.selectedAnnotationIDs = []
             vm.updateUndoRedoState()
             vm.recomputeAllFilterPreviews()
-            vm.undoManager.registerUndo(withTarget: vm) { [currentImage, currentAnnotations] vm2 in
+            vm.undoManager.registerMainActorUndo(withTarget: vm) { [currentImage, currentAnnotations] vm2 in
                 vm2.backgroundImage = currentImage
                 vm2.annotations = currentAnnotations
                 vm2.selectedAnnotationID = nil
@@ -2607,6 +2607,19 @@ final class CanvasViewModel: ObservableObject {
                 .composited(over: image)
         default:
             return nil
+        }
+    }
+}
+// MARK: - UndoManager + MainActor
+
+extension UndoManager {
+    /// UndoManagerのハンドラは新SDKで@Sendable扱いになりMainActor状態に触れない。
+    /// undo/redoはメインスレッドで発火するため、assumeIsolatedで包んで登録する。
+    @MainActor
+    func registerMainActorUndo<T: AnyObject>(withTarget target: T,
+                                             handler: @escaping @MainActor (T) -> Void) {
+        registerUndo(withTarget: target) { t in
+            MainActor.assumeIsolated { handler(t) }
         }
     }
 }
