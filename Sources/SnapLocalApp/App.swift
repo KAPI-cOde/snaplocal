@@ -279,16 +279,40 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             .sink { [weak self] _ in self?.scheduleAutoSave() }
             .store(in: &cancellables)
 
+        // 背景編集(クロップ・回転等)も同じオートセーブに乗せる(T7.2)
+        canvas.$backgroundDirty
+            .dropFirst()
+            .filter { $0 }
+            .sink { [weak self] _ in self?.scheduleAutoSave() }
+            .store(in: &cancellables)
+
         // Save annotations on quit (queue: .main なので assumeIsolated は安全)
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let id = self.currentVaultID, !self.canvas.annotations.isEmpty else { return }
+                guard let self else { return }
                 let anns = self.canvas.annotations
                 let v = self.vault
                 let sem = DispatchSemaphore(value: 0)
-                Task.detached {
-                    await v.updateAnnotations(id: id, annotations: anns)
-                    sem.signal()
+                if self.canvas.backgroundDirty, let bg = self.canvas.backgroundImage {
+                    // 編集済み背景は新規アイテムとして保存(元画像は残す — T7.2)。
+                    // フォーク済みなら上書き。タイトル類のコピーはここでは行わない(終了時の最小処理)
+                    let targetID = self.currentVaultID.flatMap { self.forkedThisSession.contains($0) ? $0 : nil }
+                    Task.detached {
+                        if let id = targetID {
+                            _ = await v.updateImage(id: id, image: bg)
+                            await v.updateAnnotations(id: id, annotations: anns)
+                        } else {
+                            _ = await v.save(image: bg, annotations: anns)
+                        }
+                        sem.signal()
+                    }
+                } else if let id = self.currentVaultID, !anns.isEmpty {
+                    Task.detached {
+                        await v.updateAnnotations(id: id, annotations: anns)
+                        sem.signal()
+                    }
+                } else {
+                    return
                 }
                 sem.wait()
             }
@@ -315,10 +339,90 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         autoSaveTask = Task {
             do {
                 try await Task.sleep(nanoseconds: 3_000_000_000)
-                guard let id = currentVaultID else { return }
-                let anns = canvas.annotations
-                await vault.updateAnnotations(id: id, annotations: anns)
+                if canvas.backgroundDirty {
+                    await persistEditedBackground(selectResult: true)
+                } else if let id = currentVaultID {
+                    let anns = canvas.annotations
+                    await vault.updateAnnotations(id: id, annotations: anns)
+                }
             } catch {}
+        }
+    }
+
+    // MARK: - 背景編集の永続化(T7.2)
+
+    /// このセッション中に背景編集から生まれたアイテム。続けて編集した場合は
+    /// 新規アイテムを乱造せず、これらを上書き更新する
+    private var forkedThisSession: Set<UUID> = []
+
+    /// 編集済み背景(クロップ・回転・結合等)をvaultへ保存する。
+    /// 方針(ユーザー承認済み): 元アイテムは一切触らず「新しいアイテム」として保存する。
+    /// 元画像・元注釈は履歴にそのまま残る
+    /// - Parameter selectResult: trueなら保存後のアイテムを選択状態にする(その場のオートセーブ用)。
+    ///   別アイテムへの切替直前のフラッシュでは false(ユーザーの移動先を奪わない)
+    private func persistEditedBackground(selectResult: Bool) async {
+        guard canvas.backgroundDirty, let bg = canvas.backgroundImage else { return }
+        canvas.backgroundDirty = false
+        let anns = canvas.annotations
+        let sourceID = currentVaultID
+
+        // フォーク済みアイテムの続き編集 → 同じアイテムを上書き
+        if let id = sourceID, forkedThisSession.contains(id) {
+            _ = await vault.updateImage(id: id, image: bg)
+            await vault.updateAnnotations(id: id, annotations: anns)
+            let text = await OCRService.recognizeText(in: bg)
+            await vault.updateOCR(id: id, text: text)
+            await loadHistory()
+            return
+        }
+
+        // 新しいアイテムとして保存(元アイテムは無変更)
+        guard let item = await vault.save(image: bg, annotations: anns) else {
+            showStatus("編集の保存に失敗しました")
+            return
+        }
+        if let sid = sourceID, let src = history.first(where: { $0.id == sid }) {
+            if let t = src.title { await vault.updateTitle(id: item.id, title: t) }
+            if let n = src.notes { await vault.updateNotes(id: item.id, notes: n) }
+        }
+        forkedThisSession.insert(item.id)
+        if selectResult {
+            currentVaultID = item.id
+            selectedHistoryID = item.id
+            showStatus("編集を新しい項目として保存しました（元の画像も履歴に残っています）", success: true)
+        }
+        await loadHistory()
+        // 切り抜きでテキストが減っている可能性があるため、検索用OCRを撮り直す
+        let text = await OCRService.recognizeText(in: bg)
+        await vault.updateOCR(id: item.id, text: text)
+        await loadHistory()
+    }
+
+    /// アイテム切替・新規撮影の直前に未保存の編集を退避する。
+    /// canvasはこの直後に上書きされるため、値を同期的に確保してから非同期で保存する
+    private func flushPendingBackgroundEdit() {
+        guard canvas.backgroundDirty, let bg = canvas.backgroundImage else { return }
+        canvas.backgroundDirty = false
+        let anns = canvas.annotations
+        let sourceID = currentVaultID
+        let targetID = sourceID.flatMap { forkedThisSession.contains($0) ? $0 : nil }
+        let sourceTitle = sourceID.flatMap { sid in history.first(where: { $0.id == sid })?.title }
+        let sourceNotes = sourceID.flatMap { sid in history.first(where: { $0.id == sid })?.notes }
+        let v = vault
+        Task { [weak self] in
+            if let id = targetID {
+                _ = await v.updateImage(id: id, image: bg)
+                await v.updateAnnotations(id: id, annotations: anns)
+                let text = await OCRService.recognizeText(in: bg)
+                await v.updateOCR(id: id, text: text)
+            } else if let item = await v.save(image: bg, annotations: anns) {
+                if let t = sourceTitle { await v.updateTitle(id: item.id, title: t) }
+                if let n = sourceNotes { await v.updateNotes(id: item.id, notes: n) }
+                await MainActor.run { self?.forkedThisSession.insert(item.id) }
+                let text = await OCRService.recognizeText(in: bg)
+                await v.updateOCR(id: item.id, text: text)
+            }
+            await MainActor.run { self?.refreshHistory() }
         }
     }
 
@@ -442,13 +546,16 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             showStatus("クリップボードにコピーしました（履歴には保存しません）", success: true)
             return
         }
-        // Persist current annotations before overwriting canvas
-        if let id = currentVaultID, !canvas.annotations.isEmpty {
+        // Persist current annotations / pending background edits before overwriting canvas
+        if canvas.backgroundDirty {
+            flushPendingBackgroundEdit()
+        } else if let id = currentVaultID, !canvas.annotations.isEmpty {
             let anns = canvas.annotations
             let v = vault
             Task { await v.updateAnnotations(id: id, annotations: anns) }
         }
         canvas.backgroundImage = image
+        canvas.backgroundDirty = false
         canvas.annotations.removeAll()
         canvas.loadToken = UUID()
         currentVaultID = nil
@@ -1007,8 +1114,10 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
 
     /// quiet=true: 起動時の自動復元など、ユーザー操作によらないロードではチップを出さない
     func loadHistoryItem(_ item: VaultItem, quiet: Bool) {
-        // Save current annotations before switching
-        if let id = currentVaultID, !canvas.annotations.isEmpty {
+        // Save current annotations / pending background edits before switching
+        if canvas.backgroundDirty {
+            flushPendingBackgroundEdit()
+        } else if let id = currentVaultID, !canvas.annotations.isEmpty {
             let anns = canvas.annotations
             let v = vault
             Task { await v.updateAnnotations(id: id, annotations: anns) }
@@ -1044,11 +1153,17 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
         let image = canvas.applyDecoration(to: raw)
 
-        if let id = currentVaultID {
+        if currentVaultID != nil || canvas.backgroundDirty {
             Task {
-                await vault.updateAnnotations(id: id, annotations: canvas.annotations)
-                if !canvas.annotations.isEmpty, let annotatedRaw = canvas.renderAnnotations() {
-                    await vault.updateThumbnail(id: id, annotatedImage: annotatedRaw)
+                // 編集済み背景があれば先に永続化(新規アイテム化)してから、その対象に注釈を保存
+                if canvas.backgroundDirty {
+                    await persistEditedBackground(selectResult: true)
+                }
+                if let id = currentVaultID {
+                    await vault.updateAnnotations(id: id, annotations: canvas.annotations)
+                    if !canvas.annotations.isEmpty, let annotatedRaw = canvas.renderAnnotations() {
+                        await vault.updateThumbnail(id: id, annotatedImage: annotatedRaw)
+                    }
                 }
             }
         }

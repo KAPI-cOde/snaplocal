@@ -257,6 +257,25 @@ actor PersistentVault {
         }
     }
 
+    /// 背景編集(クロップ・回転・結合等)を既存アイテムへ上書き保存する(T7.2)。
+    /// ファイル名・IDは変えない(同一セッション内でフォーク済みのアイテムの続き編集用)。
+    /// 寸法を更新し、サムネイルも再生成する
+    func updateImage(id: UUID, image: CGImage) -> Bool {
+        guard let entry = manifest[id], let png = pngData(from: image) else { return false }
+        let imageURL = baseDirectory.appendingPathComponent(entry.filename)
+        do { try png.write(to: imageURL, options: .atomic) } catch { return false }
+        manifest[id]!.width = image.width
+        manifest[id]!.height = image.height
+        if let thumbData = jpegThumbnail(from: image) {
+            try? thumbData.write(to: baseDirectory.appendingPathComponent(entry.thumbFilename), options: .atomic)
+            thumbDataCache.setObject(thumbData as NSData,
+                                     forKey: entry.thumbFilename as NSString,
+                                     cost: thumbData.count)
+        }
+        persist(id)
+        return true
+    }
+
     /// インデックスに載っていない画像/サムネイルをゴミ箱へ移動する(復元可能)。
     /// 「消したはずの画像がディスクに残る」事故を防ぐ起動時クリーンアップ(PLAN.md T5.2)。
     ///

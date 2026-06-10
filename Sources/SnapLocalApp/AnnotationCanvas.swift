@@ -375,6 +375,9 @@ final class CanvasViewModel: ObservableObject {
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
     @Published var loadToken: UUID = UUID()
+    /// 背景画像が編集(クロップ・回転・結合等)されてvault未保存の状態か。
+    /// SnapLocalState が注釈と同じ保存タイミングで読み、新規アイテムとして永続化する(T7.2)
+    @Published var backgroundDirty = false
     // Placement ripple: canvas-space center of the most recently placed annotation
     @Published var lastPlacedCenter: CGPoint = .zero
     @Published var lastPlacedAt: CFAbsoluteTime = 0
@@ -2025,11 +2028,13 @@ final class CanvasViewModel: ObservableObject {
 
     // Register undo for a background image replacement (saves previous image + annotations)
     private func registerBackgroundUndo(previousImage: CGImage, previousAnnotations: [AnyAnnotation]) {
+        backgroundDirty = true
         undoManager.registerMainActorUndo(withTarget: self) { [previousImage, previousAnnotations] vm in
             let currentImage = vm.backgroundImage
             let currentAnnotations = vm.annotations
             vm.backgroundImage = previousImage
             vm.annotations = previousAnnotations
+            vm.backgroundDirty = true
             vm.selectedAnnotationID = nil
             vm.selectedAnnotationIDs = []
             vm.updateUndoRedoState()
@@ -2037,6 +2042,7 @@ final class CanvasViewModel: ObservableObject {
             vm.undoManager.registerMainActorUndo(withTarget: vm) { [currentImage, currentAnnotations] vm2 in
                 vm2.backgroundImage = currentImage
                 vm2.annotations = currentAnnotations
+                vm2.backgroundDirty = true
                 vm2.selectedAnnotationID = nil
                 vm2.selectedAnnotationIDs = []
                 vm2.updateUndoRedoState()
@@ -2409,6 +2415,7 @@ final class CanvasViewModel: ObservableObject {
 
     func resetAndLoad(image: CGImage, annotations: [AnyAnnotation]) {
         backgroundImage = image
+        backgroundDirty = false
         // canvasSize は View の onAppear/onChange が管理する — ここで上書きしない
         self.annotations = annotations
         selectedAnnotationID = nil

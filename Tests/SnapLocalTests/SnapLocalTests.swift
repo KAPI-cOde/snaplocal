@@ -44,6 +44,33 @@ struct PersistentVaultTests {
         #expect(!(all.first!.thumbnailData.isEmpty), "thumbnail should be generated")
     }
 
+    @Test("updateImage overwrites pixels, dimensions and thumbnail in place (PLAN.md T7.2)")
+    func updateImageOverwritesInPlace() async throws {
+        let (vault, dir) = makeTempVault()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let saved = try #require(await vault.save(image: makeTestImage(width: 64, height: 64)))
+        let originalBytes = try Data(contentsOf: saved.imageURL)
+
+        let ok = await vault.updateImage(id: saved.id, image: makeTestImage(width: 32, height: 16))
+        #expect(ok)
+
+        let item = try #require(await vault.allItems().first)
+        #expect(item.id == saved.id, "ID・ファイル名は変わらない")
+        #expect(item.width == 32 && item.height == 16, "寸法が更新される")
+        #expect(try Data(contentsOf: saved.imageURL) != originalBytes, "画像ファイルが上書きされる")
+        #expect(await vault.allItems().count == 1, "新規アイテムは作られない")
+    }
+
+    @Test("updateImage on unknown id is a safe no-op")
+    func updateImageUnknownID() async throws {
+        let (vault, dir) = makeTempVault()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ok = await vault.updateImage(id: UUID(), image: makeTestImage())
+        #expect(!ok)
+        #expect(await vault.allItems().isEmpty)
+    }
+
     @Test("delete removes files and index entry")
     func deleteRemovesFiles() async throws {
         let (vault, dir) = makeTempVault()
