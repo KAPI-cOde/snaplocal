@@ -125,7 +125,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         switch self {
         case .select: return "cursorarrow"                  // 標準ポインタ(旧: リサイズ風矢印で混同)
         case .line: return "line.diagonal"
-        case .arrow: return "arrow.up.right"
+        case .arrow: return "line.diagonal.arrow"           // 描き込む矢印の見た目(旧: arrow.up.rightは外部リンク風)
         case .rectangle: return "rectangle"
         case .ellipse: return "oval"
         case .text: return "textformat"
@@ -134,7 +134,7 @@ enum DrawingTool: String, Codable, CaseIterable {
         case .callout: return "bubble.left"
         case .highlight: return "highlighter"
         case .redact: return "checkerboard.rectangle"       // モザイク柄(旧: eye.slashは表示切替と混同)
-        case .pencil: return "scribble"                     // フリーハンド線(旧: pencil.tipは点描風)
+        case .pencil: return "pencil.line"                  // フリーハンド描画(旧: scribbleは波線のみで意図が伝わらない)
         case .stamp: return "face.smiling"
         case .colorPicker: return "eyedropper.halffull"
         case .measure: return "ruler"

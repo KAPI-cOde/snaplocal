@@ -160,6 +160,7 @@ struct CompactToolbar: View {
                     .font(.system(size: 9, weight: .semibold))
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)   // 標準インジケータと自前chevronの二重表示を防ぐ
             .frame(width: 18)
             .help("撮影方法を選択")
 
@@ -214,6 +215,7 @@ struct CompactToolbar: View {
                         .foregroundStyle(moreTools.contains(canvas.currentTool) ? Color.accentColor : Color.primary)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .frame(width: 22)
                 .help("その他のツール")
             }
@@ -388,7 +390,7 @@ struct CompactToolbar: View {
         Divider().frame(height: 18)
 
         Button { canvas.enterCropMode() } label: {
-            Image(systemName: "scissors")
+            Image(systemName: "crop")
         }
         .buttonStyle(DSToolButtonStyle())
         .help("切り取り (⌘K)")
@@ -411,7 +413,7 @@ struct CompactToolbar: View {
         // OCRは撮影後に自動実行される前提のためメイン導線にボタンは置かない。
         // 結果の確認・コピーは履歴ポップオーバー、再実行は履歴コンテキストメニュー(T3.5)。
         Button(action: onCopy) {
-            Image(systemName: "doc.on.clipboard")
+            Image(systemName: "doc.on.doc")
         }
         .buttonStyle(DSToolButtonStyle())
         .help("クリップボードにコピー (⌘C)")
@@ -434,6 +436,7 @@ struct CompactToolbar: View {
             Image(systemName: "square.and.arrow.up")
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .frame(width: 22)
         .help("別名保存 / 共有 / ピン留め")
 
@@ -555,6 +558,7 @@ struct CompactToolbar: View {
             Image(systemName: "ellipsis")
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .frame(width: 22)
         .help("その他（回転・リサイズ・結合・テンプレート）")
         .sheet(isPresented: $showExtendCanvas) {
