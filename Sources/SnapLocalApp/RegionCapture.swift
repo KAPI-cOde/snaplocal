@@ -58,7 +58,7 @@ enum RegionCapture {
 // MARK: - Capture State
 
 private enum CaptureState {
-    case idle       // pre-drag, show loupe + window snap
+    case idle       // pre-drag, window snap
     case dragging   // mouse held down
     case adjusting  // selection complete, resize handles visible
 }
@@ -211,10 +211,12 @@ private final class RegionOverlayWindow: NSObject {
     // App that was frontmost before we activated ourselves (restored on dismiss)
     private var previousApp: NSRunningApplication?
 
-    // Loupe
-    private var loupePanel: NSPanel?
-    private var loupeView: LoupeView?
     private var screenSnapshots: [CGDirectDisplayID: CGImage] = [:]
+
+    // Whether the overlay was opened with an initialRect (pre-selection); used to
+    // distinguish "adjust existing selection" (traditional Enter-to-confirm) from
+    // "fresh drag" (mouseUp → instant commit).
+    private var startedWithPreselection = false
 
     // Window snap
     private var windowSnapPanel: NSPanel?
@@ -288,7 +290,6 @@ private final class RegionOverlayWindow: NSObject {
 
         setupWindowSnapPanel()
         NSCursor.crosshair.set()
-        setupLoupe()
         setupEvents()
         setupFailsafeHotkeys()
         startBorderAnimation()
@@ -304,7 +305,7 @@ private final class RegionOverlayWindow: NSObject {
             if !clamped.isNull, clamped.width > 4, clamped.height > 4 {
                 selectionRect = clamped
                 captureState = .adjusting
-                loupePanel?.orderOut(nil)  // hide loupe immediately when starting with preselection
+                startedWithPreselection = true
                 trackingViews.forEach { $0.needsDisplay = true }
             }
         }
@@ -382,9 +383,6 @@ private final class RegionOverlayWindow: NSObject {
                     self.spaceHeldDuringDrag = false
                     self.spaceDragPrevPoint = nil
                     NSCursor.crosshair.set()
-                    if self.captureState == .dragging {
-                        self.loupePanel?.orderFrontRegardless()
-                    }
                 }
             case .keyDown:
                 if event.keyCode == 53 { self.cancel(); return nil }     // ESC
@@ -417,7 +415,6 @@ private final class RegionOverlayWindow: NSObject {
                 self.cursorScreenPoint = loc
                 self.setNeedsRedisplay()
                 if self.captureState == .idle {
-                    self.updateLoupe(at: loc, selectionSize: .zero)
                     self.updateWindowSnap(at: loc)
                 }
                 if self.captureState == .adjusting {
@@ -433,10 +430,7 @@ private final class RegionOverlayWindow: NSObject {
             Task { @MainActor in
                 self.cursorScreenPoint = loc
                 if self.captureState == .idle {
-                    self.updateLoupe(at: loc, selectionSize: .zero)
                     self.updateWindowSnap(at: loc)
-                } else if self.captureState == .dragging {
-                    self.updateLoupe(at: loc, selectionSize: self.selectionRect.size)
                 }
                 self.setNeedsRedisplay()
             }
@@ -449,7 +443,6 @@ private final class RegionOverlayWindow: NSObject {
         selectionRect.origin.x += dx
         selectionRect.origin.y += dy
         setNeedsRedisplay()
-        updateLoupe(at: NSEvent.mouseLocation, selectionSize: selectionRect.size)
     }
 
     // MARK: - Cursor for adjusting state
@@ -521,7 +514,7 @@ private final class RegionOverlayWindow: NSObject {
                 pendingWindowSnap = nil
             }
 
-            // Space held: translate the whole selection (don't resize), hide loupe
+            // Space held: translate the whole selection (don't resize)
             if spaceHeldDuringDrag, let prev = spaceDragPrevPoint, selectionRect != .zero {
                 let dx = screenPoint.x - prev.x
                 let dy = screenPoint.y - prev.y
@@ -534,7 +527,6 @@ private final class RegionOverlayWindow: NSObject {
                     width: abs(newEnd.x - s.x), height: abs(newEnd.y - s.y)
                 )
                 NSCursor.closedHand.set()
-                loupePanel?.orderOut(nil)
                 setNeedsRedisplay()
                 return
             }
@@ -555,7 +547,6 @@ private final class RegionOverlayWindow: NSObject {
                 rect.size = CGSize(width: side, height: side)
             }
             selectionRect = rect
-            updateLoupe(at: screenPoint, selectionSize: rect.size)
             setNeedsRedisplay()
 
         case .adjusting:
@@ -566,7 +557,6 @@ private final class RegionOverlayWindow: NSObject {
             handleRectStart = selectionRect
             setNeedsRedisplay()
             if h == .move { NSCursor.closedHand.set() } else { updateCursorForAdjusting(at: screenPoint) }
-            updateLoupe(at: screenPoint, selectionSize: selectionRect.size)
 
         case .idle:
             break
@@ -584,13 +574,20 @@ private final class RegionOverlayWindow: NSObject {
                 return
             }
             if selectionRect.width > 10 && selectionRect.height > 10 {
-                captureState = .adjusting
-                activeHandle = nil
-                handleDragStart = nil
-                selectionConfirmedAt = CFAbsoluteTimeGetCurrent()
-                setNeedsRedisplay()
-                updateCursorForAdjusting(at: screenPoint)
-                loupePanel?.orderOut(nil)
+                if startedWithPreselection {
+                    // Re-drag from adjusting state (started with preselection): stay in
+                    // adjusting so the user can fine-tune with handles before pressing Enter.
+                    captureState = .adjusting
+                    activeHandle = nil
+                    handleDragStart = nil
+                    selectionConfirmedAt = CFAbsoluteTimeGetCurrent()
+                    setNeedsRedisplay()
+                    updateCursorForAdjusting(at: screenPoint)
+                } else {
+                    // Fresh drag (⌘⇧4 without initialRect): commit immediately like
+                    // macOS standard screenshot (mouse-up = capture, no Enter needed).
+                    commit()
+                }
             } else {
                 cancel()
             }
@@ -703,7 +700,6 @@ private final class RegionOverlayWindow: NSObject {
         teardownFailsafeHotkeys()
         if let m = localMonitor  { NSEvent.removeMonitor(m); localMonitor = nil }
         if let m = globalMonitor { NSEvent.removeMonitor(m); globalMonitor = nil }
-        loupePanel?.orderOut(nil); loupePanel = nil; loupeView = nil
         windowSnapPanel?.orderOut(nil); windowSnapPanel = nil; windowSnapRect = nil
         panels.forEach { $0.orderOut(nil) }
         panels.removeAll(); trackingViews.removeAll()
@@ -789,51 +785,6 @@ private final class RegionOverlayWindow: NSObject {
         return nil
     }
 
-    // MARK: - Loupe
-
-    private let loupeSize: CGFloat = 160
-    private let loupeZoom: CGFloat = 3.0
-
-    private func setupLoupe() {
-        let panel = NSPanel(
-            contentRect: CGRect(x: 0, y: 0, width: loupeSize, height: loupeSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered, defer: false
-        )
-        panel.level = .screenSaver + 2
-        panel.isOpaque = false; panel.backgroundColor = .clear
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        let view = LoupeView(frame: CGRect(x: 0, y: 0, width: loupeSize, height: loupeSize))
-        panel.contentView = view
-        panel.orderFrontRegardless()
-        loupePanel = panel; loupeView = view
-        updateLoupe(at: NSEvent.mouseLocation, selectionSize: .zero)
-    }
-
-    func updateLoupe(at cursorScreen: NSPoint, selectionSize: CGSize) {
-        cursorScreenPoint = cursorScreen
-        guard let panel = loupePanel, let view = loupeView, captureState != .adjusting else { return }
-        let screen = NSScreen.screens.first(where: { NSPointInRect(cursorScreen, $0.frame) }) ?? NSScreen.main
-        guard let screen else { return }
-        let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-        let snapshot = displayID.flatMap { screenSnapshots[$0] }
-        let localX = cursorScreen.x - screen.frame.minX
-        let localY_topLeft = screen.frame.height - (cursorScreen.y - screen.frame.minY)
-        let scale = screen.backingScaleFactor
-        view.snapshot = snapshot
-        view.cursorPixel = CGPoint(x: localX * scale, y: localY_topLeft * scale)
-        view.cursorLogicalPoint = CGPoint(x: localX, y: localY_topLeft)
-        view.snapshotSize = CGSize(width: CGFloat(snapshot?.width ?? 1), height: CGFloat(snapshot?.height ?? 1))
-        view.selectionSize = selectionSize
-        view.needsDisplay = true
-        let offset: CGFloat = 22
-        var lx = cursorScreen.x + offset
-        var ly = cursorScreen.y + offset
-        if lx + loupeSize > screen.frame.maxX - 4 { lx = cursorScreen.x - loupeSize - offset }
-        if ly + loupeSize > screen.frame.maxY - 4 { ly = cursorScreen.y - loupeSize - offset }
-        panel.setFrameOrigin(NSPoint(x: lx, y: ly))
-    }
 }
 
 // MARK: - RegionView
@@ -1167,144 +1118,6 @@ private final class RegionView: NSView {
 
 extension RegionOverlayWindow {
     var isAdjusting: Bool { captureState == .adjusting }
-}
-
-// MARK: - Loupe View
-
-private final class LoupeView: NSView {
-    var snapshot: CGImage?
-    var cursorPixel: CGPoint = .zero
-    var snapshotSize: CGSize = .zero
-    var selectionSize: CGSize = .zero
-    var cursorLogicalPoint: CGPoint = .zero
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        layer?.cornerRadius = frame.width / 2
-        layer?.masksToBounds = true
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-
-        ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fill(bounds)
-
-        if let snapshot {
-            let zoom: CGFloat = 3.0
-            let capturePts = bounds.width / zoom
-            let srcRect = CGRect(
-                x: cursorPixel.x - capturePts / 2,
-                y: cursorPixel.y - capturePts / 2,
-                width: capturePts,
-                height: capturePts
-            ).intersection(CGRect(origin: .zero, size: snapshotSize))
-            if let crop = snapshot.cropping(to: srcRect) {
-                ctx.interpolationQuality = .none
-                ctx.draw(crop, in: bounds)
-            }
-        }
-
-        // Pixel grid aligned to actual pixel boundaries at zoom=3 (each screen pixel = 3 view pts)
-        let zoom: CGFloat = 3.0
-        let cellSize = zoom
-        // Center of view = cursorPixel; offset grid so pixel edges align with pixel centers
-        let pxOffX = (cursorPixel.x - CGFloat(Int(cursorPixel.x))).truncatingRemainder(dividingBy: 1) * cellSize
-        let pxOffY = (cursorPixel.y - CGFloat(Int(cursorPixel.y))).truncatingRemainder(dividingBy: 1) * cellSize
-        let cx0 = bounds.midX + pxOffX
-        let cy0 = bounds.midY + pxOffY
-        ctx.saveGState()
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.22).cgColor)
-        ctx.setLineWidth(0.5)
-        var gx = cx0.truncatingRemainder(dividingBy: cellSize)
-        if gx < 0 { gx += cellSize }
-        while gx <= bounds.maxX { ctx.move(to: CGPoint(x: gx, y: 0)); ctx.addLine(to: CGPoint(x: gx, y: bounds.height)); gx += cellSize }
-        var gy = cy0.truncatingRemainder(dividingBy: cellSize)
-        if gy < 0 { gy += cellSize }
-        while gy <= bounds.maxY { ctx.move(to: CGPoint(x: 0, y: gy)); ctx.addLine(to: CGPoint(x: bounds.width, y: gy)); gy += cellSize }
-        ctx.strokePath()
-        ctx.restoreGState()
-
-        // Crosshair with center pixel highlight
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
-        ctx.setLineWidth(1.0)
-        let cx = bounds.midX, cy = bounds.midY
-        ctx.move(to: CGPoint(x: cx, y: 0)); ctx.addLine(to: CGPoint(x: cx, y: bounds.height))
-        ctx.move(to: CGPoint(x: 0, y: cy)); ctx.addLine(to: CGPoint(x: bounds.width, y: cy))
-        ctx.strokePath()
-        // Center pixel box (3×3 cell highlight)
-        let cellHighlight: CGFloat = zoom
-        let pixelBox = CGRect(x: cx - cellHighlight / 2, y: cy - cellHighlight / 2,
-                              width: cellHighlight, height: cellHighlight)
-        ctx.setStrokeColor(NSColor.white.cgColor)
-        ctx.setLineWidth(1.5)
-        ctx.stroke(pixelBox)
-
-        // Size or coordinate label
-        let isDragging = selectionSize.width >= 1 && selectionSize.height >= 1
-        let scale = window?.screen?.backingScaleFactor ?? 2.0
-        let label = isDragging
-            ? "\(Int(selectionSize.width * scale))×\(Int(selectionSize.height * scale))"
-            : "\(Int(cursorLogicalPoint.x)), \(Int(cursorLogicalPoint.y))"
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.white
-        ]
-        let str = NSAttributedString(string: label, attributes: attrs)
-        let textSize = str.size()
-        let pad: CGFloat = 4
-        let bgRect = CGRect(
-            x: (bounds.width - textSize.width) / 2 - pad,
-            y: pad,
-            width: textSize.width + pad * 2,
-            height: textSize.height + pad
-        )
-        ctx.setFillColor(NSColor.black.withAlphaComponent(0.65).cgColor)
-        ctx.addPath(CGPath(roundedRect: bgRect, cornerWidth: 3, cornerHeight: 3, transform: nil))
-        ctx.fillPath()
-        str.draw(at: CGPoint(x: bgRect.minX + pad, y: bgRect.minY + pad / 2))
-
-        // Color swatch when idle
-        if !isDragging, let snap = snapshot {
-            let px = max(0, min(Int(cursorPixel.x), snap.width - 1))
-            let py = max(0, min(Int(cursorPixel.y), snap.height - 1))
-            if let colorCtx = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
-                                        bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
-                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-               let cropped = snap.cropping(to: CGRect(x: px, y: py, width: 1, height: 1)) {
-                colorCtx.draw(cropped, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-                if let data = colorCtx.data {
-                    let p = data.bindMemory(to: UInt8.self, capacity: 4)
-                    let r = p[0], g = p[1], b = p[2]
-                    let hexStr = String(format: "#%02X%02X%02X", r, g, b)
-                    let hexAttrs: [NSAttributedString.Key: Any] = [
-                        .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-                        .foregroundColor: NSColor.white
-                    ]
-                    let hexAS = NSAttributedString(string: hexStr, attributes: hexAttrs)
-                    let hexSz = hexAS.size()
-                    let swatchW: CGFloat = 12
-                    let totalW = swatchW + 4 + hexSz.width
-                    let rowH: CGFloat = swatchW
-                    let rowY = bgRect.maxY + 4
-                    let rowX = (bounds.width - totalW) / 2
-                    ctx.setFillColor(CGColor(red: CGFloat(r)/255, green: CGFloat(g)/255, blue: CGFloat(b)/255, alpha: 1))
-                    ctx.fill(CGRect(x: rowX, y: rowY, width: swatchW, height: rowH))
-                    ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.6).cgColor)
-                    ctx.setLineWidth(0.5)
-                    ctx.stroke(CGRect(x: rowX, y: rowY, width: swatchW, height: rowH))
-                    hexAS.draw(at: CGPoint(x: rowX + swatchW + 4, y: rowY + (rowH - hexSz.height) / 2))
-                }
-            }
-        }
-
-        // Circular border
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.85).cgColor)
-        ctx.setLineWidth(2.5)
-        ctx.strokeEllipse(in: bounds.insetBy(dx: 1.25, dy: 1.25))
-    }
 }
 
 // MARK: - Window snap border visual
