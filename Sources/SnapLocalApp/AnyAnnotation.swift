@@ -29,24 +29,26 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     var lineStartPoint: CGPoint? = nil   // pre-transform start for line/arrow
     var lineEndPoint: CGPoint? = nil     // pre-transform end for line/arrow
 
-    var resolvedColor: Color {
+    /// Parses `customColorHex` ("RRGGBBAA") into (r, g, b, a) components in 0...1.
+    /// Returns nil when the hex string is absent or malformed.
+    private var customColorComponents: (r: Double, g: Double, b: Double, a: Double)? {
         guard let hex = customColorHex, hex.count == 8,
               let rv = UInt8(hex.prefix(2), radix: 16),
               let gv = UInt8(hex.dropFirst(2).prefix(2), radix: 16),
               let bv = UInt8(hex.dropFirst(4).prefix(2), radix: 16),
               let av = UInt8(hex.dropFirst(6).prefix(2), radix: 16)
-        else { return color.color }
-        return Color(red: Double(rv)/255, green: Double(gv)/255, blue: Double(bv)/255, opacity: Double(av)/255)
+        else { return nil }
+        return (Double(rv)/255, Double(gv)/255, Double(bv)/255, Double(av)/255)
+    }
+
+    var resolvedColor: Color {
+        guard let c = customColorComponents else { return color.color }
+        return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a)
     }
 
     var resolvedCGColor: CGColor {
-        guard let hex = customColorHex, hex.count == 8,
-              let rv = UInt8(hex.prefix(2), radix: 16),
-              let gv = UInt8(hex.dropFirst(2).prefix(2), radix: 16),
-              let bv = UInt8(hex.dropFirst(4).prefix(2), radix: 16),
-              let av = UInt8(hex.dropFirst(6).prefix(2), radix: 16)
-        else { return color.cgColor }
-        return CGColor(red: CGFloat(rv)/255, green: CGFloat(gv)/255, blue: CGFloat(bv)/255, alpha: CGFloat(av)/255)
+        guard let c = customColorComponents else { return color.cgColor }
+        return CGColor(red: c.r, green: c.g, blue: c.b, alpha: c.a)
     }
 
     // Captures base path with .identity transform; AnyAnnotation.transform applied on top in path(in:)

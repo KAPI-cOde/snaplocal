@@ -25,15 +25,10 @@ struct LineAnnotation: AnnotationElement {
     }
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
-        let tolerance = max(lineWidth.rawValue + 8, 12)
-        return path(in: rect).strokedPath(StrokeStyle(lineWidth: tolerance)).contains(point)
+        return path(in: rect).strokedPath(StrokeStyle(lineWidth: hitTolerance)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect { path(in: rect).boundingRect }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }
 
 // MARK: - Arrow Annotation
@@ -103,16 +98,11 @@ struct ArrowAnnotation: AnnotationElement {
     }
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
-        let tolerance = max(lineWidth.rawValue + 8, 12)
         let p = path(in: rect)
-        return p.contains(point) || p.strokedPath(StrokeStyle(lineWidth: tolerance)).contains(point)
+        return p.contains(point) || p.strokedPath(StrokeStyle(lineWidth: hitTolerance)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect { path(in: rect).boundingRect }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }
 
 // MARK: - Rectangle Annotation
@@ -133,15 +123,10 @@ struct RectangleAnnotation: AnnotationElement {
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
         let path = self.path(in: rect)
         if isFilled && path.contains(point) { return true }
-        let tolerance = max(lineWidth.rawValue + 8, 12)
-        return path.strokedPath(StrokeStyle(lineWidth: tolerance)).contains(point)
+        return path.strokedPath(StrokeStyle(lineWidth: hitTolerance)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect { self.rect.applying(transform) }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }
 
 // MARK: - Ellipse Annotation
@@ -163,17 +148,12 @@ struct EllipseAnnotation: AnnotationElement {
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
         let path = self.path(in: rect)
         if isFilled && path.contains(point) { return true }
-        let tolerance = max(lineWidth.rawValue + 8, 12)
-        return path.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
+        return path.strokedPath(StrokeStyle(lineWidth: hitTolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect {
         let path = self.path(in: rect)
         return path.boundingRect
-    }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
     }
 }
 
@@ -199,10 +179,6 @@ struct TextAnnotation: AnnotationElement {
     }
 
     func bounds(in rect: CGRect) -> CGRect { self.rect.applying(transform) }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }
 
 // MARK: - Rounded Rect Annotation
@@ -224,15 +200,10 @@ struct RoundedRectAnnotation: AnnotationElement {
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
         let path = self.path(in: rect)
         if isFilled && path.contains(point) { return true }
-        let tolerance = max(lineWidth.rawValue + 8, 12)
-        return path.strokedPath(StrokeStyle(lineWidth: tolerance)).contains(point)
+        return path.strokedPath(StrokeStyle(lineWidth: hitTolerance)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect { self.rect.applying(transform) }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }
 
 // MARK: - Step Annotation
@@ -256,10 +227,6 @@ struct StepAnnotation: AnnotationElement {
 
     func bounds(in canvasRect: CGRect) -> CGRect {
         rect.applying(transform)
-    }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
     }
 }
 
@@ -337,15 +304,10 @@ struct PencilAnnotation: AnnotationElement {
     }
 
     func hitTest(_ point: CGPoint, in rect: CGRect) -> Bool {
-        let tolerance = max(lineWidth.rawValue + 8, 12)
-        return path(in: rect).strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
+        return path(in: rect).strokedPath(StrokeStyle(lineWidth: hitTolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 
     func bounds(in rect: CGRect) -> CGRect { path(in: rect).boundingRect }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }
 
 // MARK: - Highlight Annotation
@@ -367,10 +329,6 @@ struct HighlightAnnotation: AnnotationElement {
     }
 
     func bounds(in rect: CGRect) -> CGRect { self.rect.applying(transform) }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }
 
 // MARK: - Spotlight Annotation
@@ -396,8 +354,4 @@ struct SpotlightAnnotation: AnnotationElement {
     }
 
     func bounds(in rect: CGRect) -> CGRect { self.rect.applying(transform) }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
 }

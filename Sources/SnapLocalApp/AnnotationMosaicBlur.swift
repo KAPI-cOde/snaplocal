@@ -34,10 +34,6 @@ struct MosaicAnnotation: AnnotationElement {
         return r
     }
     
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
-    }
-    
     func applyFilter(to image: CIImage) -> CIImage? {
         let r = self.rect.applying(transform)
         let filter = CIFilter.pixellate()
@@ -81,10 +77,6 @@ struct BlurAnnotation: AnnotationElement {
     func bounds(in rect: CGRect) -> CGRect {
         let r = self.rect.applying(transform)
         return r
-    }
-
-    mutating func applyTransform(_ transform: CGAffineTransform) {
-        self.transform = transform.concatenating(self.transform)
     }
 
     func applyFilter(to image: CIImage) -> CIImage? {

@@ -33,6 +33,16 @@ protocol AnnotationElement: Identifiable, Codable {
 extension AnnotationElement {
     var hasStrokeRepresentation: Bool { true }
     func applyFilter(to image: CIImage) -> CIImage? { nil }
+
+    /// Default applyTransform: prepend the given transform to the stored transform.
+    /// IMPORTANT: order must be `transform.concatenating(self.transform)` — do not reverse.
+    /// CalloutAnnotation overrides this to also transform its tailPoint.
+    mutating func applyTransform(_ transform: CGAffineTransform) {
+        self.transform = transform.concatenating(self.transform)
+    }
+
+    /// Hit-tolerance for stroke-based annotations: line width + 8, minimum 12.
+    var hitTolerance: CGFloat { max(lineWidth.rawValue + 8, 12) }
 }
 
 enum AnnotationType: String, Codable, CaseIterable {
