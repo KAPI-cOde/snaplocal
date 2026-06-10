@@ -997,6 +997,11 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private var loadHistoryTask: Task<Void, Never>? = nil
 
     func loadHistoryItem(_ item: VaultItem) {
+        loadHistoryItem(item, quiet: false)
+    }
+
+    /// quiet=true: 起動時の自動復元など、ユーザー操作によらないロードではチップを出さない
+    func loadHistoryItem(_ item: VaultItem, quiet: Bool) {
         // Save current annotations before switching
         if let id = currentVaultID, !canvas.annotations.isEmpty {
             let anns = canvas.annotations
@@ -1016,7 +1021,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.canvas.resetAndLoad(image: cgImage, annotations: annotations)
-                self?.showStatus("履歴を読み込みました")
+                if !quiet { self?.showStatus("履歴を読み込みました") }
             }
         }
     }
@@ -1178,7 +1183,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         history = items
         // Auto-load the most recent screenshot on first launch
         if wasEmpty, let first = items.first {
-            loadHistoryItem(first)
+            loadHistoryItem(first, quiet: true)
         }
     }
 
