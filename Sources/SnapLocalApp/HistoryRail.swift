@@ -49,8 +49,9 @@ struct HistoryRail: View {
             let f = DateFormatter(); f.dateFormat = "HH:mm"
             return f.string(from: date)
         } else if Calendar.current.isDateInYesterday(date) {
+            // 「昨日」グループヘッダの下に並ぶため、セル側は時刻のみ(重複表示を避ける)
             let f = DateFormatter(); f.dateFormat = "HH:mm"
-            return "昨日 " + f.string(from: date)
+            return f.string(from: date)
         } else {
             let f = DateFormatter(); f.dateFormat = "M/d"
             return f.string(from: date)
@@ -398,8 +399,9 @@ private struct HistoryItemRow: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
+            // 寸法は全セル共通情報ではないのでホバー時のみ(常時表示は視覚ノイズ)
             let dim = item.dimensionLabel
-            if !dim.isEmpty {
+            if isHovered, !dim.isEmpty {
                 Text(dim)
                     .font(.system(size: DS.FontSize.caption2, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white)
@@ -407,6 +409,7 @@ private struct HistoryItemRow: View {
                     .background(Color.black.opacity(0.55))
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                     .padding(2)
+                    .transition(.opacity)
             }
         }
         .overlay(alignment: .topLeading) {
