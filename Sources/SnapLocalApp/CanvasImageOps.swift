@@ -28,13 +28,7 @@ extension CanvasViewModel {
             width: abs(end.x - start.x), height: abs(end.y - start.y)
         )
         guard sel.width > 4, sel.height > 4 else { return }
-        let scaleX = CGFloat(bgImage.width) / canvasSize.width
-        let scaleY = CGFloat(bgImage.height) / canvasSize.height
-        let pixelRect = CGRect(
-            x: sel.minX * scaleX, y: sel.minY * scaleY,
-            width: sel.width * scaleX, height: sel.height * scaleY
-        ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
-        guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
+        guard let pixelRect = canvasRectToPixelRect(sel, in: bgImage),
               let cropped = bgImage.cropping(to: pixelRect) else { return }
         let prevImage = bgImage
         let prevAnnotations = annotations
@@ -57,13 +51,7 @@ extension CanvasViewModel {
         guard canvasRect.width > 4, canvasRect.height > 4,
               let bgImage = backgroundImage,
               canvasSize.width > 0, canvasSize.height > 0 else { return }
-        let scaleX = CGFloat(bgImage.width) / canvasSize.width
-        let scaleY = CGFloat(bgImage.height) / canvasSize.height
-        let pixelRect = CGRect(
-            x: canvasRect.minX * scaleX, y: canvasRect.minY * scaleY,
-            width: canvasRect.width * scaleX, height: canvasRect.height * scaleY
-        ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
-        guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
+        guard let pixelRect = canvasRectToPixelRect(canvasRect, in: bgImage),
               let cropped = bgImage.cropping(to: pixelRect) else { return }
         let prevImage = bgImage
         let prevAnnotations = annotations

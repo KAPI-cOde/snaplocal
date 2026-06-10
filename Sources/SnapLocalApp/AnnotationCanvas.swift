@@ -116,6 +116,40 @@ final class CanvasViewModel: ObservableObject {
         selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
     }
 
+    // MARK: - Coordinate conversion (view → image)
+
+    /// view座標のrectを画像ピクセル座標(左上原点)へ変換し、画像範囲内に切り詰める。
+    /// `CGImage.cropping(to:)` 用 — クロップは Y=0 が上なのでY反転は不要(CLAUDE.md)。
+    /// 範囲外・空・canvasSize未確定のときは nil。
+    func canvasRectToPixelRect(_ rect: CGRect, in image: CGImage) -> CGRect? {
+        guard canvasSize.width > 0, canvasSize.height > 0 else { return nil }
+        let scaleX = CGFloat(image.width) / canvasSize.width
+        let scaleY = CGFloat(image.height) / canvasSize.height
+        let pixelRect = CGRect(
+            x: rect.minX * scaleX, y: rect.minY * scaleY,
+            width: rect.width * scaleX, height: rect.height * scaleY
+        ).intersection(CGRect(x: 0, y: 0, width: CGFloat(image.width), height: CGFloat(image.height)))
+        guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0 else { return nil }
+        return pixelRect
+    }
+
+    /// view座標のrectをCoreImage座標(左下原点)へ変換し、画像範囲内に切り詰める。
+    /// CI座標は Y=0 が下なので `imgH - rect.maxY * scaleY` のY反転を行う(CLAUDE.md)。
+    /// CIFilterが空rectで失敗しないよう最小2pxを保証。範囲外・空のときは nil。
+    func canvasRectToCIRect(_ rect: CGRect, in image: CGImage) -> CGRect? {
+        guard canvasSize.width > 0, canvasSize.height > 0 else { return nil }
+        let imgW = CGFloat(image.width), imgH = CGFloat(image.height)
+        let scaleX = imgW / canvasSize.width, scaleY = imgH / canvasSize.height
+        let ciRect = CGRect(
+            x: rect.minX * scaleX,
+            y: imgH - rect.maxY * scaleY,
+            width: max(rect.width * scaleX, 2),
+            height: max(rect.height * scaleY, 2)
+        ).intersection(CGRect(x: 0, y: 0, width: imgW, height: imgH))
+        guard !ciRect.isNull, ciRect.width > 0, ciRect.height > 0 else { return nil }
+        return ciRect
+    }
+
     // MARK: - Style persistence
 
     init() {

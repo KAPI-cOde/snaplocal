@@ -20,16 +20,8 @@ extension CanvasViewModel {
         guard !annotation.hasStrokeRepresentation,
               let bgImage = backgroundImage,
               canvasSize.width > 0, canvasSize.height > 0 else { return }
-        let imgW = CGFloat(bgImage.width), imgH = CGFloat(bgImage.height)
-        let scaleX = imgW / canvasSize.width, scaleY = imgH / canvasSize.height
         let vr = annotation.bounds(in: CGRect(origin: .zero, size: canvasSize))
-        let ciRect = CGRect(
-            x: vr.minX * scaleX,
-            y: imgH - vr.maxY * scaleY,
-            width: max(vr.width * scaleX, 2),
-            height: max(vr.height * scaleY, 2)
-        ).intersection(CGRect(x: 0, y: 0, width: imgW, height: imgH))
-        guard !ciRect.isNull, ciRect.width > 0, ciRect.height > 0 else { return }
+        guard let ciRect = canvasRectToCIRect(vr, in: bgImage) else { return }
         let ciSource = CIImage(cgImage: bgImage)
         var filtered: CIImage?
         switch annotation.type {
@@ -58,15 +50,7 @@ extension CanvasViewModel {
         let vr = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                         width: abs(end.x - start.x), height: abs(end.y - start.y))
         guard vr.width > 4, vr.height > 4 else { redactDragPreview = nil; return }
-        let imgW = CGFloat(bgImage.width), imgH = CGFloat(bgImage.height)
-        let scaleX = imgW / canvasSize.width, scaleY = imgH / canvasSize.height
-        let ciRect = CGRect(
-            x: vr.minX * scaleX,
-            y: imgH - vr.maxY * scaleY,
-            width: max(vr.width * scaleX, 2),
-            height: max(vr.height * scaleY, 2)
-        ).intersection(CGRect(x: 0, y: 0, width: imgW, height: imgH))
-        guard !ciRect.isNull, ciRect.width > 0, ciRect.height > 0 else { redactDragPreview = nil; return }
+        guard let ciRect = canvasRectToCIRect(vr, in: bgImage) else { redactDragPreview = nil; return }
         let ciSource = CIImage(cgImage: bgImage)
         var filtered: CIImage?
         switch currentRedactMode {

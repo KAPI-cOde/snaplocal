@@ -93,13 +93,7 @@ extension SnapLocalState {
             return
         }
         let bounds = ann.bounds(in: CGRect(origin: .zero, size: canvas.canvasSize))
-        let scaleX = CGFloat(bgImage.width) / canvas.canvasSize.width
-        let scaleY = CGFloat(bgImage.height) / canvas.canvasSize.height
-        let pixelRect = CGRect(
-            x: bounds.minX * scaleX, y: bounds.minY * scaleY,
-            width: bounds.width * scaleX, height: bounds.height * scaleY
-        ).intersection(CGRect(x: 0, y: 0, width: CGFloat(bgImage.width), height: CGFloat(bgImage.height)))
-        guard !pixelRect.isNull, pixelRect.width > 0, pixelRect.height > 0,
+        guard let pixelRect = canvas.canvasRectToPixelRect(bounds, in: bgImage),
               let cropped = bgImage.cropping(to: pixelRect) else { return }
         copyImageToClipboard(cropped)
         showStatus("選択範囲をコピーしました (\(Int(pixelRect.width))×\(Int(pixelRect.height)) px)", success: true)
