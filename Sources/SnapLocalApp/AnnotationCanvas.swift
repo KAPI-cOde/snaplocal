@@ -108,6 +108,14 @@ final class CanvasViewModel: ObservableObject {
     var endpointDragBakedStart: CGPoint = .zero
     var endpointDragBakedEnd: CGPoint = .zero
 
+    // MARK: - Selection helpers
+
+    /// 単一選択(selectedAnnotationID)と複数選択(selectedAnnotationIDs)を統合して返す。
+    /// 7箇所の重複 `selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)` を統合。
+    var effectiveSelectedIDs: [UUID] {
+        selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+    }
+
     // MARK: - Style persistence
 
     init() {
@@ -137,7 +145,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func applyCurrentColorToSelection() {
-        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        let ids = effectiveSelectedIDs
         for id in ids {
             guard var ann = annotations.first(where: { $0.id == id }),
                   ann.hasStrokeRepresentation, ann.color != currentColor else { continue }
@@ -147,7 +155,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func applyCurrentLineWidthToSelection() {
-        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        let ids = effectiveSelectedIDs
         for id in ids {
             guard var ann = annotations.first(where: { $0.id == id }),
                   ann.hasStrokeRepresentation, ann.lineWidth != currentLineWidth else { continue }
@@ -157,7 +165,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func applyCustomColorToSelection(hex: String?) {
-        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        let ids = effectiveSelectedIDs
         for id in ids {
             guard var ann = annotations.first(where: { $0.id == id }) else { continue }
             ann.customColorHex = hex
@@ -166,7 +174,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func applyCurrentLineStyleToSelection() {
-        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        let ids = effectiveSelectedIDs
         for id in ids {
             guard var ann = annotations.first(where: { $0.id == id }), ann.lineStyle != currentLineStyle else { continue }
             ann.lineStyle = currentLineStyle
@@ -175,7 +183,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func applyCurrentOpacityToSelection() {
-        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        let ids = effectiveSelectedIDs
         for id in ids {
             guard var ann = annotations.first(where: { $0.id == id }), ann.opacity != currentOpacity else { continue }
             ann.opacity = currentOpacity
@@ -185,7 +193,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func applyCurrentFilledToSelection() {
-        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        let ids = effectiveSelectedIDs
         for id in ids {
             guard var ann = annotations.first(where: { $0.id == id }),
                   (ann.type == .rectangle || ann.type == .ellipse || ann.type == .roundedRect),
@@ -270,7 +278,7 @@ final class CanvasViewModel: ObservableObject {
     }
     
     func toggleLockSelected() {
-        let ids = selectedAnnotationIDs.isEmpty ? (selectedAnnotationID.map { [$0] } ?? []) : Array(selectedAnnotationIDs)
+        let ids = effectiveSelectedIDs
         for id in ids {
             guard var ann = annotations.first(where: { $0.id == id }) else { continue }
             ann.isLocked.toggle()

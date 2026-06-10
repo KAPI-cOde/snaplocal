@@ -150,15 +150,13 @@ extension SnapLocalState {
 
         // Post-capture: open editor immediately if that setting is enabled, otherwise show HUD
         if SettingsManager.shared.openEditorOnCapture {
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+            NSApp.bringToFront()
         } else {
             let actions = CaptureNotificationActions(
                 copy: { [weak self] in self?.copyToClipboard() },
                 save: { [weak self] in self?.saveAnnotatedImage() },
                 annotate: { [weak self] in
-                    NSApp.activate(ignoringOtherApps: true)
-                    NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+                    NSApp.bringToFront()
                     // Auto-switch to arrow tool so the user can immediately start annotating
                     if let self, self.canvas.currentTool == .select || self.canvas.annotations.isEmpty {
                         self.canvas.currentTool = .arrow

@@ -258,8 +258,7 @@ extension CanvasViewModel {
                 cgCtx.addPath(cgPath)
                 cgCtx.setFillColor(annotation.resolvedCGColor)
                 cgCtx.fillPath()
-                let textColor: NSColor = (annotation.color == .yellow || annotation.color == .white)
-                    ? .black : .white
+                let textColor: NSColor = annotation.color.isLight ? .black : .white
                 let fs = min(rect.width, rect.height) * 0.5
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.boldSystemFont(ofSize: max(fs, 10)),

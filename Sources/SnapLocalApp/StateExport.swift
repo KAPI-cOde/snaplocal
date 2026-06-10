@@ -62,7 +62,7 @@ extension SnapLocalState {
             return
         }
         let image = canvas.applyDecoration(to: raw)
-        let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        let nsImage = image.nsImage
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([nsImage])
         // Also copy annotation data if one is selected (allows cross-screenshot paste)
@@ -79,7 +79,7 @@ extension SnapLocalState {
     }
 
     func copyImageToClipboard(_ image: CGImage) {
-        let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        let nsImage = image.nsImage
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([nsImage])
     }
@@ -115,7 +115,7 @@ extension SnapLocalState {
         }
         // Otherwise render annotations to a temp file
         guard let image = canvas.renderAnnotations() ?? canvas.backgroundImage,
-              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+              let data = image.pngData() else {
             showStatus("画像がありません"); return
         }
         let tmpURL = FileManager.default.temporaryDirectory
@@ -131,7 +131,7 @@ extension SnapLocalState {
             return
         }
         let image = canvas.applyDecoration(to: raw)
-        guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+        guard let data = image.pngData() else {
             showStatus("共有する画像がありません")
             return
         }
@@ -182,7 +182,7 @@ extension SnapLocalState {
             data = NSBitmapImageRep(cgImage: image).representation(using: .jpeg,
                 properties: [.compressionFactor: quality])
         } else {
-            data = pngData(from: image)
+            data = image.pngData()
         }
         guard let data else {
             showStatus("保存できる画像がありません"); return
@@ -250,7 +250,7 @@ extension SnapLocalState {
             let ext = url.pathExtension.lowercased()
             if ext == "pdf" {
                 let pdfDoc = PDFDocument()
-                let nsImg = NSImage(cgImage: targetImage, size: NSSize(width: targetImage.width, height: targetImage.height))
+                let nsImg = targetImage.nsImage
                 if let pdfPage = PDFPage(image: nsImg) {
                     pdfDoc.insert(pdfPage, at: 0)
                     if let pdfData = pdfDoc.dataRepresentation() {
@@ -274,7 +274,7 @@ extension SnapLocalState {
                 if ext == "jpg" || ext == "jpeg" {
                     data = NSBitmapImageRep(cgImage: targetImage).representation(using: .jpeg, properties: [.compressionFactor: 0.92])
                 } else {
-                    data = NSBitmapImageRep(cgImage: targetImage).representation(using: .png, properties: [:])
+                    data = targetImage.pngData()
                 }
                 guard let data else { self.showStatus("エンコード失敗"); return }
                 do {
@@ -292,8 +292,7 @@ extension SnapLocalState {
         guard !history.isEmpty else { showStatus("エクスポートする履歴がありません"); return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "zip")!]
-        let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmmss"
-        panel.nameFieldStringValue = "SnapLocal-export-\(df.string(from: Date())).zip"
+        panel.nameFieldStringValue = "SnapLocal-export-\(DateFormatter.fileTimestamp.string(from: Date())).zip"
         panel.begin { [self] response in
             guard response == .OK, let url = panel.url else { return }
             showStatus("ZIP作成中…")
@@ -326,8 +325,7 @@ extension SnapLocalState {
         guard !history.isEmpty else { showStatus("エクスポートする履歴がありません"); return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType.pdf]
-        let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmmss"
-        panel.nameFieldStringValue = "SnapLocal-\(df.string(from: Date())).pdf"
+        panel.nameFieldStringValue = "SnapLocal-\(DateFormatter.fileTimestamp.string(from: Date())).pdf"
         panel.begin { [self] response in
             guard response == .OK, let url = panel.url else { return }
             showStatus("PDF作成中…")
@@ -386,15 +384,11 @@ extension SnapLocalState {
     func exportHistoryItem(_ item: VaultItem) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
-        let df = DateFormatter(); df.dateFormat = "yyyyMMdd-HHmmss"
-        panel.nameFieldStringValue = "SnapLocal-\(df.string(from: item.createdAt)).png"
+        panel.nameFieldStringValue = "SnapLocal-\(DateFormatter.fileTimestamp.string(from: item.createdAt)).png"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             try? item.imageData.write(to: url, options: .atomic)
         }
     }
 
-    private func pngData(from image: CGImage) -> Data? {
-        NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
-    }
 }

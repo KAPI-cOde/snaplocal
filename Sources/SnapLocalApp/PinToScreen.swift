@@ -104,7 +104,7 @@ final class PinnedImageWindow: NSObject {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isReleasedWhenClosed = false
 
-        let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        let nsImage = image.nsImage
         let view = PinnedContentView(
             image: nsImage,
             onClose: { [weak self] in self?.close() },

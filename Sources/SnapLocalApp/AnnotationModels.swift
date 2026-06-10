@@ -89,6 +89,10 @@ enum AnnotationColor: String, Codable, CaseIterable {
         case .white:  return CGColor(red: 1,    green: 1,    blue: 1,    alpha: 1)
         }
     }
+
+    /// 明るい色(yellow/white)のとき true。テキスト色を黒にすべき判定に使う。
+    /// CanvasOverlays / CanvasRendering 3箇所の重複を統合。
+    var isLight: Bool { self == .yellow || self == .white }
 }
 
 enum LineWidth: CGFloat, Codable, CaseIterable {
@@ -192,6 +196,18 @@ enum DrawingTool: String, Codable, CaseIterable {
         switch self {
         case .line, .arrow, .rectangle, .ellipse, .text, .step, .roundedRect, .callout, .pencil: return true
         case .select, .redact, .highlight, .stamp, .colorPicker, .measure, .spotlight: return false
+        }
+    }
+
+    /// 描画ツール使用中でも既存アノテーションをグラブ移動できるツール群。
+    /// CanvasInteraction / CanvasView の重複 Set 定義を統合。
+    /// `.select` は含まない (select は常にグラブ可能なため条件式で別扱い)。
+    var supportsGrabMove: Bool {
+        switch self {
+        case .arrow, .line, .rectangle, .ellipse, .roundedRect, .callout, .highlight, .step, .redact, .spotlight:
+            return true
+        case .select, .text, .pencil, .stamp, .colorPicker, .measure:
+            return false
         }
     }
 

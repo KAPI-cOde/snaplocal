@@ -185,9 +185,7 @@ extension AnnotationCanvasView {
             })
 
             // Hover glow: faint accent outline behind hovered annotation (select + grab-capable tools)
-            let grabCapableTools: Set<DrawingTool> = [.select, .arrow, .line, .rectangle, .ellipse,
-                .roundedRect, .callout, .highlight, .step, .redact, .spotlight]
-            if grabCapableTools.contains(viewModel.currentTool),
+            if (viewModel.currentTool.supportsGrabMove || viewModel.currentTool == .select),
                let hid = viewModel.hoveredAnnotationID,
                hid != viewModel.selectedAnnotationID,
                let hovered = viewModel.annotations.first(where: { $0.id == hid }) {
@@ -212,7 +210,7 @@ extension AnnotationCanvasView {
                         context.fill(circlePath, with: .color(.white.opacity(0.5)))
                     }
                     context.fill(circlePath, with: .color(annotation.resolvedColor.opacity(annotationOpacity)))
-                    let textColor: Color = annotation.color == .yellow || annotation.color == .white ? .black : .white
+                    let textColor: Color = annotation.color.isLight ? .black : .white
                     let fs = min(bounds.width, bounds.height) * 0.5
                     context.draw(
                         Text("\(n)")
@@ -431,7 +429,7 @@ extension AnnotationCanvasView {
                         let rect = CGRect(x: start.x - stepSize/2, y: start.y - stepSize/2, width: stepSize, height: stepSize)
                         let nextN = viewModel.annotations.filter { $0.type == .step }.count + 1
                         context.fill(Path(ellipseIn: rect), with: .color(previewColor.opacity(0.75)))
-                        let textColor: Color = viewModel.currentColor == .yellow || viewModel.currentColor == .white ? .black : .white
+                        let textColor: Color = viewModel.currentColor.isLight ? .black : .white
                         context.draw(
                             Text("\(nextN)").font(.system(size: stepSize * 0.48, weight: .bold)).foregroundStyle(textColor),
                             in: rect

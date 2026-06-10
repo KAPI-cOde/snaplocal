@@ -160,7 +160,7 @@ actor PersistentVault {
         let imageURL = baseDirectory.appendingPathComponent(filename)
         let thumbURL = baseDirectory.appendingPathComponent(thumbFilename)
 
-        guard let pngData = pngData(from: image) else { return nil }
+        guard let pngData = image.pngData() else { return nil }
         let thumbData = jpegThumbnail(from: image) ?? Data()
 
         do {
@@ -261,7 +261,7 @@ actor PersistentVault {
     /// ファイル名・IDは変えない(同一セッション内でフォーク済みのアイテムの続き編集用)。
     /// 寸法を更新し、サムネイルも再生成する
     func updateImage(id: UUID, image: CGImage) -> Bool {
-        guard let entry = manifest[id], let png = pngData(from: image) else { return false }
+        guard let entry = manifest[id], let png = image.pngData() else { return false }
         let imageURL = baseDirectory.appendingPathComponent(entry.filename)
         do { try png.write(to: imageURL, options: .atomic) } catch { return false }
         manifest[id]!.width = image.width
@@ -507,10 +507,6 @@ actor PersistentVault {
         guard let data = try? JSONEncoder().encode(entries) else { return false }
         let url = indexDirectory.appendingPathComponent("\(key).json")
         return (try? data.write(to: url, options: .atomic)) != nil
-    }
-
-    private func pngData(from image: CGImage) -> Data? {
-        NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
     }
 
     private func jpegThumbnail(from image: CGImage) -> Data? {

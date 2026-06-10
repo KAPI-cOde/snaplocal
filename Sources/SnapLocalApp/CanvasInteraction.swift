@@ -50,9 +50,7 @@ extension CanvasViewModel {
         }
 
         // Grab-to-move: in any drawing tool, clicking on an existing annotation moves it
-        let grabSupportedTools: Set<DrawingTool> = [.arrow, .line, .rectangle, .ellipse,
-            .roundedRect, .callout, .highlight, .step, .redact, .spotlight]
-        if grabSupportedTools.contains(currentTool) {
+        if currentTool.supportsGrabMove {
             let innerRect = CGRect(origin: .zero, size: canvasSize)
             if let hitAnn = annotations.reversed().first(where: { !$0.isLocked && $0.hitTest(localPoint, in: innerRect) }) {
                 dragState.start(at: localPoint)

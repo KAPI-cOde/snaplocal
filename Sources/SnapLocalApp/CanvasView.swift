@@ -744,10 +744,8 @@ struct AnnotationCanvasView: View {
                         hoverLocation = nil
                         hoverColorHex = nil
                     }
-                    let grabSupportedTools: Set<DrawingTool> = [.arrow, .line, .rectangle,
-                        .ellipse, .roundedRect, .callout, .highlight, .step, .redact, .spotlight]
                     if !viewModel.isDraggingAnnotation && !viewModel.isGrabMoving &&
-                       (viewModel.currentTool == .select || grabSupportedTools.contains(viewModel.currentTool)) {
+                       (viewModel.currentTool == .select || viewModel.currentTool.supportsGrabMove) {
                         let canvasLoc = toCanvas(location, size: proxy.size)
                         let hit = viewModel.annotations.last(where: {
                             !$0.isLocked && $0.hitTest(canvasLoc, in: CGRect(origin: .zero, size: viewModel.canvasSize))

@@ -109,8 +109,7 @@ struct MenuBarQuickActions: View {
     @ObservedObject var state: SnapLocalState
 
     private func openItem(_ item: VaultItem) {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        NSApp.bringToFront()
         state.loadHistoryItem(item)
     }
 
@@ -169,12 +168,10 @@ struct MenuBarQuickActions: View {
             .disabled(state.canvas.backgroundImage == nil)
         Divider()
         Button("SnapLocalを表示") {
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+            NSApp.bringToFront()
         }
         Button("設定… (⌘,)") {
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+            NSApp.bringToFront()
             NotificationCenter.default.post(name: .snapLocalOpenSettings, object: nil)
         }
         Divider()

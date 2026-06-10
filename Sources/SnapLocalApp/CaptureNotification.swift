@@ -142,12 +142,11 @@ struct CaptureNotificationView: View {
     }
 
     private var thumbWidth: CGFloat { min(80, max(48, 52 * aspectRatio)) }
-    private var nsImage: NSImage { NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)) }
 
     var body: some View {
         HStack(spacing: DS.Space.xs) {
             // Thumbnail — click to open editor, drag to other apps
-            Image(nsImage: nsImage)
+            Image(nsImage: image.nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: thumbWidth, height: 50)
@@ -193,7 +192,7 @@ struct CaptureNotificationView: View {
                 .onDrag {
                     isDragging = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isDragging = false }
-                    return NSItemProvider(object: nsImage)
+                    return NSItemProvider(object: image.nsImage)
                 }
                 .onHover { thumbnailHovered = $0 }
 
