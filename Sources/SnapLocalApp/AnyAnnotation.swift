@@ -147,10 +147,8 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
             wrapped = AnyAnnotation(try EllipseAnnotation(from: decoder))
         case .text:
             wrapped = AnyAnnotation(try TextAnnotation(from: decoder))
-        case .mosaic:
-            wrapped = AnyAnnotation(try MosaicAnnotation(from: decoder))
-        case .blur:
-            wrapped = AnyAnnotation(try BlurAnnotation(from: decoder))
+        case .mosaic, .blur:
+            wrapped = AnyAnnotation(try RedactAnnotation(from: decoder))
         case .step:
             wrapped = AnyAnnotation(try StepAnnotation(from: decoder))
         case .roundedRect:

@@ -806,7 +806,7 @@ extension CanvasViewModel {
                 width: max(abs(end.x - start.x), 20),
                 height: max(abs(end.y - start.y), 20)
             )
-            var a = MosaicAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            var a = RedactAnnotation(type: .mosaic, color: color, lineWidth: lineWidth, rect: rect)
             a.intensity = currentMosaicScale
             annotation = AnyAnnotation(a)
         case .blur:
@@ -816,7 +816,7 @@ extension CanvasViewModel {
                 width: max(abs(end.x - start.x), 20),
                 height: max(abs(end.y - start.y), 20)
             )
-            var a = BlurAnnotation(color: color, lineWidth: lineWidth, rect: rect)
+            var a = RedactAnnotation(type: .blur, color: color, lineWidth: lineWidth, rect: rect)
             a.intensity = currentBlurRadius
             annotation = AnyAnnotation(a)
         case .roundedRect:

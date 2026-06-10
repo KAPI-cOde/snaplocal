@@ -367,3 +367,63 @@ struct PersistentVaultTests {
         print("[perf] allItems x200 — cold: \(Int(coldTime * 1000))ms, warm: \(Int(warmTime * 1000))ms")
     }
 }
+
+// MARK: - R4.1 RedactAnnotation persistence compatibility
+
+/// PLAN.md R4.1: MosaicAnnotation/BlurAnnotation を RedactAnnotation に統合。
+/// 旧structが書いた on-disk JSON(キー: id/type/color/lineWidth/transform/rect/intensity)を
+/// 新コードがそのままデコードできることを固定フィクスチャで証明する。
+/// フィクスチャは統合前のコードの JSONEncoder 出力をそのまま貼り付けたもの(形式変更厳禁)。
+struct RedactAnnotationCompatTests {
+
+    // 統合前の MosaicAnnotation がエンコードした実出力(transform は translate(5,-3)+rotate(0.3))
+    private let legacyMosaicJSON = """
+    {"type":"mosaic","id":"B46B7EC4-1D15-4310-9933-99004E4DA7B4","color":"blue","lineWidth":{"thick":{}},"transform":[0.955336489125606,0.29552020666133955,-0.29552020666133955,0.955336489125606,5,-3],"rect":[[10,20],[100,50]],"intensity":14}
+    """
+
+    // 統合前の BlurAnnotation がエンコードした実出力(+AnyAnnotation の追加キー opacity/customColorHex)
+    private let legacyBlurJSON = """
+    {"type":"blur","id":"71F46ED2-E2AF-47F2-945C-6BB520EEA956","color":"red","lineWidth":{"thin":{}},"transform":[1,0,0,1,0,0],"rect":[[-4.5,0],[33.25,7]],"intensity":27.5,"opacity":0.5,"customColorHex":"FF8800FF"}
+    """
+
+    @Test("legacy mosaic/blur JSON decodes via AnyAnnotation with fields intact (PLAN.md R4.1)")
+    func legacyRedactAnnotationsDecode() throws {
+        let data = "[\(legacyMosaicJSON),\(legacyBlurJSON)]".data(using: .utf8)!
+        let decoded = try JSONDecoder().decode([AnyAnnotation].self, from: data)
+        #expect(decoded.count == 2)
+
+        let mosaic = decoded[0]
+        #expect(mosaic.type == .mosaic)
+        #expect(mosaic.id == UUID(uuidString: "B46B7EC4-1D15-4310-9933-99004E4DA7B4"))
+        #expect(mosaic.color == .blue)
+        #expect(mosaic.lineWidth == .thick)
+        // bounds は rect.applying(transform) — 回転込みで保存時と同一に再現されること
+        let expectedRect = CGRect(x: 10, y: 20, width: 100, height: 50)
+            .applying(CGAffineTransform(a: 0.955336489125606, b: 0.29552020666133955,
+                                        c: -0.29552020666133955, d: 0.955336489125606, tx: 5, ty: -3))
+        let bounds = mosaic.bounds(in: .zero)
+        #expect(abs(bounds.minX - expectedRect.minX) < 0.001 && abs(bounds.width - expectedRect.width) < 0.001)
+
+        let blur = decoded[1]
+        #expect(blur.type == .blur)
+        #expect(blur.bounds(in: .zero) == CGRect(x: -4.5, y: 0, width: 33.25, height: 7))
+        #expect(blur.opacity == 0.5)
+        #expect(blur.customColorHex == "FF8800FF")
+    }
+
+    @Test("re-encoded redact annotations keep the legacy key set (downgrade-safe) (PLAN.md R4.1)")
+    func reEncodeKeepsLegacyKeySet() throws {
+        let data = "[\(legacyMosaicJSON),\(legacyBlurJSON)]".data(using: .utf8)!
+        let decoded = try JSONDecoder().decode([AnyAnnotation].self, from: data)
+        for (annotation, fixture) in zip(decoded, [legacyMosaicJSON, legacyBlurJSON]) {
+            let reEncoded = try JSONEncoder().encode(annotation)
+            let newKeys = Set((try JSONSerialization.jsonObject(with: reEncoded) as! [String: Any]).keys)
+            let oldKeys = Set((try JSONSerialization.jsonObject(with: fixture.data(using: .utf8)!) as! [String: Any]).keys)
+            #expect(newKeys == oldKeys, "encoded key set must not drift from legacy format")
+        }
+        // 再エンコード→再デコードも同値(ロスレス)
+        let roundTripped = try JSONDecoder().decode([AnyAnnotation].self, from: JSONEncoder().encode(decoded))
+        #expect(roundTripped[0].bounds(in: .zero) == decoded[0].bounds(in: .zero))
+        #expect(roundTripped[1].bounds(in: .zero) == decoded[1].bounds(in: .zero))
+    }
+}

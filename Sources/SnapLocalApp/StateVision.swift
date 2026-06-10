@@ -70,15 +70,9 @@ extension SnapLocalState {
                     x: pixX * scaleX - 8, y: pixY * scaleY - 8,
                     width: pixW * scaleX + 16, height: pixH * scaleY + 16
                 )
-                if isBlur {
-                    var a = BlurAnnotation(rect: faceRect)
-                    a.intensity = Float(canvas.currentBlurRadius)
-                    canvas.annotations.append(AnyAnnotation(a))
-                } else {
-                    var a = MosaicAnnotation(rect: faceRect)
-                    a.intensity = Float(canvas.currentMosaicScale)
-                    canvas.annotations.append(AnyAnnotation(a))
-                }
+                var a = RedactAnnotation(type: isBlur ? .blur : .mosaic, rect: faceRect)
+                a.intensity = Float(isBlur ? canvas.currentBlurRadius : canvas.currentMosaicScale)
+                canvas.annotations.append(AnyAnnotation(a))
             }
             canvas.recomputeAllFilterPreviews()
             canvas.objectWillChange.send()
