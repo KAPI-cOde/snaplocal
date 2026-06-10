@@ -52,7 +52,9 @@ final class QuickAnnotatePanel {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.level = .floating
-        p.isMovableByWindowBackground = true
+        // 注意: isMovableByWindowBackground は使わない — キャンバス上のドラッグ(注釈描画)が
+        // ウィンドウ移動に吸われる(実機で発生)。パネルは中央固定のまま動かさない
+        p.isMovableByWindowBackground = false
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]

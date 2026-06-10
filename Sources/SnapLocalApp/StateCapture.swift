@@ -23,7 +23,9 @@ extension SnapLocalState {
 
     func captureRegionToClipboard() {
         clipboardOnlyCapture = true
-        RegionCapture.start(initialRect: lastRegionRect) { [weak self] rect, preCaptured in
+        // T8.2修正: initialRect(前回範囲プリセレクション)を渡さない。渡すと2回目以降の
+        // ⌘⇧4 が旧 adjusting+Enter モードで開いてしまう(ネイティブ化ピボットに反する)
+        RegionCapture.start { [weak self] rect, preCaptured in
             guard let rect else { self?.clipboardOnlyCapture = false; return }
             if let img = preCaptured {
                 self?.regionCapturePlayedSound = true
@@ -85,7 +87,9 @@ extension SnapLocalState {
     func captureRegion() {
         isRegionCapturing = true
         showStatus("範囲を選択 — ドラッグして選択")
-        RegionCapture.start(initialRect: lastRegionRect) { [weak self] rect, preCaptured in
+        // T8.2修正: initialRect を渡さず常に素の選択で開始(上記 captureRegionToClipboard と同じ)。
+        // lastRegionRect は repeatLastRegionCapture(前回範囲で再撮影)では引き続き使用
+        RegionCapture.start { [weak self] rect, preCaptured in
             guard let self else { return }
             self.isRegionCapturing = false
             guard let rect else {
