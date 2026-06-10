@@ -369,13 +369,13 @@ struct CompactToolbar: View {
                     return canvas.currentColor.color
                 }()
                 ZStack {
-                    Circle().fill(activeColor).frame(width: 16, height: 16)
+                    Circle().fill(activeColor).frame(width: 18, height: 18)
                         .overlay(Circle().stroke(Color.primary.opacity(activeColor == .white ? 0.3 : 0), lineWidth: 0.5))
-                    Circle().stroke(Color.primary.opacity(0.6), lineWidth: 1.5).frame(width: 20, height: 20)
+                    Circle().stroke(Color.primary.opacity(0.6), lineWidth: 1.5).frame(width: 22, height: 22)
                 }
             }
             .buttonStyle(.plain)
-            .frame(width: 22, height: 22)
+            .frame(width: 28, height: 28)
             .help("カラー (1-8, カスタム)")
             .popover(isPresented: $showColorPopover, arrowEdge: .bottom) {
                 colorPalettePopover

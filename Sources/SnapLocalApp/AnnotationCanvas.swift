@@ -123,22 +123,22 @@ enum DrawingTool: String, Codable, CaseIterable {
 
     var systemImage: String {
         switch self {
-        case .select: return "arrow.up.left.and.arrow.down.right"
+        case .select: return "cursorarrow"                  // 標準ポインタ(旧: リサイズ風矢印で混同)
         case .line: return "line.diagonal"
         case .arrow: return "arrow.up.right"
         case .rectangle: return "rectangle"
-        case .ellipse: return "circle"
+        case .ellipse: return "oval"
         case .text: return "textformat"
         case .step: return "number.circle"
-        case .roundedRect: return "rectangle.roundedtop"
+        case .roundedRect: return "app"                     // 全周角丸の矩形(旧: 上だけ角丸)
         case .callout: return "bubble.left"
         case .highlight: return "highlighter"
-        case .redact: return "eye.slash"
-        case .pencil: return "pencil.tip"
+        case .redact: return "checkerboard.rectangle"       // モザイク柄(旧: eye.slashは表示切替と混同)
+        case .pencil: return "scribble"                     // フリーハンド線(旧: pencil.tipは点描風)
         case .stamp: return "face.smiling"
         case .colorPicker: return "eyedropper.halffull"
         case .measure: return "ruler"
-        case .spotlight: return "spotlight"
+        case .spotlight: return "flashlight.on.fill"        // 旧: "spotlight"は実在しないシンボル名(空表示)
         }
     }
 

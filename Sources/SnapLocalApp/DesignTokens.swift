@@ -94,7 +94,7 @@ extension View {
 /// (matchedGeometryEffectのスライドインジケータを外側で重ねる場合に使う)。
 struct DSToolButtonStyle: ButtonStyle {
     var isActive: Bool = false
-    var size: CGFloat = 22
+    var size: CGFloat = 28
     var showsActiveBackground: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
@@ -112,6 +112,9 @@ struct DSToolButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
+                // アイコンサイズはボタンサイズに比例(28→15pt)。明示的に.fontを
+                // 指定したラベル(整列ボタン等)はそちらが優先される。
+                .font(.system(size: (size * 0.54).rounded(), weight: .medium))
                 .frame(width: size, height: size)
                 .foregroundStyle(isActive ? Color.accentColor : Color.primary)
                 .background(
