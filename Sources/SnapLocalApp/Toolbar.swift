@@ -278,13 +278,7 @@ struct CompactToolbar: View {
                     let sampler = NSColorSampler()
                     sampler.show { color in
                         guard let color else { return }
-                        let r = UInt8(color.redComponent * 255)
-                        let g = UInt8(color.greenComponent * 255)
-                        let b = UInt8(color.blueComponent * 255)
-                        let hex = String(format: "%02X%02X%02XFF", r, g, b)
-                        canvas.currentCustomColorHex = hex
-                        SettingsManager.shared.addRecentCustomColor(hex)
-                        canvas.applyCustomColorToSelection(hex: hex)
+                        applySampledColor(color)
                         canvas.currentTool = canvas.colorPickerPreviousTool
                     }
                 } label: {
@@ -657,13 +651,7 @@ struct CompactToolbar: View {
                     let sampler = NSColorSampler()
                     sampler.show { color in
                         guard let color = color?.usingColorSpace(.sRGB) else { return }
-                        let r = UInt8(color.redComponent * 255)
-                        let g = UInt8(color.greenComponent * 255)
-                        let b = UInt8(color.blueComponent * 255)
-                        let hex = String(format: "%02X%02X%02XFF", r, g, b)
-                        canvas.currentCustomColorHex = hex
-                        SettingsManager.shared.addRecentCustomColor(hex)
-                        canvas.applyCustomColorToSelection(hex: hex)
+                        applySampledColor(color)
                     }
                 } label: {
                     Image(systemName: "eyedropper")
@@ -749,34 +737,10 @@ struct CompactToolbar: View {
 
     private var adjustmentsPopover: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("明るさ").frame(width: 60, alignment: .trailing)
-                Slider(value: $canvas.adjustBrightness, in: -0.5...0.5)
-                    .frame(width: 140)
-                Text(String(format: "%+.2f", canvas.adjustBrightness))
-                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
-            }
-            HStack {
-                Text("コントラスト").frame(width: 60, alignment: .trailing)
-                Slider(value: $canvas.adjustContrast, in: 0.5...2.0)
-                    .frame(width: 140)
-                Text(String(format: "%.2f", canvas.adjustContrast))
-                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
-            }
-            HStack {
-                Text("彩度").frame(width: 60, alignment: .trailing)
-                Slider(value: $canvas.adjustSaturation, in: 0.0...2.0)
-                    .frame(width: 140)
-                Text(String(format: "%.2f", canvas.adjustSaturation))
-                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
-            }
-            HStack {
-                Text("シャープ").frame(width: 60, alignment: .trailing)
-                Slider(value: $canvas.adjustSharpness, in: 0.0...1.0)
-                    .frame(width: 140)
-                Text(String(format: "%.2f", canvas.adjustSharpness))
-                    .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
-            }
+            adjustmentRow(label: "明るさ",    value: $canvas.adjustBrightness, in: -0.5...0.5, format: "%+.2f")
+            adjustmentRow(label: "コントラスト", value: $canvas.adjustContrast,  in:  0.5...2.0, format: "%.2f")
+            adjustmentRow(label: "彩度",      value: $canvas.adjustSaturation, in:  0.0...2.0, format: "%.2f")
+            adjustmentRow(label: "シャープ",  value: $canvas.adjustSharpness,  in:  0.0...1.0, format: "%.2f")
             HStack {
                 Button("リセット") { canvas.resetAdjustments() }
                     .controlSize(.small)
@@ -786,6 +750,17 @@ struct CompactToolbar: View {
             }
         }
         .padding(DS.Space.m)
+    }
+
+    @ViewBuilder
+    private func adjustmentRow(label: String, value: Binding<Double>, in range: ClosedRange<Double>, format: String) -> some View {
+        HStack {
+            Text(label).frame(width: 60, alignment: .trailing)
+            Slider(value: value, in: range)
+                .frame(width: 140)
+            Text(String(format: format, value.wrappedValue))
+                .font(.system(size: DS.FontSize.caption, design: .monospaced)).frame(width: 36)
+        }
     }
 
     @ViewBuilder
@@ -1008,6 +983,17 @@ struct CompactToolbar: View {
         .frame(width: 22, height: 22)
         .onTapGesture { canvas.decorationGradientIndex = idx }
         .shadow(DS.Shadow.overlay)
+    }
+
+    /// NSColorSampler コールバックから色を受け取り、描画色・履歴・選択アノテーションに反映する共通処理。
+    private func applySampledColor(_ color: NSColor) {
+        let r = UInt8(color.redComponent * 255)
+        let g = UInt8(color.greenComponent * 255)
+        let b = UInt8(color.blueComponent * 255)
+        let hex = String(format: "%02X%02X%02XFF", r, g, b)
+        canvas.currentCustomColorHex = hex
+        SettingsManager.shared.addRecentCustomColor(hex)
+        canvas.applyCustomColorToSelection(hex: hex)
     }
 
     @ViewBuilder
