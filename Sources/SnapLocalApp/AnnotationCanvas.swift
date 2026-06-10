@@ -357,7 +357,10 @@ final class CanvasViewModel: ObservableObject {
     @Published var currentBlurRadius: Float = 20
     @Published var currentFontSize: CGFloat = 18 { didSet { saveCurrentStyle() } }
     @Published var currentFilled: Bool = false { didSet { saveCurrentStyle() } }
-    @Published var currentArrowDoubleSided: Bool = false { didSet { saveCurrentStyle() } }
+    /// 両方向矢印。意図的に**永続化しない** — 一度ONにすると(既存の両方向矢印を
+    /// 選択しただけでも同期されて)以後の矢印が全部両端になる事故が起きていた。
+    /// 起動ごとに通常の片側矢印へ戻る
+    @Published var currentArrowDoubleSided: Bool = false
     @Published var currentOpacity: Double = 1.0 { didSet { saveCurrentStyle() } }
     @Published var currentTextBackground: Bool = false { didSet { saveCurrentStyle() } }
     @Published var currentLineStyle: LineStyle = .solid { didSet { saveCurrentStyle() } }
@@ -434,7 +437,6 @@ final class CanvasViewModel: ObservableObject {
         if let lw = LineWidth(rawValue: CGFloat(ud.float(forKey: "canvas.lineWidth"))) { currentLineWidth = lw }
         currentFontSize = CGFloat(ud.float(forKey: "canvas.fontSize")).isZero ? 18 : CGFloat(ud.float(forKey: "canvas.fontSize"))
         currentFilled = ud.bool(forKey: "canvas.filled")
-        currentArrowDoubleSided = ud.bool(forKey: "canvas.arrowDouble")
         let op = ud.double(forKey: "canvas.opacity")
         currentOpacity = op == 0 ? 1.0 : op
         currentTextBackground = ud.bool(forKey: "canvas.textBg")
@@ -449,7 +451,6 @@ final class CanvasViewModel: ObservableObject {
         ud.set(Float(currentLineWidth.rawValue), forKey: "canvas.lineWidth")
         ud.set(Float(currentFontSize), forKey: "canvas.fontSize")
         ud.set(currentFilled, forKey: "canvas.filled")
-        ud.set(currentArrowDoubleSided, forKey: "canvas.arrowDouble")
         ud.set(currentOpacity, forKey: "canvas.opacity")
         ud.set(currentTextBackground, forKey: "canvas.textBg")
         ud.set(currentLineStyle.rawValue, forKey: "canvas.lineStyle")

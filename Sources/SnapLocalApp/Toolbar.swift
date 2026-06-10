@@ -220,13 +220,27 @@ struct CompactToolbar: View {
                 .help("その他のツール")
             }
 
+            // 線の太さ — 線を描くツールを選んだらその場で選べる(カラーポップオーバー内と同じ状態を共有)
+            if canvas.currentTool.usesLineWidth {
+                Picker("", selection: $canvas.currentLineWidth) {
+                    Text("S").tag(LineWidth.thin)
+                    Text("M").tag(LineWidth.medium)
+                    Text("L").tag(LineWidth.thick)
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .frame(width: 76)
+                .onChange(of: canvas.currentLineWidth) { _, _ in canvas.applyCurrentLineWidthToSelection() }
+                .help("線の太さ ([ で細く / ] で太く)")
+            }
+
             if canvas.currentTool == .arrow {
                 Toggle(isOn: $canvas.currentArrowDoubleSided) {
                     Image(systemName: "arrow.left.and.right")
                 }
                 .toggleStyle(.button)
                 .controlSize(.small)
-                .help("両方向矢印")
+                .help("両方向矢印（このセッションのみ・起動時は片側に戻ります）")
             }
 
             if canvas.currentTool == .redact {
@@ -637,6 +651,26 @@ struct CompactToolbar: View {
                 Text("カスタムカラー")
                     .font(.system(size: DS.FontSize.caption))
                     .foregroundStyle(.secondary)
+                // スポイト: 画面上の任意の色を採取してそのまま描画色にする
+                Button {
+                    showColorPopover = false
+                    let sampler = NSColorSampler()
+                    sampler.show { color in
+                        guard let color = color?.usingColorSpace(.sRGB) else { return }
+                        let r = UInt8(color.redComponent * 255)
+                        let g = UInt8(color.greenComponent * 255)
+                        let b = UInt8(color.blueComponent * 255)
+                        let hex = String(format: "%02X%02X%02XFF", r, g, b)
+                        canvas.currentCustomColorHex = hex
+                        SettingsManager.shared.addRecentCustomColor(hex)
+                        canvas.applyCustomColorToSelection(hex: hex)
+                    }
+                } label: {
+                    Image(systemName: "eyedropper")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .help("画面から色を採取（スポイト）")
                 Spacer()
                 // Line width — show for drawing tools, or when an annotation is selected (select tool)
                 if canvas.currentTool.usesLineWidth || canvas.selectedAnnotationID != nil {
