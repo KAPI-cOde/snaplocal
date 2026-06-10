@@ -112,7 +112,25 @@ struct PersistentVaultTests {
         #expect(FileManager.default.fileExists(atPath: all[0].imageURL.path))
     }
 
-    @Test("no-op updates do not rewrite index.json (PLAN.md T5.2)")
+    private func shardURLs(in dir: URL) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(
+            at: dir.appendingPathComponent("index", isDirectory: true),
+            includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private func makeEntry(createdAt: Date, title: String? = nil) -> VaultManifestEntry {
+        let id = UUID()
+        return VaultManifestEntry(
+            id: id, createdAt: createdAt,
+            filename: "\(id.uuidString).png",
+            thumbFilename: "thumbnails/\(id.uuidString).jpg",
+            ocrText: "", annotationsData: nil,
+            width: 10, height: 10, title: title, notes: nil)
+    }
+
+    @Test("no-op updates do not rewrite the index shard (PLAN.md T5.2)")
     func noOpUpdateDoesNotRewriteManifest() async throws {
         let (vault, dir) = makeTempVault()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -120,9 +138,9 @@ struct PersistentVaultTests {
         let saved = try #require(await vault.save(image: makeTestImage()))
         await vault.updateOCR(id: saved.id, text: "hello")
 
-        let indexURL = dir.appendingPathComponent("index.json")
+        let shardURL = try #require(shardURLs(in: dir).first)
         let mtimeBefore = try FileManager.default
-            .attributesOfItem(atPath: indexURL.path)[.modificationDate] as! Date
+            .attributesOfItem(atPath: shardURL.path)[.modificationDate] as! Date
 
         // Same values again — none of these should touch the file
         await vault.updateOCR(id: saved.id, text: "hello")
@@ -131,14 +149,91 @@ struct PersistentVaultTests {
         await vault.updateAnnotations(id: saved.id, annotations: [])
 
         let mtimeAfter = try FileManager.default
-            .attributesOfItem(atPath: indexURL.path)[.modificationDate] as! Date
-        #expect(mtimeBefore == mtimeAfter, "no-op updates must not rewrite index.json")
+            .attributesOfItem(atPath: shardURL.path)[.modificationDate] as! Date
+        #expect(mtimeBefore == mtimeAfter, "no-op updates must not rewrite the index shard")
 
         // A real change must rewrite it
         await vault.updateOCR(id: saved.id, text: "changed")
         let mtimeChanged = try FileManager.default
-            .attributesOfItem(atPath: indexURL.path)[.modificationDate] as! Date
+            .attributesOfItem(atPath: shardURL.path)[.modificationDate] as! Date
         #expect(mtimeBefore != mtimeChanged)
+    }
+
+    @Test("legacy index.json migrates to monthly shards with .bak left behind (PLAN.md T6.1)")
+    func legacyIndexMigratesToShards() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SnapLocalTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        // 旧形式: 異なる月の2エントリを単一 index.json に置く
+        let recent = makeEntry(createdAt: Date(), title: "recent")
+        let old = makeEntry(createdAt: Date(timeIntervalSinceNow: -40 * 86400), title: "old")
+        let legacy = try JSONEncoder().encode([recent, old])
+        try legacy.write(to: dir.appendingPathComponent("index.json"))
+
+        let vault = PersistentVault(directory: dir)
+        let all = await vault.allItems()
+
+        #expect(all.count == 2, "migrated entries must all load")
+        #expect(shardURLs(in: dir).count == 2, "entries from different months go to different shards")
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("index.json").path),
+                "legacy index.json should be retired")
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("index.json.bak").path),
+                "legacy index must be kept as .bak, never deleted")
+    }
+
+    @Test("saving touches only the current month's shard (PLAN.md T6.1)")
+    func saveWritesOnlyCurrentMonthShard() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SnapLocalTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let indexDir = dir.appendingPathComponent("index", isDirectory: true)
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+
+        // 過去月のシャードを直接seed
+        let oldShard = indexDir.appendingPathComponent("2020-01.json")
+        let oldEntry = makeEntry(createdAt: Date(timeIntervalSince1970: 1_577_900_000)) // 2020-01
+        try JSONEncoder().encode([oldEntry]).write(to: oldShard)
+        let oldData = try Data(contentsOf: oldShard)
+
+        let vault = PersistentVault(directory: dir)
+        _ = try #require(await vault.save(image: makeTestImage()))
+
+        #expect(shardURLs(in: dir).count == 2, "save creates the current month's shard")
+        #expect(try Data(contentsOf: oldShard) == oldData, "past month shard must stay byte-identical")
+        #expect(await vault.allItems().count == 2)
+    }
+
+    @Test("cloud-sync conflict copies are merged without data loss (PLAN.md T6.1)")
+    func conflictCopyShardsAreMerged() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SnapLocalTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let indexDir = dir.appendingPathComponent("index", isDirectory: true)
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+
+        // 正規シャードと、同じ月の競合コピー(Drive風の命名)。
+        // shared は両方に存在し title が食い違う → 正規が勝つ。
+        // copyOnly は競合コピーにしか無い → 取りこぼさず読み込み、正規シャードへ定着する。
+        var shared = makeEntry(createdAt: Date(timeIntervalSince1970: 1_577_900_000), title: "canonical")
+        let copyOnly = makeEntry(createdAt: Date(timeIntervalSince1970: 1_577_900_100), title: "copy-only")
+        try JSONEncoder().encode([shared]).write(to: indexDir.appendingPathComponent("2020-01.json"))
+        shared.title = "conflict-copy"
+        try JSONEncoder().encode([shared, copyOnly]).write(to: indexDir.appendingPathComponent("2020-01 (1).json"))
+
+        let vault = PersistentVault(directory: dir)
+        let all = await vault.allItems()
+
+        #expect(all.count == 2, "entries that only exist in a conflict copy must not be lost")
+        #expect(all.first(where: { $0.id == shared.id })?.title == "canonical",
+                "on duplicate IDs the canonical shard wins")
+        // 競合コピー由来のエントリは正規シャードに書き戻されている
+        let canonical = try JSONDecoder().decode([VaultManifestEntry].self,
+            from: Data(contentsOf: indexDir.appendingPathComponent("2020-01.json")))
+        #expect(canonical.contains(where: { $0.id == copyOnly.id }))
+        // 競合コピー自体は消さない(ユーザーのファイルを勝手に削除しない)
+        #expect(FileManager.default.fileExists(atPath: indexDir.appendingPathComponent("2020-01 (1).json").path))
     }
 
     @Test("allItems with 200 items — warm cache is fast (PLAN.md T5.3/T4.2)")

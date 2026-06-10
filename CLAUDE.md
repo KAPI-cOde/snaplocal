@@ -51,7 +51,8 @@ bash build-app.sh && open .build/debug/SnapLocal.app
 `applyTransform` は `self.transform = t.concatenating(self.transform)` で直接変更する。クロージャ内で struct を値コピーすると変更が消える(旧バグ)。
 
 ### 永続化互換性
-- `AnnotationType` の case 名と raw value、`VaultManifestEntry` / index.json のキー名は**変更禁止**(既存ユーザーの履歴・アノテーションが読めなくなる)
+- `AnnotationType` の case 名と raw value、`VaultManifestEntry` のキー名は**変更禁止**(既存ユーザーの履歴・アノテーションが読めなくなる)。キーの**追加**のみ可
+- インデックスは月別シャード `index/YYYY-MM.json`(T6.1〜)。旧 `index.json` は初回起動で自動移行され `index.json.bak` として残る(**bakを削除するコードを書かない**)。書き込みは変更があったシャードのみ。クラウド同期の競合コピー(`YYYY-MM (1).json` 等)は読み込み時にマージされ、正規ファイルが重複IDで勝つ
 - DrawingTool.redact は UI 統合のみで、AnnotationType は `.mosaic` / `.blur` のまま — この分離を崩さない
 
 ### その他

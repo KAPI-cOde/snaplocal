@@ -67,15 +67,26 @@ struct GetLatestScreenshotIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> {
-        let dir: URL = {
-            let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first!
-            return pictures.appendingPathComponent("SnapLocal", isDirectory: true)
-        }()
-        let indexURL = dir.appendingPathComponent("index.json")
+        // 設定の保存先(Google Drive等)を尊重する
+        let dir = SettingsManager.shared.saveDirectoryURL
         struct Entry: Decodable { let id: String; let filename: String; let createdAt: Date }
-        guard let data = try? Data(contentsOf: indexURL),
-              let entries = try? JSONDecoder().decode([Entry].self, from: data),
-              let latest = entries.sorted(by: { $0.createdAt > $1.createdAt }).first else {
+        // 月別シャード(index/*.json)を読む。未移行vault用に旧 index.json へフォールバック
+        var entries: [Entry] = []
+        let indexDir = dir.appendingPathComponent("index", isDirectory: true)
+        if let shards = try? FileManager.default.contentsOfDirectory(at: indexDir, includingPropertiesForKeys: nil) {
+            for url in shards where url.pathExtension.lowercased() == "json" {
+                if let data = try? Data(contentsOf: url),
+                   let part = try? JSONDecoder().decode([Entry].self, from: data) {
+                    entries.append(contentsOf: part)
+                }
+            }
+        }
+        if entries.isEmpty,
+           let data = try? Data(contentsOf: dir.appendingPathComponent("index.json")),
+           let part = try? JSONDecoder().decode([Entry].self, from: data) {
+            entries = part
+        }
+        guard let latest = entries.sorted(by: { $0.createdAt > $1.createdAt }).first else {
             struct NoHistoryError: LocalizedError { var errorDescription: String? = "履歴が見つかりません" }
             throw NoHistoryError()
         }

@@ -39,11 +39,15 @@ On first launch, macOS will ask for Screen Recording permission. Grant it, then 
 
 ```
 ~/Pictures/SnapLocal/
-  index.json          # metadata index (id, timestamp, OCR text, filename)
+  index/
+    2026-06.json      # monthly metadata shards (id, timestamp, OCR text, filename)
+  index.json.bak      # pre-sharding index, kept after the automatic one-time migration
   {uuid}.png          # full-resolution capture
   thumbnails/
     {uuid}.jpg        # JPEG thumbnail for the history panel
 ```
+
+Only the current month's shard is rewritten when you capture, so cloud-synced folders (e.g. Google Drive) upload a few KB per capture instead of the whole index. Sync conflict copies of shard files (`2026-06 (1).json` and similar) are read and merged back automatically — entries are never lost to a sync conflict.
 
 The save directory can be pointed at a Google Drive folder or any local path — change it in Settings. This is the only "sync" option: SnapLocal itself never uploads anything.
 
