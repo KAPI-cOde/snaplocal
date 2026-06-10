@@ -2612,14 +2612,19 @@ final class CanvasViewModel: ObservableObject {
 }
 // MARK: - UndoManager + MainActor
 
+private struct UnsafeSendableBox<T>: @unchecked Sendable { let value: T }
+
 extension UndoManager {
     /// UndoManagerのハンドラは新SDKで@Sendable扱いになりMainActor状態に触れない。
     /// undo/redoはメインスレッドで発火するため、assumeIsolatedで包んで登録する。
+    /// (非Sendableなtargetは@unchecked Sendableボックス経由で渡す。
+    ///  クロージャがtargetを強参照するが、CanvasViewModelはアプリ存続期間オブジェクトなので許容)
     @MainActor
     func registerMainActorUndo<T: AnyObject>(withTarget target: T,
                                              handler: @escaping @MainActor (T) -> Void) {
-        registerUndo(withTarget: target) { t in
-            MainActor.assumeIsolated { handler(t) }
+        let box = UnsafeSendableBox(value: target)
+        registerUndo(withTarget: target) { _ in
+            MainActor.assumeIsolated { handler(box.value) }
         }
     }
 }
