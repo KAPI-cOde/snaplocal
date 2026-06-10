@@ -6,6 +6,8 @@ Designed for organizations that need a searchable screenshot archive without sen
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![MIT License](https://img.shields.io/badge/license-MIT-green)
 
+![SnapLocal](docs/screenshot-main.png)
+
 ## Features
 
 - **Full-screen and region capture** — `⌘⇧2` for full screen, `⌘⇧4` for area selection

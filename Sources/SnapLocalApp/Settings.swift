@@ -92,6 +92,11 @@ final class SettingsManager: ObservableObject {
     
     var saveDirectoryURL: URL {
         get {
+            // 開発・スクリーンショット用オーバーライド(起動引数: -vault.directory.override <path>)。
+            // UserDefaultsのargument domain経由なので通常起動には影響しない
+            if let override = defaults.string(forKey: "vault.directory.override") {
+                return URL(fileURLWithPath: override, isDirectory: true)
+            }
             if let bookmarkData = defaults.data(forKey: SettingsKey.saveDirectory.rawValue) {
                 var isStale = false
                 if let url = try? URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
