@@ -78,7 +78,6 @@ extension SnapLocalState {
     }
 
     func captureWindowNow(_ window: SCWindow) {
-        showWindowPicker = false
         showStatus("ウィンドウを撮影中…")
         captureEngine?.captureWindow(window)
     }

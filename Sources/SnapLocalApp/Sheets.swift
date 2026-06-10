@@ -1,11 +1,9 @@
 // Sheets.swift
-// SnapLocal - HelpPopoverContent, SettingsSheet, WindowPickerSheet
+// SnapLocal - HelpPopoverContent, SettingsSheet
 // (extracted from App.swift — PLAN.md T0.4, mechanical move only)
 
 import SwiftUI
 import AppKit
-import ScreenCaptureKit
-import ServiceManagement
 
 // MARK: - Help Popover
 
@@ -265,13 +263,11 @@ struct SettingsSheet: View {
                     ))
                 }
 
-                if #available(macOS 13.0, *) {
-                    Section("起動") {
-                        Toggle("ログイン時に起動", isOn: Binding(
-                            get: { settings.launchAtLogin },
-                            set: { settings.launchAtLogin = $0 }
-                        ))
-                    }
+                Section("起動") {
+                    Toggle("ログイン時に起動", isOn: Binding(
+                        get: { settings.launchAtLogin },
+                        set: { settings.launchAtLogin = $0 }
+                    ))
                 }
 
                 Section("ヘルプ") {
@@ -305,122 +301,3 @@ struct SettingsSheet: View {
     }
 }
 
-// MARK: - Window Picker Sheet
-
-struct WindowPickerSheet: View {
-    let windows: [SCWindow]
-    let onSelect: (SCWindow) -> Void
-    let onCancel: () -> Void
-
-    @State private var hovered: CGWindowID? = nil
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("ウィンドウを選択")
-                    .font(.headline)
-                Spacer()
-                Button(action: onCancel) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, DS.Space.m)
-            .padding(.vertical, DS.Space.s)
-
-            Divider()
-
-            if windows.isEmpty {
-                VStack(spacing: DS.Space.xs) {
-                    Image(systemName: "macwindow.badge.plus")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.tertiary)
-                    Text("キャプチャ可能なウィンドウが見つかりません")
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 120)
-                .padding()
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: DS.Space.xxs) {
-                        ForEach(windows, id: \.windowID) { win in
-                            WindowPickerRow(window: win, isHovered: hovered == win.windowID)
-                                .onHover { hovering in
-                                    hovered = hovering ? win.windowID : nil
-                                }
-                                .onTapGesture {
-                                    onSelect(win)
-                                }
-                        }
-                    }
-                    .padding(DS.Space.xs)
-                }
-                .frame(minHeight: 200, maxHeight: 480)
-            }
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("キャンセル", action: onCancel)
-                    .keyboardShortcut(.escape)
-            }
-            .padding(.horizontal, DS.Space.m)
-            .padding(.vertical, DS.Space.xs)
-        }
-        .frame(width: 480)
-    }
-}
-
-struct WindowPickerRow: View {
-    let window: SCWindow
-    let isHovered: Bool
-
-    var appIcon: NSImage? {
-        guard let bundleID = window.owningApplication?.bundleIdentifier,
-              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
-        return NSWorkspace.shared.icon(forFile: appURL.path)
-    }
-
-    var appName: String {
-        window.owningApplication?.applicationName ?? "不明なアプリ"
-    }
-
-    var windowTitle: String {
-        let t = window.title ?? ""
-        return t.isEmpty ? appName : t
-    }
-
-    var body: some View {
-        HStack(spacing: DS.Space.xs) {
-            if let icon = appIcon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 32, height: 32)
-            } else {
-                Image(systemName: "macwindow")
-                    .frame(width: 32, height: 32)
-                    .foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(windowTitle)
-                    .lineLimit(1)
-                    .font(.body)
-                Text(appName)
-                    .lineLimit(1)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text("\(Int(window.frame.width))×\(Int(window.frame.height))")
-                .font(.system(size: DS.FontSize.caption, design: .monospaced))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, DS.Space.xs)
-        .padding(.vertical, DS.Space.xs)
-        .background(isHovered ? Color.accentColor.opacity(0.12) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: DS.Radius.medium))
-        .contentShape(Rectangle())
-    }
-}

@@ -5,7 +5,6 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
-import UniformTypeIdentifiers
 
 // MARK: - Canvas View
 

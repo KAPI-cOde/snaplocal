@@ -34,7 +34,6 @@ struct VaultItem: Identifiable, Sendable {
     let thumbnailData: Data
     var ocrText: String
     var annotations: [AnyAnnotation]
-    var level: VaultLevel
     var title: String?
     var notes: String?
     var width: Int = 0
@@ -48,20 +47,6 @@ struct VaultItem: Identifiable, Sendable {
 
     // Load full image on demand (triggers disk read, call from background)
     var imageData: Data { (try? Data(contentsOf: imageURL)) ?? Data() }
-}
-
-enum VaultLevel: String, Codable, CaseIterable, Sendable {
-    case memory    = "memory"
-    case cache     = "cache"
-    case permanent = "permanent"
-
-    var systemImage: String {
-        switch self {
-        case .memory:    return "timer"
-        case .cache:     return "externaldrive.badge.timemachine"
-        case .permanent: return "checkmark.seal.fill"
-        }
-    }
 }
 
 // MARK: - PersistentVault
@@ -196,7 +181,6 @@ actor PersistentVault {
             thumbnailData: thumbData,
             ocrText: "",
             annotations: annotations,
-            level: .permanent,
             title: nil,
             notes: nil,
             width: image.width,
@@ -360,7 +344,7 @@ actor PersistentVault {
             .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
         return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
                          thumbnailData: thumbData, ocrText: entry.ocrText,
-                         annotations: annotations, level: .permanent, title: entry.title,
+                         annotations: annotations, title: entry.title,
                          notes: entry.notes, width: entry.width, height: entry.height)
     }
 
@@ -393,7 +377,6 @@ actor PersistentVault {
             thumbnailData: thumbData,
             ocrText: entry.ocrText,
             annotations: annotations,
-            level: .permanent,
             title: entry.title,
             notes: entry.notes,
             width: entry.width,
@@ -413,12 +396,6 @@ actor PersistentVault {
         }
         thumbDataCache.setObject(data as NSData, forKey: key, cost: data.count)
         return data
-    }
-
-    private func setupDirectories() {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
-        try? fm.createDirectory(at: thumbDirectory, withIntermediateDirectories: true)
     }
 
     // MARK: - Shard persistence (PLAN.md T6.1)

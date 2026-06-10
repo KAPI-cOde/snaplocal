@@ -224,8 +224,6 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     @Published var history: [VaultItem] = []
     @Published var searchQuery = ""
     @Published var isRegionCapturing = false
-    @Published var showWindowPicker = false
-    @Published var windowPickerItems: [SCWindow] = []
     @Published var selectedHistoryID: UUID? = nil
     @Published var searchFocusTrigger: Bool = false
 
@@ -542,16 +540,6 @@ struct ContentView: View {
                 onCaptureToClipboard: state.captureNowToClipboard,
                 onCaptureRegionToClipboard: state.captureRegionToClipboard
             )
-            .sheet(isPresented: $state.showWindowPicker) {
-                WindowPickerSheet(
-                    windows: state.windowPickerItems,
-                    onSelect: { state.captureWindowNow($0) },
-                    onCancel: {
-                        state.showWindowPicker = false
-                        state.showStatus("キャンセルしました", success: true)
-                    }
-                )
-            }
             .navigationTitle(windowTitle)
             Divider()
             HStack(spacing: 0) {

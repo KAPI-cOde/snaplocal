@@ -6,9 +6,7 @@
 import Foundation
 import Carbon
 import SwiftUI
-#if os(macOS)
 import ServiceManagement
-#endif
 
 // MARK: - Annotation Template
 
@@ -239,19 +237,15 @@ final class SettingsManager: ObservableObject {
     }
     
     private func setLaunchAtLogin(_ enabled: Bool) {
-        #if os(macOS)
-        if #available(macOS 13.0, *) {
-            do {
-                if enabled {
-                    try SMAppService.mainApp.register()
-                } else {
-                    try SMAppService.mainApp.unregister()
-                }
-            } catch {
-                print("Failed to set launch at login: \(error)")
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
             }
+        } catch {
+            print("Failed to set launch at login: \(error)")
         }
-        #endif
     }
 }
 
