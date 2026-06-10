@@ -220,6 +220,9 @@ private final class RegionOverlayWindow: NSObject {
     private var windowSnapPanel: NSPanel?
     private var windowSnapRect: CGRect?
     private var ourPanelNumbers: Set<CGWindowID> = []
+    // Snap target stashed at mouseDown; committed on mouseUp only if the mouse
+    // didn't move (= a click). A drag starting over a window selects a region.
+    private var pendingWindowSnap: CGRect?
 
     init(completion: @escaping @MainActor (CGRect?, CGImage?) -> Void) {
         self.completion = completion
@@ -476,10 +479,7 @@ private final class RegionOverlayWindow: NSObject {
     func mouseDown(at screenPoint: NSPoint, shiftHeld: Bool) {
         switch captureState {
         case .idle:
-            if let snapRect = windowSnapRect {
-                commitWindowSnap(snapRect)
-                return
-            }
+            pendingWindowSnap = windowSnapRect
             captureState = .dragging
             dragStart = screenPoint
             selectionRect = .zero
@@ -516,6 +516,10 @@ private final class RegionOverlayWindow: NSObject {
         case .dragging:
             windowSnapPanel?.orderOut(nil)
             windowSnapRect = nil
+            // Real movement turns the gesture into a region drag, not a click
+            if let start = dragStart, hypot(screenPoint.x - start.x, screenPoint.y - start.y) > 4 {
+                pendingWindowSnap = nil
+            }
 
             // Space held: translate the whole selection (don't resize), hide loupe
             if spaceHeldDuringDrag, let prev = spaceDragPrevPoint, selectionRect != .zero {
@@ -574,6 +578,11 @@ private final class RegionOverlayWindow: NSObject {
         case .dragging:
             spaceHeldDuringDrag = false
             spaceDragPrevPoint = nil
+            if let snap = pendingWindowSnap {
+                pendingWindowSnap = nil
+                commitWindowSnap(snap)
+                return
+            }
             if selectionRect.width > 10 && selectionRect.height > 10 {
                 captureState = .adjusting
                 activeHandle = nil
