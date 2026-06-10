@@ -65,18 +65,27 @@ bash build-app.sh && open .build/debug/SnapLocal.app
 
 | ファイル | 役割 |
 |---|---|
-| `App.swift` | SnapLocalState(メインVM)、ContentView、AnnotationCanvasView |
-| `Toolbar.swift` | CompactToolbar(T0.2で抽出予定/済) |
-| `HistoryRail.swift` | 履歴サイドバー(T0.3で抽出予定/済) |
-| `Sheets.swift` | 設定・ヘルプ・ウィンドウピッカー(T0.4で抽出予定/済) |
-| `DesignTokens.swift` | DS.* デザイントークン(T0.1で新設予定/済) |
-| `AnnotationCanvas.swift` | CanvasViewModel、DragState、renderAnnotations() |
-| `AnyAnnotation.swift` | アノテーションの型消去ラッパー |
-| `AnnotationElements.swift` / `AnnotationMosaicBlur.swift` | 各アノテーション struct |
+| `App.swift` | App/AppDelegate、SnapLocalState本体(メインVM)、ContentView |
+| `StateCapture/StateHistory/StateExport/StateVision.swift` | SnapLocalState の extension(撮影/履歴/書き出し/OCR・顔検出) |
+| `Toolbar.swift` | CompactToolbar |
+| `HistoryRail.swift` | 履歴サイドバー(グリッド) |
+| `Sheets.swift` | 設定・ヘルプ |
+| `DesignTokens.swift` | DS.* デザイントークン |
+| `AnnotationModels.swift` | アノテーション関連の型定義(AnnotationType/DrawingTool/DragState 等) |
+| `AnnotationCanvas.swift` | CanvasViewModel本体(状態・CRUD・undo・テキスト入力) |
+| `CanvasRendering.swift` | CanvasViewModel extension: renderAnnotations()/フィルタプレビュー |
+| `CanvasImageOps.swift` | CanvasViewModel extension: クロップ・回転・リサイズ・結合 |
+| `CanvasInteraction.swift` | CanvasViewModel extension: ドラッグ状態機械・注釈生成 |
+| `CanvasView.swift` | AnnotationCanvasView(キャンバスUI本体) |
+| `CanvasHelpers.swift` / `CanvasOverlays.swift` | キャンバス補助NSView類 / 選択ハンドル・クロップ等のオーバーレイ |
+| `AnyAnnotation.swift` | アノテーションの型消去ラッパー+Codable(デコード分岐) |
+| `AnnotationElements.swift` / `AnnotationMosaicBlur.swift` | 各アノテーション struct(後者は統合後の RedactAnnotation = .mosaic/.blur 両対応) |
 | `PersistentVault.swift` | ディスク永続化 + OCRService |
+| `HistoryQuickLook.swift` | 履歴のQuickLookプレビュー |
 | `RegionCapture.swift` | 領域選択オーバーレイ(CGRectを返すだけ。キャプチャはしない) |
 | `CaptureEngine.swift` | ScreenCaptureKit キャプチャ |
 | `Settings.swift` | SettingsManager |
+| `Utilities.swift` | 共通小ユーティリティ(R2.2) |
 
 ## 完了時のチェックリスト
 
