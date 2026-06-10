@@ -26,6 +26,7 @@ struct HistoryRail: View {
     var onExportPDF: (() -> Void)? = nil
     var onUpdateNotes: ((VaultItem, String?) -> Void)? = nil
     var onToggleStar: ((VaultItem) -> Void)? = nil
+    var onReocr: ((VaultItem) -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
@@ -159,6 +160,7 @@ struct HistoryRail: View {
                                 onRenameCancelled: { renamingItemID = nil },
                                 onPopoverDismiss: { popoverItemID = nil },
                                 onUpdateNotes: onUpdateNotes,
+                                onReocr: { onReocr?(item) },
                                 historyItemLabel: historyItemLabel,
                                 onHoverChanged: { hovering in
                                     hoveredItemID = hovering ? item.id : nil
@@ -323,6 +325,7 @@ private struct HistoryItemRow: View {
     let onRenameCancelled: () -> Void
     let onPopoverDismiss: () -> Void
     var onUpdateNotes: ((VaultItem, String?) -> Void)?
+    var onReocr: (() -> Void)? = nil
     let historyItemLabel: (Date) -> String
     let onHoverChanged: (Bool) -> Void
 
@@ -522,6 +525,8 @@ private struct HistoryItemRow: View {
                 NSPasteboard.general.setString(item.ocrText, forType: .string)
             }
         }
+        // 自動OCRの誤認識・失敗時用(通常導線には出さない — 撮影後に自動実行される)
+        Button("文字認識を再実行") { onReocr?() }
         Divider()
         Button("削除", role: .destructive) { onDelete() }
     }

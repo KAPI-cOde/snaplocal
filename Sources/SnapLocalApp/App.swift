@@ -17,6 +17,7 @@ extension Notification.Name {
     static let snapLocalZoomOut   = Notification.Name("snaplocal.zoom.out")
     static let snapLocalZoomReset = Notification.Name("snaplocal.zoom.reset")
     static let snapLocalZoomFit   = Notification.Name("snaplocal.zoom.fit")
+    static let snapLocalOpenSettings = Notification.Name("snaplocal.settings.open")
 }
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
@@ -33,7 +34,14 @@ struct SnapLocalApp: App {
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
         .commands {
-            CommandGroup(replacing: .appSettings) {}
+            // T3.5-K: 設定はツールバーから外し、⌘,(アプリメニュー)とメニューバーで到達
+            CommandGroup(replacing: .appSettings) {
+                Button("設定…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    NotificationCenter.default.post(name: .snapLocalOpenSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
 
             // File menu extras
             CommandGroup(after: .saveItem) {
@@ -160,6 +168,11 @@ struct MenuBarQuickActions: View {
         Button("SnapLocalを表示") {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        }
+        Button("設定… (⌘,)") {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+            NotificationCenter.default.post(name: .snapLocalOpenSettings, object: nil)
         }
         Divider()
         Button("終了") { NSApp.terminate(nil) }
@@ -508,6 +521,28 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     }
 
     @Published var detectedQRURL: URL? = nil
+
+    /// 履歴アイテムの文字認識をやり直す(誤認識・失敗時用 — 通常は撮影後に自動実行される)
+    func reRunOCR(for item: VaultItem) {
+        showStatus("文字認識を再実行中…")
+        let v = vault
+        Task { [weak self] in
+            guard let nsImage = NSImage(contentsOf: item.imageURL),
+                  let cg = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                await MainActor.run { self?.showStatus("画像を読み込めませんでした") }
+                return
+            }
+            let text = await OCRService.recognizeText(in: cg)
+            await v.updateOCR(id: item.id, text: text)
+            await MainActor.run {
+                self?.refreshHistory()
+                self?.showStatus(text.isEmpty
+                                 ? "テキストは見つかりませんでした"
+                                 : "文字認識を再実行しました (\(text.count)文字)",
+                                 success: !text.isEmpty)
+            }
+        }
+    }
 
     private func detectBarcodes(in image: CGImage) async -> [String] {
         await withCheckedContinuation { continuation in
@@ -1226,11 +1261,7 @@ struct ContentView: View {
                 },
                 sidebarVisible: $sidebarVisible,
                 onCaptureToClipboard: state.captureNowToClipboard,
-                onCaptureRegionToClipboard: state.captureRegionToClipboard,
-                currentOCRText: {
-                    guard let id = state.selectedHistoryID else { return "" }
-                    return state.history.first(where: { $0.id == id })?.ocrText ?? ""
-                }()
+                onCaptureRegionToClipboard: state.captureRegionToClipboard
             )
             .sheet(isPresented: $state.showWindowPicker) {
                 WindowPickerSheet(
@@ -1368,7 +1399,8 @@ struct ContentView: View {
                         onExportZip: state.exportHistoryAsZip,
                         onExportPDF: state.exportHistoryAsPDF,
                         onUpdateNotes: state.updateNotesForItem,
-                        onToggleStar: state.toggleStar
+                        onToggleStar: state.toggleStar,
+                        onReocr: state.reRunOCR
                     )
                     .transition(.move(edge: .trailing))
                 }

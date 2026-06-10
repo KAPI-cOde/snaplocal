@@ -25,11 +25,9 @@ struct CompactToolbar: View {
     @Binding var sidebarVisible: Bool
     var onCaptureToClipboard: (() -> Void)? = nil
     var onCaptureRegionToClipboard: (() -> Void)? = nil
-    var currentOCRText: String = ""
-    @State private var showOCRPanel = false
     @State private var showSettings = false
-    @State private var showAdjustments = false
-    @State private var showDecoration = false
+    @State private var showEditPanel = false
+    @State private var editPanelTab = 0   // 0=調整 1=装飾
     @State private var showColorPopover = false
     @State private var showSaveTemplate = false
     @State private var templateNameInput = ""
@@ -87,6 +85,13 @@ struct CompactToolbar: View {
             }
             .frame(width: 0, height: 0).opacity(0)
         }
+        // T3.5-K: 設定シートは⌘,/アプリメニュー/メニューバーの通知で開く
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .snapLocalOpenSettings)) { _ in
+            showSettings = true
+        }
     }
 
     private var cropModeControls: some View {
@@ -124,6 +129,8 @@ struct CompactToolbar: View {
     private var normalControls: some View {
         HStack(spacing: 6) {
             // ─ キャプチャ ─
+            // T3.5-G: 撮影は「全画面ボタン+メニュー」の1組に統合
+            // (⌘⇧3/⌘⇧4はApp.swiftのCommandMenu「キャプチャ」で維持)
             Button(action: onCapture) {
                 Image(systemName: "camera.viewfinder")
             }
@@ -131,21 +138,9 @@ struct CompactToolbar: View {
             .help("全画面撮影 (⌘⇧2)")
             .keyboardShortcut("2", modifiers: [.command, .shift])
 
-            Button(action: onCaptureRegion) {
-                Image(systemName: "crop")
-            }
-            .buttonStyle(DSToolButtonStyle())
-            .help("範囲選択撮影 (⌘⇧4)")
-            .keyboardShortcut("4", modifiers: [.command, .shift])
-
-            Button(action: onCaptureWindow) {
-                Image(systemName: "macwindow.on.rectangle")
-            }
-            .buttonStyle(DSToolButtonStyle())
-            .help("ウィンドウ撮影 (⌘⇧3)")
-            .keyboardShortcut("3", modifiers: [.command, .shift])
-
             Menu {
+                Button("範囲選択撮影 (⌘⇧4)") { onCaptureRegion() }
+                Button("ウィンドウ撮影 (⌘⇧3)") { onCaptureWindow() }
                 Button("前回の範囲を再撮影 (⌘⇧R)") { onRepeatRegion() }
                 Divider()
                 Section("遅延撮影") {
@@ -166,7 +161,7 @@ struct CompactToolbar: View {
             }
             .menuStyle(.borderlessButton)
             .frame(width: 18)
-            .help("その他のキャプチャ")
+            .help("撮影方法を選択")
 
             if canvas.backgroundImage != nil { annotationToolControls }
             if canvas.backgroundImage != nil { imageEditControls }
@@ -399,40 +394,22 @@ struct CompactToolbar: View {
         .help("切り取り (⌘K)")
         .keyboardShortcut("k", modifiers: .command)
 
-        Button { showAdjustments.toggle() } label: {
+        // T3.5-I: 画像調整と書き出し装飾を1ボタン+タブ切替に統合
+        Button { showEditPanel.toggle() } label: {
             Image(systemName: "slider.horizontal.3")
         }
-        .buttonStyle(DSToolButtonStyle(isActive: canvas.hasActiveAdjustments))
-        .help(canvas.hasActiveAdjustments ? "明るさ・コントラスト・彩度（調整中）" : "明るさ・コントラスト・彩度")
-        .popover(isPresented: $showAdjustments, arrowEdge: .bottom) {
-            adjustmentsPopover
-        }
-
-        Button { showDecoration.toggle() } label: {
-            Image(systemName: canvas.decorationEnabled ? "wand.and.stars.inverse" : "wand.and.stars")
-        }
-        .buttonStyle(DSToolButtonStyle(isActive: canvas.decorationEnabled))
-        .help("書き出し装飾 (パディング・角丸・影)")
-        .popover(isPresented: $showDecoration, arrowEdge: .bottom) {
-            decorationPopover
+        .buttonStyle(DSToolButtonStyle(isActive: canvas.hasActiveAdjustments || canvas.decorationEnabled))
+        .help("画像調整・書き出し装飾")
+        .popover(isPresented: $showEditPanel, arrowEdge: .bottom) {
+            editPanelPopover
         }
 
     }
 
     @ViewBuilder
     private var imageOnlyExportControls: some View {
-        // OCR text panel — show when the current image has recognized text
-        if !currentOCRText.isEmpty {
-            Button { showOCRPanel.toggle() } label: {
-                Image(systemName: "text.viewfinder")
-            }
-            .buttonStyle(DSToolButtonStyle(isActive: showOCRPanel))
-            .help("OCRテキストを表示・コピー")
-            .popover(isPresented: $showOCRPanel, arrowEdge: .bottom) {
-                OCRTextPanel(text: currentOCRText)
-            }
-        }
-
+        // OCRは撮影後に自動実行される前提のためメイン導線にボタンは置かない。
+        // 結果の確認・コピーは履歴ポップオーバー、再実行は履歴コンテキストメニュー(T3.5)。
         Button(action: onCopy) {
             Image(systemName: "doc.on.clipboard")
         }
@@ -702,17 +679,7 @@ struct CompactToolbar: View {
 
         if canvas.backgroundImage != nil { imageOnlyExportControls }
 
-        // T3.2-E: ヘルプは設定シート内へ移動
-        Button(action: { showSettings.toggle() }) {
-            Image(systemName: "gearshape")
-        }
-        .buttonStyle(DSToolButtonStyle())
-        .help("設定 (⌘,)")
-        .keyboardShortcut(",", modifiers: .command)
-        .sheet(isPresented: $showSettings) {
-            SettingsSheet()
-        }
-
+        // T3.5-K: 設定ボタンは非表示(⌘,/アプリメニュー/メニューバーから到達)
         Button(action: { withAnimation(DS.Anim.smooth) { sidebarVisible.toggle() } }) {
             Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
                 .symbolVariant(sidebarVisible ? .none : .slash)
@@ -722,9 +689,28 @@ struct CompactToolbar: View {
         .keyboardShortcut("h", modifiers: [.command, .shift])
     }
 
+    /// T3.5-I: 調整と装飾のタブ切替パネル
+    private var editPanelPopover: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $editPanelTab) {
+                Text("画像調整").tag(0)
+                Text("書き出し装飾").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, DS.Space.m)
+            .padding(.top, DS.Space.s)
+            if editPanelTab == 0 {
+                adjustmentsPopover
+            } else {
+                decorationPopover
+            }
+        }
+        .frame(width: 320)
+    }
+
     private var adjustmentsPopover: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("画像調整").font(.headline).padding(.bottom, 2)
             HStack {
                 Text("明るさ").frame(width: 60, alignment: .trailing)
                 Slider(value: $canvas.adjustBrightness, in: -0.5...0.5)
@@ -757,12 +743,11 @@ struct CompactToolbar: View {
                 Button("リセット") { canvas.resetAdjustments() }
                     .controlSize(.small)
                 Spacer()
-                Button("適用") { canvas.bakeAdjustments(); showAdjustments = false }
+                Button("適用") { canvas.bakeAdjustments(); showEditPanel = false }
                     .dsPrimaryButton()
             }
         }
         .padding(DS.Space.m)
-        .frame(width: 280)
     }
 
     @ViewBuilder
@@ -1006,50 +991,6 @@ struct CompactToolbar: View {
                     )
                     .matchedGeometryEffect(id: "toolSelectionIndicator", in: toolSelectionNS)
             }
-        }
-    }
-}
-
-// MARK: - OCR Text Panel
-
-struct OCRTextPanel: View {
-    let text: String
-    @State private var copiedAll = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("OCRテキスト")
-                    .font(.system(size: DS.FontSize.caption, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                    withAnimation { copiedAll = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copiedAll = false }
-                } label: {
-                    Label(copiedAll ? "コピー済" : "全コピー",
-                          systemImage: copiedAll ? "checkmark" : "doc.on.clipboard")
-                        .font(.system(size: DS.FontSize.caption))
-                        .foregroundStyle(copiedAll ? Color.green : Color.accentColor)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, DS.Space.s)
-            .padding(.vertical, DS.Space.xs)
-
-            Divider()
-
-            ScrollView(.vertical, showsIndicators: true) {
-                // Use TextEditor for native selectable text
-                TextEditor(text: .constant(text))
-                    .font(.system(size: DS.FontSize.body))
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 80)
-                    .padding(DS.Space.xs)
-            }
-            .frame(width: 340, height: 220)
         }
     }
 }
