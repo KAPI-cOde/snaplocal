@@ -5,18 +5,53 @@
 
 import AppKit
 import AudioToolbox
+import Carbon
 import ScreenCaptureKit
 
 // MARK: - Public entry point
 
 enum RegionCapture {
+    /// Strong reference to the live overlay controller. The NSPanels are kept alive by
+    /// AppKit while on screen, but this NSObject controller is not — every view/monitor
+    /// holds it weakly, so without this reference it deallocates as soon as start()
+    /// returns, leaving opaque black panels (RegionView.draw early-returns) that no
+    /// event handler can ever dismiss, frozen over every Space at screenSaver level.
+    @MainActor private static var activeOverlay: RegionOverlayWindow?
+
     /// completion receives the selection rect (CG top-left coords) and, when a frozen
     /// screenshot is available, the pre-cropped CGImage so callers can skip re-capture.
     /// - Parameter initialRect: Optional CG-coordinates rect (top-left origin) to pre-select on open.
     @MainActor
     static func start(initialRect: CGRect? = nil, completion: @escaping @MainActor (CGRect?, CGImage?) -> Void) {
+        // Toggle: pressing ⌘⇧4 while an overlay is already up cancels it (escape hatch)
+        // instead of stacking a second overlay. The new completion is dropped; the
+        // original one receives (nil, nil) via cancel().
+        if let existing = activeOverlay {
+            existing.cancel()
+            return
+        }
         let overlay = RegionOverlayWindow(completion: completion)
+        activeOverlay = overlay
         overlay.show(preselectedCGRect: initialRect)
+    }
+
+    @MainActor
+    fileprivate static func didDismiss(_ overlay: RegionOverlayWindow) {
+        if activeOverlay === overlay { activeOverlay = nil }
+    }
+
+    /// Failsafe ESC/Enter, registered as Carbon global hotkeys only while the overlay
+    /// is up. NSEvent local monitors require keyboard focus, which is unreliable when
+    /// the hotkey fires while another app is active; Carbon hotkeys fire regardless
+    /// of focus (same mechanism as ⌘⇧4 itself) and need no extra permissions.
+    @MainActor
+    fileprivate static func handleFailsafeHotkey(id: UInt32) {
+        guard let overlay = activeOverlay else { return }
+        if id == 1 {
+            overlay.cancel()
+        } else if id == 2, overlay.isAdjusting {
+            overlay.commit()
+        }
     }
 }
 
@@ -133,6 +168,13 @@ private enum ResizeHandle {
 
 // MARK: - Overlay Window
 
+/// Borderless panels refuse key status by default. Key status is required so that
+/// ESC/Enter reach our local event monitor when the global hotkey fires while
+/// another app is active (.nonactivatingPanel keeps that app active, Spotlight-style).
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 private final class RegionOverlayWindow: NSObject {
     private var panels: [NSPanel] = []
@@ -159,8 +201,15 @@ private final class RegionOverlayWindow: NSObject {
     private var globalMonitor: Any?
     private var animationTimer: Timer?
 
+    // Failsafe Carbon hotkeys (ESC / Enter), live only while the overlay is shown
+    private var failsafeHotkeyRefs: [EventHotKeyRef] = []
+    private var failsafeHandler: EventHandlerRef?
+
     // Selection confirmed pulse
     var selectionConfirmedAt: CFAbsoluteTime = 0
+
+    // App that was frontmost before we activated ourselves (restored on dismiss)
+    private var previousApp: NSRunningApplication?
 
     // Loupe
     private var loupePanel: NSPanel?
@@ -178,11 +227,17 @@ private final class RegionOverlayWindow: NSObject {
     }
 
     func show(preselectedCGRect cgRect: CGRect? = nil) {
-        // Capture snapshots for loupe
-        for screen in NSScreen.screens {
-            if let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
-               let image = CGDisplayCreateImage(displayID) {
-                screenSnapshots[displayID] = image
+        // Frozen-screen snapshots require Screen Recording permission. Without it
+        // CGDisplayCreateImage returns a wallpaper-only image (all windows missing),
+        // which would freeze the screen to a fake desktop. Skip freezing instead:
+        // the nil-snapshot path shows a translucent dark overlay over the live screen
+        // and the selection is re-captured via ScreenCaptureKit on commit.
+        if CGPreflightScreenCaptureAccess() {
+            for screen in NSScreen.screens {
+                if let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+                   let image = CGDisplayCreateImage(displayID) {
+                    screenSnapshots[displayID] = image
+                }
             }
         }
 
@@ -206,6 +261,17 @@ private final class RegionOverlayWindow: NSObject {
             panels.forEach { $0.animator().alphaValue = 1.0 }
         }
 
+        // Keyboard events (ESC/Enter/arrows) only reach our local monitor while this
+        // app is active, so activate it — the overlay covers the screen, so nothing
+        // visibly changes — and restore the previously active app on dismiss.
+        if !NSApp.isActive {
+            previousApp = NSWorkspace.shared.frontmostApplication
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        let mouse = NSEvent.mouseLocation
+        let keyPanel = panels.first(where: { NSPointInRect(mouse, $0.frame) }) ?? panels.first
+        keyPanel?.makeKeyAndOrderFront(nil)
+
         // Snapshot our own window numbers to exclude from window snapping
         if let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] {
             for info in list {
@@ -221,6 +287,7 @@ private final class RegionOverlayWindow: NSObject {
         NSCursor.crosshair.set()
         setupLoupe()
         setupEvents()
+        setupFailsafeHotkeys()
         startBorderAnimation()
 
         // Pre-select the given region (CG coords → NS coords)
@@ -241,7 +308,7 @@ private final class RegionOverlayWindow: NSObject {
     }
 
     private func makeOverlayPanel(for screen: NSScreen, opaque: Bool = false) -> NSPanel {
-        let panel = NSPanel(
+        let panel = KeyablePanel(
             contentRect: screen.frame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -271,6 +338,37 @@ private final class RegionOverlayWindow: NSObject {
     }
 
     // MARK: - Event Setup
+
+    private func setupFailsafeHotkeys() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
+            guard let event else { return OSStatus(eventNotHandledErr) }
+            var hkID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                              EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &hkID)
+            guard hkID.signature == OSType(0x534E4C52) else { return OSStatus(eventNotHandledErr) }
+            let id = hkID.id
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { RegionCapture.handleFailsafeHotkey(id: id) }
+            }
+            return noErr
+        }, 1, &spec, nil, &failsafeHandler)
+
+        let sig = OSType(0x534E4C52)   // 'SNLR'
+        for (id, keyCode) in [(UInt32(1), UInt32(kVK_Escape)), (UInt32(2), UInt32(kVK_Return))] {
+            var ref: EventHotKeyRef?
+            RegisterEventHotKey(keyCode, 0, EventHotKeyID(signature: sig, id: id),
+                                GetApplicationEventTarget(), 0, &ref)
+            if let ref { failsafeHotkeyRefs.append(ref) }
+        }
+    }
+
+    private func teardownFailsafeHotkeys() {
+        failsafeHotkeyRefs.forEach { UnregisterEventHotKey($0) }
+        failsafeHotkeyRefs.removeAll()
+        if let h = failsafeHandler { RemoveEventHandler(h); failsafeHandler = nil }
+    }
 
     private func setupEvents() {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .mouseMoved, .flagsChanged]) { [weak self] event in
@@ -504,7 +602,7 @@ private final class RegionOverlayWindow: NSObject {
 
     // MARK: - Confirm / Cancel
 
-    private func commit() {
+    fileprivate func commit() {
         guard selectionRect.width > 0, selectionRect.height > 0 else { cancel(); return }
         let mainScreenH = NSScreen.screens.first?.frame.height ?? 0
         let topLeftRect = CGRect(
@@ -518,14 +616,17 @@ private final class RegionOverlayWindow: NSObject {
 
         // Camera shutter sound
         AudioServicesPlaySystemSound(1108)
-        // Brief selection flash before dismissing
+        // Brief selection flash before dismissing.
+        // Capture completion strongly: dismiss() releases the controller, so a
+        // `self?.completion` after it would silently never fire.
+        let completion = self.completion
         flashSelection { [weak self] in
             self?.dismiss()
             Task { @MainActor in
                 // Short pause so the overlay fully fades before editor opens;
                 // reduced from 120ms since frozen-image path is near-instant.
                 try? await Task.sleep(nanoseconds: preCroppedImage != nil ? 60_000_000 : 120_000_000)
-                self?.completion(topLeftRect, preCroppedImage)
+                completion(topLeftRect, preCroppedImage)
             }
         }
     }
@@ -590,6 +691,7 @@ private final class RegionOverlayWindow: NSObject {
 
     private func dismiss() {
         animationTimer?.invalidate(); animationTimer = nil
+        teardownFailsafeHotkeys()
         if let m = localMonitor  { NSEvent.removeMonitor(m); localMonitor = nil }
         if let m = globalMonitor { NSEvent.removeMonitor(m); globalMonitor = nil }
         loupePanel?.orderOut(nil); loupePanel = nil; loupeView = nil
@@ -598,6 +700,13 @@ private final class RegionOverlayWindow: NSObject {
         panels.removeAll(); trackingViews.removeAll()
         screenSnapshots.removeAll(); ourPanelNumbers.removeAll()
         NSCursor.arrow.set()
+        // Give keyboard focus back to the app the user was in when the hotkey fired.
+        // On commit, completion may re-activate us afterwards (openEditorOnCapture).
+        if let prev = previousApp, !prev.isTerminated {
+            prev.activate()
+            previousApp = nil
+        }
+        RegionCapture.didDismiss(self)
     }
 
     // MARK: - Window Snap
@@ -643,6 +752,7 @@ private final class RegionOverlayWindow: NSObject {
             width: snapRect.width,
             height: snapRect.height
         )
+        let completion = self.completion
         dismiss()
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 120_000_000)
@@ -726,6 +836,10 @@ private final class RegionView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // The panel is key while the overlay is up; the local monitor consumes the keys
+    // we care about (ESC/Enter/Space/arrows). Swallow the rest to avoid system beeps.
+    override func keyDown(with event: NSEvent) {}
 
     override func mouseDown(with event: NSEvent) {
         let pt = convertToScreen(event.locationInWindow)
