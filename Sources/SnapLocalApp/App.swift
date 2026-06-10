@@ -234,6 +234,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private var autoSaveTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     var clipboardOnlyCapture = false   // set before a "capture to clipboard only" call
+    // T8.2: クイック注釈パネル表示中はメインウィンドウ側のキャンバスをヒエラルキーから
+    // 外す(canvasSize の単一書き込み者を保証 — CLAUDE.md 最重要項)
+    @Published var quickPanelActive = false
+    // ペースト/ドロップ等「エディタ内での画像取り込み」ではパネルを出さない
+    // (clipboardOnlyCapture と同じ「呼び出し直前にセット→acceptCapture で消費」の作法)
+    var suppressQuickPanel = false
     // ID of the VaultItem currently shown on canvas (for annotation save-back)
     var currentVaultID: UUID?
 
@@ -543,16 +549,31 @@ struct ContentView: View {
             .navigationTitle(windowTitle)
             Divider()
             HStack(spacing: 0) {
-                AnnotationCanvasView(
-                    viewModel: state.canvas,
-                    onCapture: state.captureNow,
-                    onOpenPermissions: state.hasScreenRecordingPermission ? nil : { state.openScreenRecordingSettings() },
-                    onFocusSearch: { state.searchFocusTrigger.toggle() },
-                    onNavigateHistory: { delta in state.navigateHistory(by: delta) },
-                    onCopyOriginal: state.copyOriginalToClipboard,
-                    onCopyRegion: state.copySelectedRegion,
-                    onOcrRegion: state.ocrSelectedRegion
-                )
+                Group {
+                    if state.quickPanelActive {
+                        // クイック注釈パネルが canvasSize を所有している間はメイン側の
+                        // キャンバスを外す(二重書き込み防止)。閉じれば onAppear が取り戻す
+                        VStack(spacing: DS.Space.xs) {
+                            Text("クイック注釈パネルで編集中")
+                                .font(.system(size: DS.FontSize.body))
+                                .foregroundStyle(.secondary)
+                            Button("このウィンドウで編集する") {
+                                QuickAnnotatePanel.shared.closeKeepingAnnotations()
+                            }
+                        }
+                    } else {
+                        AnnotationCanvasView(
+                            viewModel: state.canvas,
+                            onCapture: state.captureNow,
+                            onOpenPermissions: state.hasScreenRecordingPermission ? nil : { state.openScreenRecordingSettings() },
+                            onFocusSearch: { state.searchFocusTrigger.toggle() },
+                            onNavigateHistory: { delta in state.navigateHistory(by: delta) },
+                            onCopyOriginal: state.copyOriginalToClipboard,
+                            onCopyRegion: state.copySelectedRegion,
+                            onOcrRegion: state.ocrSelectedRegion
+                        )
+                    }
+                }
                     .frame(minWidth: 600, minHeight: 400)
                     .background(Color(nsColor: .windowBackgroundColor))
                     .onDrop(of: [UTType.image, UTType.fileURL], isTargeted: $isDropTargeted) { providers in

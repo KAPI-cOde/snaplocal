@@ -147,9 +147,15 @@ extension SnapLocalState {
             sendNotification(title: "撮影完了", body: "HUDから操作できます")
         }
 
-        // Post-capture: open editor immediately if that setting is enabled, otherwise show HUD
+        // Post-capture surface (T8.2): full editor if that setting is enabled;
+        // quick annotate panel for captures; HUD for paste/drop (the user is already
+        // working inside the editor, so a panel would hijack their context)
+        let suppressPanel = suppressQuickPanel
+        suppressQuickPanel = false
         if SettingsManager.shared.openEditorOnCapture {
             NSApp.bringToFront()
+        } else if !suppressPanel {
+            QuickAnnotatePanel.shared.show(for: self)
         } else {
             let actions = CaptureNotificationActions(
                 copy: { [weak self] in self?.copyToClipboard() },

@@ -22,6 +22,7 @@ extension SnapLocalState {
             showStatus("クリップボードに画像がありません")
             return
         }
+        suppressQuickPanel = true
         acceptCapture(cgImage)
     }
 
@@ -31,7 +32,10 @@ extension SnapLocalState {
             provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
                 guard let data, let nsImage = NSImage(data: data),
                       let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-                Task { @MainActor in self.acceptCapture(cgImage) }
+                Task { @MainActor in
+                    self.suppressQuickPanel = true
+                    self.acceptCapture(cgImage)
+                }
             }
             return true
         }
@@ -40,7 +44,10 @@ extension SnapLocalState {
                 guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil),
                       let nsImage = NSImage(contentsOf: url),
                       let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-                Task { @MainActor in self.acceptCapture(cgImage) }
+                Task { @MainActor in
+                    self.suppressQuickPanel = true
+                    self.acceptCapture(cgImage)
+                }
             }
             return true
         }
