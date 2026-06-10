@@ -160,7 +160,8 @@ extension SnapLocalState {
             NSApp.bringToFront()
         } else if !suppressPanel {
             QuickAnnotatePanel.shared.show(for: self)
-        } else {
+        } else if !QuickAnnotatePanel.shared.isVisible {
+            // パネル表示中のペースト/ドロップは画像がパネルに反映済みなのでHUDを重ねない
             let actions = CaptureNotificationActions(
                 copy: { [weak self] in self?.copyToClipboard() },
                 save: { [weak self] in self?.saveAnnotatedImage() },

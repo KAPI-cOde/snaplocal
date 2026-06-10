@@ -33,6 +33,7 @@ enum SettingsKey: String {
     case annotationTemplates = "annotation.templates"
     case exportFormat = "export.format"        // "png" | "jpeg"
     case jpegQuality = "export.jpegQuality"    // 0.0-1.0
+    case hijackRegionHotkey = "hotkey.hijackRegion"  // true=⌘⇧4を乗っ取り / false=⌥⌘4で共存
 }
 
 enum ExportFormat: String, CaseIterable {
@@ -62,7 +63,8 @@ final class SettingsManager: ObservableObject {
             SettingsKey.hotkeyDisplayString.rawValue: defaultHotkey.displayString,
             SettingsKey.notificationsEnabled.rawValue: true,
             SettingsKey.launchAtLogin.rawValue: false,
-            SettingsKey.autoCopyOnCapture.rawValue: true
+            SettingsKey.autoCopyOnCapture.rawValue: true,
+            SettingsKey.hijackRegionHotkey.rawValue: true
         ])
     }
     
@@ -85,7 +87,19 @@ final class SettingsManager: ObservableObject {
     var availableHotkeys: [HotkeyConfig] {
         HotkeyConfig.alternatives
     }
-    
+
+    /// ⌘⇧4 を SnapLocal が引き受けるか(true: mac標準の範囲スクショを無効化して⌘⇧4、
+    /// false: mac標準を復元して SnapLocal は ⌥⌘4)。設定変更は即時反映
+    var hijackRegionHotkey: Bool {
+        get { defaults.bool(forKey: SettingsKey.hijackRegionHotkey.rawValue) }
+        set {
+            objectWillChange.send()   // footer文言の条件分岐を再描画させる
+            defaults.set(newValue, forKey: SettingsKey.hijackRegionHotkey.rawValue)
+            SystemScreenshotHotkey.setNativeSelectionEnabled(!newValue)
+            NotificationCenter.default.post(name: .snapLocalRegionHotkeyChanged, object: nil)
+        }
+    }
+
     // MARK: - Save Directory
     
     var saveDirectoryURL: URL {

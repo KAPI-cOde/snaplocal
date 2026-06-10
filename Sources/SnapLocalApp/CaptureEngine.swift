@@ -24,6 +24,25 @@ import CoreImage
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "CaptureEngine")
 
+// MARK: - System screenshot hotkey (⌘⇧4) takeover
+
+// Private CGS API(SkyLight/CoreGraphics 再エクスポート)。再ログイン不要・即時反映で
+// セッション内のみ有効(再ログインで mac 標準に戻る → 起動時に再適用する)。
+// ネットワークも追加権限も不要(CLAUDE.md 絶対原則の範囲内)。
+@_silgen_name("CGSIsSymbolicHotKeyEnabled") private func CGSIsSymbolicHotKeyEnabled(_ hotKey: Int32) -> Bool
+@_silgen_name("CGSSetSymbolicHotKeyEnabled") private func CGSSetSymbolicHotKeyEnabled(_ hotKey: Int32, _ enabled: Bool) -> Int32
+
+enum SystemScreenshotHotkey {
+    // Symbolic hotkey ID 30 = 「選択部分を画像として保存」(⌘⇧4)
+    private static let nativeSelectionID: Int32 = 30
+
+    /// mac標準の⌘⇧4(範囲スクショ)の有効/無効を切り替える
+    static func setNativeSelectionEnabled(_ enabled: Bool) {
+        let err = CGSSetSymbolicHotKeyEnabled(nativeSelectionID, enabled)
+        if err != 0 { logger.error("CGSSetSymbolicHotKeyEnabled failed: \(err)") }
+    }
+}
+
 // MARK: - CaptureEngine
 
 final class CaptureEngine: @unchecked Sendable {
@@ -34,10 +53,18 @@ final class CaptureEngine: @unchecked Sendable {
     private var hotkeyRef: EventHotKeyRef?
     private var regionHotkeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
+    private var regionHijack: Bool
     var regionCaptureAction: (@Sendable () -> Void)?
 
-    init(hotkey: HotkeyConfig, completion: @escaping CaptureCompletion) {
+    /// 領域選択のグローバルホットキー。hijack=true なら ⌘⇧4(mac標準を乗っ取り)、
+    /// false なら ⌥⌘4(mac標準と共存)。key 21 = "4"
+    private static func regionHotkeyParams(hijack: Bool) -> (keyCode: UInt32, modifiers: UInt32) {
+        (21, hijack ? UInt32(cmdKey | shiftKey) : UInt32(cmdKey | optionKey))
+    }
+
+    init(hotkey: HotkeyConfig, regionHijack: Bool, completion: @escaping CaptureCompletion) {
         self.hotkey = hotkey
+        self.regionHijack = regionHijack
         self.completion = completion
     }
 
@@ -87,10 +114,19 @@ final class CaptureEngine: @unchecked Sendable {
             logger.error("Failed to register hotkey: \\(registerStatus)")
         }
 
-        // Region capture hotkey: ⌘⇧4 (hardcoded; key 21 = 4)
-        let cmdShift = UInt32(cmdKey | shiftKey)
+        // Region capture hotkey: ⌘⇧4(乗っ取り)/ ⌥⌘4(共存)— 設定で切替可
+        let region = Self.regionHotkeyParams(hijack: regionHijack)
         let regionID = EventHotKeyID(signature: OSType(0x534E4C43), id: 2)
-        RegisterEventHotKey(21, cmdShift, regionID, GetApplicationEventTarget(), 0, &regionHotkeyRef)
+        RegisterEventHotKey(region.keyCode, region.modifiers, regionID, GetApplicationEventTarget(), 0, &regionHotkeyRef)
+    }
+
+    /// 設定トグルの即時反映: 領域ホットキーだけ登録し直す
+    nonisolated func updateRegionHotkey(hijack: Bool) {
+        regionHijack = hijack
+        if let ref = regionHotkeyRef { UnregisterEventHotKey(ref); regionHotkeyRef = nil }
+        let region = Self.regionHotkeyParams(hijack: hijack)
+        let regionID = EventHotKeyID(signature: OSType(0x534E4C43), id: 2)
+        RegisterEventHotKey(region.keyCode, region.modifiers, regionID, GetApplicationEventTarget(), 0, &regionHotkeyRef)
     }
 
     nonisolated func unregisterHotkey() {

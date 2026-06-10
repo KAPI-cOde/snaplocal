@@ -248,10 +248,16 @@ struct SettingsSheet: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    Toggle("⌘⇧4 を SnapLocal の範囲選択にする", isOn: Binding(
+                        get: { settings.hijackRegionHotkey },
+                        set: { settings.hijackRegionHotkey = $0 }
+                    ))
                 } header: {
                     Text("ホットキー")
                 } footer: {
-                    Text("全画面撮影のキーのみ変更できます。他のショートカットは固定です")
+                    Text(settings.hijackRegionHotkey
+                         ? "mac標準の範囲スクリーンショット(⌘⇧4)は SnapLocal 起動中だけ自動で無効になります(終了すると復元)。オフにすると mac標準が戻り、SnapLocal の範囲選択は ⌥⌘4 になります"
+                         : "範囲選択は ⌥⌘4 です。mac標準の ⌘⇧4 はそのまま使えます")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }

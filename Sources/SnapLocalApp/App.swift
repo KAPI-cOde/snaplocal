@@ -18,6 +18,7 @@ extension Notification.Name {
     static let snapLocalZoomReset = Notification.Name("snaplocal.zoom.reset")
     static let snapLocalZoomFit   = Notification.Name("snaplocal.zoom.fit")
     static let snapLocalOpenSettings = Notification.Name("snaplocal.settings.open")
+    static let snapLocalRegionHotkeyChanged = Notification.Name("snaplocal.hotkey.regionChanged")
 }
 
 private let logger = Logger(subsystem: "com.snaplocal.app", category: "App")
@@ -149,7 +150,7 @@ struct MenuBarQuickActions: View {
         }
 
         Button("全画面撮影 (⌘⇧2)") { state.captureNow() }
-        Button("範囲選択撮影 (⌘⇧4)") { state.captureRegion() }
+        Button("範囲選択撮影 (\(SettingsManager.shared.hijackRegionHotkey ? "⌘⇧4" : "⌥⌘4"))") { state.captureRegion() }
         Button("前回の範囲を再撮影 (⌘⇧R)") { state.repeatLastRegionCapture() }
         Button("ウィンドウ撮影 (⌘⇧3)") { state.captureWindowMode() }
         Divider()
@@ -189,6 +190,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         logger.debug("applicationDidFinishLaunching called")
         NSApp.activate(ignoringOtherApps: true)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // ⌘⇧4乗っ取り設定の適用(CGS状態はセッション限りなので毎起動で再適用。
+        // オフ設定なら明示的に有効へ戻す = 前回異常終了で無効のまま残った場合の回復も兼ねる)
+        SystemScreenshotHotkey.setNativeSelectionEnabled(!SettingsManager.shared.hijackRegionHotkey)
         
         // Ensure main window appears on screen with proper level
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -214,6 +218,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // 乗っ取りはアプリ稼働中のみ — 終了後は mac 標準⌘⇧4 を必ず復元する
+        SystemScreenshotHotkey.setNativeSelectionEnabled(true)
     }
 }
 @MainActor
@@ -246,7 +255,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     init() {
         vault = PersistentVault(directory: SettingsManager.shared.saveDirectoryURL)
         let hotkey = SettingsManager.shared.hotkeyConfig
-        captureEngine = CaptureEngine(hotkey: hotkey) { [weak self] result in
+        captureEngine = CaptureEngine(hotkey: hotkey, regionHijack: SettingsManager.shared.hijackRegionHotkey) { [weak self] result in
             Task { @MainActor in
                 self?.handleCaptureResult(result)
             }
@@ -272,6 +281,12 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
         NotificationCenter.default.addObserver(forName: .intentCaptureRegion, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.captureRegion() }
+        }
+        // 設定トグル(⌘⇧4乗っ取り⇄⌥⌘4共存)の即時反映
+        NotificationCenter.default.addObserver(forName: .snapLocalRegionHotkeyChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.captureEngine?.updateRegionHotkey(hijack: SettingsManager.shared.hijackRegionHotkey)
+            }
         }
 
         // Auto-save annotations 3 seconds after last change
