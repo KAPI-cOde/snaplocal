@@ -49,18 +49,26 @@ cat > "$BUILD_DIR/entitlements.plist" << 'ENTEOF'
 </plist>
 ENTEOF
 
-echo "Code signing with entitlements..."
-codesign --force --deep --sign - \
-    --entitlements "$BUILD_DIR/entitlements.plist" \
-    "$APP_PATH" 2>/dev/null || \
-codesign --force --deep --sign - \
-    --entitlements "$BUILD_DIR/entitlements.plist" \
-    "$APP_PATH"
-
-# Ad-hoc signing changes the binary hash each build, so macOS TCC revokes screen recording
-# permission silently (System Settings still shows the checkmark but it's stale).
-# Resetting the entry here forces a clean permission prompt on next launch.
-tccutil reset ScreenCapture com.snaplocal.app 2>/dev/null || true
+# A stable self-signed identity keeps the TCC screen-recording grant across rebuilds
+# (its designated requirement doesn't change with the binary hash). Create it once with
+# ./setup-signing.sh. Without it we fall back to ad-hoc, which forces a re-grant each build.
+SIGN_IDENTITY="SnapLocal Dev Cert"
+if security find-identity -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
+    echo "Code signing with stable identity ($SIGN_IDENTITY)..."
+    codesign --force --deep --sign "$SIGN_IDENTITY" \
+        --entitlements "$BUILD_DIR/entitlements.plist" \
+        "$APP_PATH"
+    echo "Stable identity used → screen-recording permission persists (no TCC reset)."
+else
+    echo "Code signing ad-hoc (no stable identity; run ./setup-signing.sh to stop the per-build re-grant)..."
+    codesign --force --deep --sign - \
+        --entitlements "$BUILD_DIR/entitlements.plist" \
+        "$APP_PATH"
+    # Ad-hoc signing changes the binary hash each build, so macOS TCC revokes screen recording
+    # permission silently (System Settings still shows the checkmark but it's stale).
+    # Resetting the entry here forces a clean permission prompt on next launch.
+    tccutil reset ScreenCapture com.snaplocal.app 2>/dev/null || true
+fi
 
 echo "Build complete: $APP_PATH"
 echo ""

@@ -780,7 +780,17 @@ private final class RegionOverlayWindow: NSObject {
             else { continue }
             let mainScreenH = NSScreen.screens.first?.frame.height ?? 0
             let nsRect = CGRect(x: x, y: mainScreenH - y - h, width: w, height: h)
-            if nsRect.contains(cursor) { return nsRect }
+            if nsRect.contains(cursor) {
+                // ウィンドウは画面外へはみ出していることがある(端に寄せた・別画面に跨る等)。
+                // カーソルのある画面の枠でクランプし、見えている範囲だけをスナップ対象にする
+                // (はみ出した部分まで選択枠が伸びる UX 問題の対策)。
+                let screen = NSScreen.screens.first(where: { NSPointInRect(cursor, $0.frame) }) ?? NSScreen.main
+                if let sf = screen?.frame {
+                    let clamped = nsRect.intersection(sf)
+                    if clamped.width > 20, clamped.height > 20 { return clamped }
+                }
+                return nsRect
+            }
         }
         return nil
     }
