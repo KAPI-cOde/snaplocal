@@ -33,10 +33,14 @@ bash build-app.sh && open .build/debug/SnapLocal.app
 ## 既知の落とし穴(過去に実際に壊れた箇所)
 
 ### canvasSize の所有権 — 最重要
-`canvasSize` は `AnnotationCanvasView` の GeometryReader が管理する。
+`canvasSize` は `AnnotationCanvasView` の GeometryReader が管理し、値は**表示画像サイズ(画像アスペクトに一致した fit、T7.3)**。
 **`SnapLocalState.acceptCapture()` や `resetAndLoad()` で canvasSize を上書きしてはいけない。**
 アノテーションはview座標(0..canvasSize)で記録されるため、画像ピクセルサイズで上書きすると全アノテーションがズレる。
 例外: `resizeCanvas` / `stitch` / `extendCanvas` は処理後にセットしてよい(次のリドローで上書きされる一時値)。
+ジェスチャ/ホバーの座標変換は `toCanvas()` 1箇所の漏斗を必ず通す(キャンバスはビューポート中央配置・中心基準で写像)。
+
+### renderAnnotations のストローク描画はコンテキスト反転が前提
+CGContext は左下原点・パスはY下向きview座標のため、ストローク描画前の `translateBy(0,imageH)+scaleBy(1,-1)` が必須(無いと書き出しが上下ミラーになる — T7.3で修正済みの実バグ)。テキストは `NSGraphicsContext(flipped: true)`、コンテキストへ画像を再描画する箇所(スポットライト)だけ局所的に反転を戻す。
 
 ### NSCursor — SwiftUI の .onHover から呼ぶと OS ごと固まる
 `NSCursor.push()` / `.set()` を `.onHover` から呼ぶと、フルスクリーン遷移中に macOS の Space ごとフリーズする(pkill でしか回復不能)。

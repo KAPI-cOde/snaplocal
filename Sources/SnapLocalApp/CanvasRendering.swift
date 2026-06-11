@@ -222,6 +222,13 @@ extension CanvasViewModel {
         let fullRect = CGRect(x: 0, y: 0, width: imageW, height: imageH)
         cgCtx.draw(filteredCGImage ?? bgImage, in: fullRect)
 
+        // パスはview座標(Y下向き)のまま描くため、コンテキストを上下反転して
+        // 原点を左上にそろえる(CGContextの原点は左下)。これが無いとストローク系
+        // アノテーションが上下ミラー位置に書き出される。
+        // コンテキストへ画像を再描画する箇所(スポットライト)は局所的に反転を戻す
+        cgCtx.translateBy(x: 0, y: imageH)
+        cgCtx.scaleBy(x: 1, y: -1)
+
         let viewRect = CGRect(origin: .zero, size: canvasSize)
         let toImage = CGAffineTransform(scaleX: scaleX, y: scaleY)
         let strokeScale = min(scaleX, scaleY)
@@ -257,7 +264,7 @@ extension CanvasViewModel {
                     height: strSize.height
                 )
                 NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: false)
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: true)
                 str.draw(in: strRect)
                 NSGraphicsContext.restoreGraphicsState()
             } else if annotation.type == .text, let text = annotation.textContent {
@@ -277,7 +284,7 @@ extension CanvasViewModel {
                     .foregroundColor: NSColor(cgColor: annotation.resolvedCGColor) ?? .labelColor
                 ]
                 NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: false)
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: cgCtx, flipped: true)
                 NSAttributedString(string: text, attributes: attrs).draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
             } else if annotation.type == .spotlight {
@@ -289,6 +296,9 @@ extension CanvasViewModel {
                 cgCtx.saveGState()
                 cgCtx.addPath(cgPath)
                 cgCtx.clip()
+                // 画像描画はCG座標(Y上向き)が必要なので局所的に反転を戻す
+                cgCtx.translateBy(x: 0, y: imageH)
+                cgCtx.scaleBy(x: 1, y: -1)
                 cgCtx.draw(filteredCGImage ?? bgImage, in: fullRect)
                 cgCtx.restoreGState()
                 // Bright ring around spotlight

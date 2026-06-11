@@ -100,9 +100,23 @@ struct AnnotationCanvasView: View {
         }
     }
 
+    /// 表示画像(scaledToFit)の実サイズ。canvasSize はこの値に一致させ、
+    /// view座標 0..canvasSize が常に画像全域へ写像されるようにする(T7.3 WYSIWYG)
+    private func fittedCanvasSize(in viewport: CGSize) -> CGSize {
+        guard let img = viewModel.backgroundImage,
+              viewport.width > 0, viewport.height > 0 else { return viewport }
+        let s = min(viewport.width / CGFloat(img.width),
+                    viewport.height / CGFloat(img.height))
+        return CGSize(width: CGFloat(img.width) * s, height: CGFloat(img.height) * s)
+    }
+
     private func toCanvas(_ point: CGPoint, size: CGSize) -> CGPoint {
-        let cx = size.width / 2, cy = size.height / 2
-        return CGPoint(x: (point.x - cx) / zoom + cx, y: (point.y - cy) / zoom + cy)
+        // ビューポート中心でズームを外し、中央配置されたキャンバス
+        // (= 表示画像、サイズ canvasSize)のローカル座標へ平行移動する
+        let vcx = size.width / 2, vcy = size.height / 2
+        let ccx = viewModel.canvasSize.width / 2, ccy = viewModel.canvasSize.height / 2
+        return CGPoint(x: (point.x - vcx) / zoom + ccx,
+                       y: (point.y - vcy) / zoom + ccy)
     }
 
     private func eyedropperSwatchView(hex: String, viewSize: CGSize, at loc: CGPoint) -> some View {
@@ -134,8 +148,13 @@ struct AnnotationCanvasView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let fit = fittedCanvasSize(in: proxy.size)
             ZStack {
                 if let image = viewModel.backgroundImage {
+                    // 画像とアノテーション層を表示画像サイズ(アスペクト一致)の
+                    // 内側スタックに束ねて中央配置する。canvasSize はこの fit に
+                    // 一致するため、view座標が常に画像全域へ写像される(T7.3)
+                    ZStack {
                     Image(decorative: image, scale: 1.0, orientation: .up)
                         .resizable()
                         .interpolation(effectiveZoom >= 3.0 ? .none : .high)
@@ -145,8 +164,8 @@ struct AnnotationCanvasView: View {
                         .saturation(viewModel.adjustSaturation)
                         .opacity(imageOpacity)
                         .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 4)
-                    annotationLayer(size: proxy.size)
-                    selectionHandlesOverlay(size: proxy.size)
+                    annotationLayer(size: fit)
+                    selectionHandlesOverlay(size: fit)
                         .allowsHitTesting(false)
                         .animation(viewModel.isDraggingAnnotation || viewModel.resizingHandleIndex != nil
                                    ? nil : DS.Anim.fast,
@@ -154,13 +173,13 @@ struct AnnotationCanvasView: View {
                         .animation(DS.Anim.fast, value: viewModel.currentTool)
                     // Animated crop overlay (TimelineView for marching ants)
                     if viewModel.isCropMode {
-                        cropOverlayLayer(size: proxy.size)
+                        cropOverlayLayer(size: fit)
                             .allowsHitTesting(false)
                     }
                     // Pixel grid overlay at zoom ≥ 4×
                     if effectiveZoom >= 4.0, let img = viewModel.backgroundImage {
-                        let cellW = proxy.size.width / CGFloat(img.width)
-                        let cellH = proxy.size.height / CGFloat(img.height)
+                        let cellW = fit.width / CGFloat(img.width)
+                        let cellH = fit.height / CGFloat(img.height)
                         Canvas { ctx, size in
                             let opacity = min(0.35, Double((effectiveZoom - 4) / 4) * 0.35)
                             ctx.stroke(
@@ -178,6 +197,8 @@ struct AnnotationCanvasView: View {
                         }
                         .allowsHitTesting(false)
                     }
+                    }
+                    .frame(width: fit.width, height: fit.height)
                 } else {
                     VStack(spacing: DS.Space.l) {
                         ZStack {
@@ -210,6 +231,9 @@ struct AnnotationCanvasView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            // 内側スタック(fit)を中央に置いたままビューポート全域を占有する
+            // (ジェスチャ領域とズーム中心をビューポート基準に保つ)
+            .frame(width: proxy.size.width, height: proxy.size.height)
             .scaleEffect(zoom, anchor: .center)
             .offset(panOffset)
             .clipped()   // ズーム・パンした画像がツールバー等のUIへ溢れないように
@@ -270,9 +294,11 @@ struct AnnotationCanvasView: View {
                     }
                 }
             }
-            .onAppear { viewModel.canvasSize = proxy.size; viewModel.currentZoom = effectiveZoom }
-            .onChange(of: proxy.size) { _, newSize in
-                viewModel.canvasSize = newSize
+            .onAppear { viewModel.canvasSize = fit; viewModel.currentZoom = effectiveZoom }
+            .onChange(of: fit) { _, newFit in
+                // fit はビューポートと画像アスペクトの両方に依存するため、
+                // ウィンドウリサイズだけでなく画像差し替え(クロップ・回転等)にも追従する
+                viewModel.canvasSize = newFit
                 // 手動ズーム前ならレイアウト確定に追従して再フィット
                 // (起動時、ウィンドウフレーム復元前の小さいcanvasSizeで計算された
                 //  ズームのまま固まる問題の自己修正)
@@ -289,7 +315,7 @@ struct AnnotationCanvasView: View {
                 canvasSize: viewModel.canvasSize,
                 imageSize: viewModel.backgroundImage.map { CGSize(width: $0.width, height: $0.height) }
             ))
-            .overlay(textInputOverlay)
+            .overlay(textInputOverlay(viewport: proxy.size))
             .overlay(
                 ScrollWheelHandler { dx, dy, isCmd, cursor in
                     if isCmd {
@@ -354,8 +380,9 @@ struct AnnotationCanvasView: View {
                         let cx = proxy.size.width / 2
                         let cy = proxy.size.height / 2
                         let lp = viewModel.lastPlacedCenter
-                        let vx = cx + (lp.x - cx) * zoom + panOffset.width
-                        let vy = cy + (lp.y - cy) * zoom + panOffset.height
+                        // キャンバス座標 → ビューポート座標(中央配置なので中心基準で写像)
+                        let vx = cx + (lp.x - viewModel.canvasSize.width / 2) * zoom + panOffset.width
+                        let vy = cy + (lp.y - viewModel.canvasSize.height / 2) * zoom + panOffset.height
                         let size = 24 + t * 48
                         Circle()
                             .stroke(Color.white.opacity((1 - t) * 0.6), lineWidth: max(0.5, 2 * (1 - t)))

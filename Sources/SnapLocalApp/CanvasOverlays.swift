@@ -554,13 +554,14 @@ extension AnnotationCanvasView {
     }
 
     @ViewBuilder
-    var textInputOverlay: some View {
+    func textInputOverlay(viewport: CGSize) -> some View {
         if viewModel.showTextInput {
-            let cx = viewModel.canvasSize.width / 2
-            let cy = viewModel.canvasSize.height / 2
+            // キャンバス座標 → ビューポート座標(キャンバスは中央配置・中心基準で写像)
+            let ccx = viewModel.canvasSize.width / 2
+            let ccy = viewModel.canvasSize.height / 2
             let r = viewModel.textInputRect
-            let viewX = cx + (r.midX - cx) * zoom + panOffset.width
-            let viewY = cy + (r.midY - cy) * zoom + panOffset.height
+            let viewX = viewport.width / 2 + (r.midX - ccx) * zoom + panOffset.width
+            let viewY = viewport.height / 2 + (r.midY - ccy) * zoom + panOffset.height
             let textColor = viewModel.currentColor.color
             let nsColor = NSColor(textColor)
             let inputW = max(r.width * zoom, 160)
