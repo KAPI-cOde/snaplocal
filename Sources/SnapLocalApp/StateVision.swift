@@ -31,7 +31,7 @@ extension SnapLocalState {
         }
     }
 
-    func detectBarcodes(in image: CGImage) async -> [String] {
+    nonisolated func detectBarcodes(in image: CGImage) async -> [String] {
         await withCheckedContinuation { continuation in
             let request = VNDetectBarcodesRequest { req, _ in
                 let payloads = (req.results as? [VNBarcodeObservation] ?? [])
@@ -80,7 +80,7 @@ extension SnapLocalState {
         }
     }
 
-    func detectFaceRects(in image: CGImage) async -> [CGRect] {
+    nonisolated func detectFaceRects(in image: CGImage) async -> [CGRect] {
         await withCheckedContinuation { continuation in
             let request = VNDetectFaceRectanglesRequest { req, _ in
                 let obs = req.results as? [VNFaceObservation] ?? []
