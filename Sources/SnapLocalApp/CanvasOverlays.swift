@@ -120,7 +120,7 @@ extension AnnotationCanvasView {
     @ViewBuilder
     func selectionHandlesOverlay(size: CGSize) -> some View {
         let canvasRect = CGRect(origin: .zero, size: size)
-        if viewModel.currentTool == .select || viewModel.currentTool.supportsGrabMove,
+        if viewModel.currentTool == .select || (viewModel.currentTool.supportsGrabMove && !viewModel.selectionIsFromCreation),
            !viewModel.isCropMode,
            !viewModel.annotationsHidden,
            viewModel.selectedAnnotationIDs.count <= 1,
@@ -388,7 +388,8 @@ extension AnnotationCanvasView {
                let start = viewModel.dragState.startPoint,
                let end = viewModel.dragState.currentPoint,
                !viewModel.isCropMode,
-               !viewModel.isGrabMoving {
+               !viewModel.isGrabMoving,
+               viewModel.resizingHandleIndex == nil {
                 let previewColor = viewModel.currentColor.color.opacity(viewModel.currentOpacity * 0.85)
                 let lw = viewModel.currentLineWidth.rawValue
                 if viewModel.currentTool == .arrow {

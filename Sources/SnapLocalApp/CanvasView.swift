@@ -750,6 +750,18 @@ struct AnnotationCanvasView: View {
                         }
                     }
             )
+            .simultaneousGesture(
+                SpatialTapGesture(count: 1)
+                    .onEnded { value in
+                        // 描画ツールでの純クリック=注釈の選び直し(ヒットなしは選択解除)。
+                        // selectAnnotation がスタイルコントロール(太さ/色)も選択注釈に同期する
+                        guard viewModel.backgroundImage != nil,
+                              !viewModel.isCropMode,
+                              viewModel.currentTool.supportsGrabMove else { return }
+                        let localPt = toCanvas(CGPoint(x: value.location.x, y: value.location.y), size: proxy.size)
+                        viewModel.selectAnnotation(at: localPt)
+                    }
+            )
             .onHover { inside in
                 isHovering = inside
                 if inside {

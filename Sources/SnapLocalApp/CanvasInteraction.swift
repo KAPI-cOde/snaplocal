@@ -49,8 +49,9 @@ extension CanvasViewModel {
             return
         }
 
-        // 選択中注釈のハンドルは描画ツールでも操作可能(T8.9)
-        if currentTool.supportsGrabMove, beginHandleDragIfHit(at: localPoint) { return }
+        // 選択中注釈のハンドルは描画ツールでも操作可能(T8.9)。
+        // 描画直後の自動選択ではハンドルを出さないため乗っ取りもしない(明示選択のみ)
+        if currentTool.supportsGrabMove, !selectionIsFromCreation, beginHandleDragIfHit(at: localPoint) { return }
 
         // Grab-to-move: in any drawing tool, clicking on an existing annotation moves it
         if currentTool.supportsGrabMove {
@@ -60,6 +61,7 @@ extension CanvasViewModel {
                 // Always make the hit annotation the primary selection for grab-move
                 selectedAnnotationID = hitAnn.id
                 selectedAnnotationIDs = [hitAnn.id]
+                selectionIsFromCreation = false
                 let bounds = hitAnn.bounds(in: innerRect)
                 dragStartAnnotation = hitAnn
                 dragState.dragOffset = CGSize(width: localPoint.x - bounds.midX,
@@ -67,6 +69,11 @@ extension CanvasViewModel {
                 multiDragStartPositions = [:]
                 isGrabMoving = true
                 return
+            }
+            // 空き地から新規描画を始めたら選択解除(残ったハンドルの誤操作防止)
+            if selectedAnnotationID != nil || !selectedAnnotationIDs.isEmpty {
+                selectedAnnotationID = nil
+                selectedAnnotationIDs = []
             }
         }
 
