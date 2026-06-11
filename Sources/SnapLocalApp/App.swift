@@ -264,6 +264,9 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         captureEngine?.regionCaptureAction = { [weak self] in
             Task { @MainActor in self?.captureRegion() }
         }
+        captureEngine?.fullScreenCaptureAction = { [weak self] in
+            Task { @MainActor in self?.captureNow() }
+        }
         captureEngine?.registerHotkey()
         refreshHistory()
 

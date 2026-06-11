@@ -387,7 +387,8 @@ extension AnnotationCanvasView {
             if viewModel.dragState.isDrawing,
                let start = viewModel.dragState.startPoint,
                let end = viewModel.dragState.currentPoint,
-               !viewModel.isCropMode {
+               !viewModel.isCropMode,
+               !viewModel.isGrabMoving {
                 let previewColor = viewModel.currentColor.color.opacity(viewModel.currentOpacity * 0.85)
                 let lw = viewModel.currentLineWidth.rawValue
                 if viewModel.currentTool == .arrow {

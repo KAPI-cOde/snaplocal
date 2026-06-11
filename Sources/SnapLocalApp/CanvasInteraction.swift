@@ -271,7 +271,7 @@ extension CanvasViewModel {
         dragState.update(to: localPoint)
 
         // Live redact drag preview (throttled to every 2nd event for performance)
-        if currentTool == .redact, dragState.isDrawing,
+        if currentTool == .redact, dragState.isDrawing, !isGrabMoving,
            let dragStart = dragState.startPoint {
             redactPreviewThrottle += 1
             if redactPreviewThrottle % 2 == 0 {

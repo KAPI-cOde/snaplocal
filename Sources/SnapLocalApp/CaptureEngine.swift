@@ -55,6 +55,7 @@ final class CaptureEngine: @unchecked Sendable {
     private var eventHandler: EventHandlerRef?
     private var regionHijack: Bool
     var regionCaptureAction: (@Sendable () -> Void)?
+    var fullScreenCaptureAction: (@Sendable () -> Void)?
 
     /// 領域選択のグローバルホットキー。hijack=true なら ⌘⇧4(mac標準を乗っ取り)、
     /// false なら ⌥⌘4(mac標準と共存)。key 21 = "4"
@@ -88,6 +89,8 @@ final class CaptureEngine: @unchecked Sendable {
             DispatchQueue.main.async {
                 if hkID.id == 2 {
                     engine.regionCaptureAction?()
+                } else if let action = engine.fullScreenCaptureAction {
+                    action()
                 } else {
                     engine.captureScreen()
                 }

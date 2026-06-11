@@ -860,11 +860,7 @@ private final class RegionView: NSView {
 
         // Draw frozen screenshot as background (screen freeze effect)
         if let img = frozenImage {
-            ctx.saveGState()
-            ctx.translateBy(x: 0, y: bounds.height)
-            ctx.scaleBy(x: 1, y: -1)
             ctx.draw(img, in: bounds)
-            ctx.restoreGState()
         }
 
         // Build dark overlay: full bounds minus selection hole (even-odd clipping)
