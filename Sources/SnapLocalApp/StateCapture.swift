@@ -142,20 +142,24 @@ extension SnapLocalState {
         canvas.loadToken = UUID()
         currentVaultID = nil
         selectedHistoryID = nil
-        if SettingsManager.shared.autoCopyOnCapture {
-            copyImageToClipboard(image)
-            showStatus("撮影 → クリップボードにコピーしました", success: true)
-            sendNotification(title: "撮影完了", body: "クリップボードにコピーしました")
-        } else {
-            showStatus("撮影しました", success: true)
-            sendNotification(title: "撮影完了", body: "HUDから操作できます")
-        }
-
         // Post-capture surface (T8.2): full editor if that setting is enabled;
         // quick annotate panel for captures; HUD for paste/drop (the user is already
         // working inside the editor, so a panel would hijack their context)
         let suppressPanel = suppressQuickPanel
         suppressQuickPanel = false
+        // T8.4: パネルが画面に出るときは撮影完了通知を出さない(パネル自体が完了の合図。
+        // 通知は⌘↩完了時の1回に寄せる)
+        let willShowPanel = !SettingsManager.shared.openEditorOnCapture && !suppressPanel
+
+        if SettingsManager.shared.autoCopyOnCapture {
+            copyImageToClipboard(image)
+            showStatus("撮影 → クリップボードにコピーしました", success: true)
+            if !willShowPanel { sendNotification(title: "撮影完了", body: "クリップボードにコピーしました") }
+        } else {
+            showStatus("撮影しました", success: true)
+            if !willShowPanel { sendNotification(title: "撮影完了", body: "HUDから操作できます") }
+        }
+
         if SettingsManager.shared.openEditorOnCapture {
             NSApp.bringToFront()
         } else if !suppressPanel {
@@ -237,6 +241,7 @@ extension SnapLocalState {
     }
 
     func sendNotification(title: String, body: String) {
+        guard SettingsManager.shared.notificationsEnabled else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

@@ -23,6 +23,7 @@ struct CompactToolbar: View {
     let onShare: () -> Void
     var onAutoRedactFaces: (() -> Void)? = nil
     @Binding var sidebarVisible: Bool
+    var showsSidebarToggle: Bool = true
     var onCaptureToClipboard: (() -> Void)? = nil
     var onCaptureRegionToClipboard: (() -> Void)? = nil
     @State private var showSettings = false
@@ -706,13 +707,15 @@ struct CompactToolbar: View {
         if canvas.backgroundImage != nil { imageOnlyExportControls }
 
         // T3.5-K: 設定ボタンは非表示(⌘,/アプリメニュー/メニューバーから到達)
-        Button(action: { withAnimation(DS.Anim.smooth) { sidebarVisible.toggle() } }) {
-            Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
-                .symbolVariant(sidebarVisible ? .none : .slash)
+        if showsSidebarToggle {
+            Button(action: { withAnimation(DS.Anim.smooth) { sidebarVisible.toggle() } }) {
+                Image(systemName: sidebarVisible ? "sidebar.right" : "sidebar.right")
+                    .symbolVariant(sidebarVisible ? .none : .slash)
+            }
+            .buttonStyle(DSToolButtonStyle(isActive: sidebarVisible))
+            .help("履歴を表示/非表示 (⌘⇧H)")
+            .keyboardShortcut("h", modifiers: [.command, .shift])
         }
-        .buttonStyle(DSToolButtonStyle(isActive: sidebarVisible))
-        .help("履歴を表示/非表示 (⌘⇧H)")
-        .keyboardShortcut("h", modifiers: [.command, .shift])
     }
 
     /// T3.5-I: 調整と装飾のタブ切替パネル

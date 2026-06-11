@@ -49,6 +49,11 @@ struct HelpPopoverContent: View {
             ("Q", "ピクセル定規"),
             ("Tab", "アノテーション選択切り替え（選択モード）/ 次のツール"),
         ]),
+        ("クイック注釈パネル（撮影直後）", [
+            ("⌘↩", "完了 — 注釈込みをコピーして保存・閉じる"),
+            ("Esc", "注釈を保持したまま閉じる"),
+            ("エディタで開く", "フルエディタに切り替え（履歴・詳細編集）"),
+        ]),
         ("描画", [
             ("Shift+ドラッグ", "45°制約 / 正方形/正円"),
             ("F", "塗りつぶし切り替え（長方形・楕円・吹き出し）"),
@@ -167,14 +172,14 @@ struct SettingsSheet: View {
                         get: { settings.autoCopyOnCapture },
                         set: { settings.autoCopyOnCapture = $0 }
                     ))
-                    Toggle("撮影後すぐにエディタを開く（HUDをスキップ）", isOn: Binding(
+                    Toggle("撮影後にフルエディタを開く（クイック注釈パネルの代わり）", isOn: Binding(
                         get: { settings.openEditorOnCapture },
                         set: { settings.openEditorOnCapture = $0 }
                     ))
                 } header: {
                     Text("キャプチャ")
                 } footer: {
-                    Text("「カーソルを含める」は撮影画像にマウスポインタを写し込みます")
+                    Text("「カーソルを含める」は撮影画像にマウスポインタを写し込みます。既定では撮影後に中央へクイック注釈パネルが開きます（⌘↩=注釈込みコピー+保存、Esc=閉じる）")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }

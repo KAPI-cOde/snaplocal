@@ -73,6 +73,7 @@ final class QuickAnnotatePanel {
     func complete() {
         guard let state else { close(); return }
         state.copyToClipboard()
+        state.sendNotification(title: "完了", body: "注釈込みの画像をクリップボードにコピーしました")
         persistAnnotations(state)
         close()
     }
@@ -142,6 +143,7 @@ struct QuickAnnotateView: View {
                     state.autoRedactFaces(in: img, canvas: state.canvas)
                 },
                 sidebarVisible: .constant(false),
+                showsSidebarToggle: false,
                 onCaptureToClipboard: state.captureNowToClipboard,
                 onCaptureRegionToClipboard: state.captureRegionToClipboard
             )
@@ -155,6 +157,11 @@ struct QuickAnnotateView: View {
             )
             .frame(width: canvasArea.width, height: canvasArea.height)
             .background(Color(nsColor: .windowBackgroundColor))
+            .overlay(alignment: .bottom) {
+                StatusChip(message: state.statusMessage, visible: state.statusVisible, success: state.statusIsSuccess)
+                    .padding(.bottom, DS.Space.m)
+                    .animation(DS.Anim.smooth, value: state.statusVisible)
+            }
             Divider()
             HStack(spacing: DS.Space.s) {
                 Button("エディタで開く") { QuickAnnotatePanel.shared.openInEditor() }
