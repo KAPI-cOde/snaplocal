@@ -773,6 +773,7 @@ private final class RegionOverlayWindow: NSObject {
             guard let wid = info[kCGWindowNumber as String] as? CGWindowID,
                   !ourPanelNumbers.contains(wid),
                   let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0.05,
                   let boundsDict = info[kCGWindowBounds as String] as? [String: CGFloat],
                   let x = boundsDict["X"], let y = boundsDict["Y"],
                   let w = boundsDict["Width"], let h = boundsDict["Height"],
