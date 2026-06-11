@@ -111,12 +111,13 @@ struct AnnotationCanvasView: View {
     }
 
     private func toCanvas(_ point: CGPoint, size: CGSize) -> CGPoint {
-        // ビューポート中心でズームを外し、中央配置されたキャンバス
+        // パンを外し、ビューポート中心でズームを外し、中央配置されたキャンバス
         // (= 表示画像、サイズ canvasSize)のローカル座標へ平行移動する
+        // (順写像: view = viewCenter + (canvas - canvasCenter) * zoom + panOffset)
         let vcx = size.width / 2, vcy = size.height / 2
         let ccx = viewModel.canvasSize.width / 2, ccy = viewModel.canvasSize.height / 2
-        return CGPoint(x: (point.x - vcx) / zoom + ccx,
-                       y: (point.y - vcy) / zoom + ccy)
+        return CGPoint(x: (point.x - panOffset.width - vcx) / zoom + ccx,
+                       y: (point.y - panOffset.height - vcy) / zoom + ccy)
     }
 
     private func eyedropperSwatchView(hex: String, viewSize: CGSize, at loc: CGPoint) -> some View {
