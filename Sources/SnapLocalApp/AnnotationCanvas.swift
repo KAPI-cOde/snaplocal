@@ -87,6 +87,7 @@ final class CanvasViewModel: ObservableObject {
     var resizingStartTransform: CGAffineTransform? = nil
     // Crop mode
     @Published var isCropMode = false
+    var autoConfirmCropOnDragEnd = false  // T8.7
     @Published var cropStart: CGPoint?
     @Published var cropEnd: CGPoint?
     @Published var cropAspectRatio: CGFloat? = nil  // nil = free, else width/height

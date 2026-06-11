@@ -606,6 +606,7 @@ extension CanvasViewModel {
             cropHandleActive = nil
             cropEnd = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
             objectWillChange.send()
+            if autoConfirmCropOnDragEnd { confirmCrop() }
             return
         }
 

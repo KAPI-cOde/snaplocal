@@ -12,6 +12,7 @@ extension SnapLocalState {
 
     func captureNow() {
         showStatus("撮影中…")
+        fullScreenCapturePending = true
         captureEngine?.captureScreen()
     }
 
@@ -53,6 +54,7 @@ extension SnapLocalState {
                 } else {
                     CountdownOverlay.shared.hide()
                     showStatus("撮影中…")
+                    fullScreenCapturePending = true
                     captureEngine?.captureScreen()
                 }
             }
@@ -80,11 +82,13 @@ extension SnapLocalState {
     }
 
     func captureWindowNow(_ window: SCWindow) {
+        fullScreenCapturePending = false
         showStatus("ウィンドウを撮影中…")
         captureEngine?.captureWindow(window)
     }
 
     func captureRegion() {
+        fullScreenCapturePending = false  // 直前の全画面撮影が失敗していても即クロップを引き継がない
         isRegionCapturing = true
         showStatus("範囲を選択 — ドラッグして選択")
         // T8.2修正: initialRect を渡さず常に素の選択で開始(上記 captureRegionToClipboard と同じ)。
@@ -119,6 +123,8 @@ extension SnapLocalState {
 
     func acceptCapture(_ image: CGImage) {
         let skipSound = regionCapturePlayedSound
+        let wasFullScreen = fullScreenCapturePending
+        fullScreenCapturePending = false
         regionCapturePlayedSound = false
         CameraFlash.shared.flash(playSound: !skipSound)
         // Clipboard-only mode: copy and return immediately, skip history/HUD
@@ -164,6 +170,11 @@ extension SnapLocalState {
             NSApp.bringToFront()
         } else if !suppressPanel {
             QuickAnnotatePanel.shared.show(for: self)
+            if wasFullScreen {
+                canvas.enterCropMode()
+                canvas.autoConfirmCropOnDragEnd = true
+                showStatus("ドラッグで切り抜き — Esc でそのまま注釈")
+            }
         } else if !QuickAnnotatePanel.shared.isVisible {
             // パネル表示中のペースト/ドロップは画像がパネルに反映済みなのでHUDを重ねない
             let actions = CaptureNotificationActions(

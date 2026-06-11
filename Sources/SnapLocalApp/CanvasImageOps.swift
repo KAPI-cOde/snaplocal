@@ -42,6 +42,7 @@ extension CanvasViewModel {
 
     func cancelCrop() {
         isCropMode = false
+        autoConfirmCropOnDragEnd = false
         cropStart = nil; cropEnd = nil; cropAspectRatio = nil
         cropHandleActive = nil
     }

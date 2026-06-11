@@ -243,6 +243,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private var autoSaveTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     var clipboardOnlyCapture = false   // set before a "capture to clipboard only" call
+    var fullScreenCapturePending = false
     // T8.2: クイック注釈パネル表示中はメインウィンドウ側のキャンバスをヒエラルキーから
     // 外す(canvasSize の単一書き込み者を保証 — CLAUDE.md 最重要項)
     @Published var quickPanelActive = false
