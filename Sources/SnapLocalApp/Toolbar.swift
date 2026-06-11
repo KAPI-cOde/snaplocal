@@ -44,7 +44,7 @@ struct CompactToolbar: View {
     @Namespace private var toolSelectionNS
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: DS.Toolbar.groupSpacing) {
             if canvas.isCropMode {
                 cropModeControls
             } else {
@@ -96,13 +96,13 @@ struct CompactToolbar: View {
     }
 
     private var cropModeControls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Toolbar.groupSpacing) {
             Image(systemName: "crop")
                 .foregroundStyle(Color.accentColor)
             Text("切り取り")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Divider().frame(height: 16)
+            Divider().frame(height: DS.Toolbar.separatorHeight)
             // Aspect ratio presets
             let ratioOptions: [(String, CGFloat?)] = [
                 ("フリー", nil), ("1:1", 1.0), ("4:3", 4.0/3.0), ("16:9", 16.0/9.0), ("3:2", 3.0/2.0)
@@ -128,7 +128,7 @@ struct CompactToolbar: View {
     }
 
     private var normalControls: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: DS.Toolbar.groupSpacing) {
             // ─ キャプチャ ─
             // T3.5-G: 撮影は「全画面ボタン+メニュー」の1組に統合
             // (⌘⇧3/⌘⇧4はApp.swiftのCommandMenu「キャプチャ」で維持)
@@ -162,7 +162,7 @@ struct CompactToolbar: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)   // 標準インジケータと自前chevronの二重表示を防ぐ
-            .frame(width: 18)
+            .frame(width: DS.Toolbar.menuWidth, height: DS.Toolbar.controlHeight)
             .help("撮影方法を選択")
 
             if canvas.backgroundImage != nil { annotationToolControls }
@@ -176,10 +176,10 @@ struct CompactToolbar: View {
 
     @ViewBuilder
     private var annotationToolControls: some View {
-            Divider().frame(height: 18)
+            Divider().frame(height: DS.Toolbar.separatorHeight)
 
             // ─ 描画ツール（主要6つ + もっと見る）─
-            HStack(spacing: 2) {
+            HStack(spacing: DS.Toolbar.itemSpacing) {
                 let moreTools: [DrawingTool] = [.ellipse, .roundedRect, .callout, .step,
                                                 .highlight, .pencil, .stamp, .spotlight, .colorPicker, .measure]
                 toolButton(.select, canvas: canvas)
@@ -190,7 +190,7 @@ struct CompactToolbar: View {
                 toolButton(.redact, canvas: canvas)
 
                 if moreTools.contains(canvas.currentTool) {
-                    Divider().frame(width: 1, height: 18).padding(.horizontal, 1)
+                    Divider().frame(width: 1, height: DS.Toolbar.separatorHeight).padding(.horizontal, 1)
                     toolButton(canvas.currentTool, canvas: canvas)
                 }
 
@@ -213,25 +213,33 @@ struct CompactToolbar: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(moreTools.contains(canvas.currentTool) ? Color.accentColor : Color.primary)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .frame(width: 22)
+                .frame(width: DS.Toolbar.menuWidth, height: DS.Toolbar.controlHeight)
                 .help("その他のツール")
             }
 
+            Divider().frame(height: DS.Toolbar.separatorHeight)
+
             // 線の太さ — 線を描くツールを選んだらその場で選べる(カラーポップオーバー内と同じ状態を共有)
-            if canvas.currentTool.usesLineWidth {
-                Picker("", selection: $canvas.currentLineWidth) {
-                    Text("S").tag(LineWidth.thin)
-                    Text("M").tag(LineWidth.medium)
-                    Text("L").tag(LineWidth.thick)
+            if canvas.currentTool.usesLineWidth && canvas.currentTool != .text {
+                HStack(spacing: DS.Space.xxs) {
+                    Image(systemName: "lineweight")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $canvas.currentLineWidth) {
+                        Text("S").tag(LineWidth.thin)
+                        Text("M").tag(LineWidth.medium)
+                        Text("L").tag(LineWidth.thick)
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .frame(width: 76)
+                    .onChange(of: canvas.currentLineWidth) { _, _ in canvas.applyCurrentLineWidthToSelection() }
                 }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .frame(width: 76)
-                .onChange(of: canvas.currentLineWidth) { _, _ in canvas.applyCurrentLineWidthToSelection() }
                 .help("線の太さ ([ で細く / ] で太く)")
             }
 
@@ -239,8 +247,7 @@ struct CompactToolbar: View {
                 Toggle(isOn: $canvas.currentArrowDoubleSided) {
                     Image(systemName: "arrow.left.and.right")
                 }
-                .toggleStyle(.button)
-                .controlSize(.small)
+                .toggleStyle(DSToolToggleStyle())
                 .help("両方向矢印（このセッションのみ・起動時は片側に戻ります）")
             }
 
@@ -251,16 +258,19 @@ struct CompactToolbar: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .controlSize(.small)
                 .frame(width: 60)
                 .help("モザイク / ぼかし")
 
                 if canvas.currentRedactMode == .mosaic {
                     Slider(value: $canvas.currentMosaicScale, in: 4...30)
-                        .frame(width: 60)
+                        .controlSize(.small)
+                        .frame(width: DS.Toolbar.sliderWidth)
                         .help("モザイクの粗さ")
                 } else {
                     Slider(value: $canvas.currentBlurRadius, in: 4...40)
-                        .frame(width: 60)
+                        .controlSize(.small)
+                        .frame(width: DS.Toolbar.sliderWidth)
                         .help("ぼかしの強さ")
                 }
 
@@ -300,6 +310,7 @@ struct CompactToolbar: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .controlSize(.small)
                 .frame(width: 60)
                 .help("楕円 / 矩形")
             }
@@ -308,7 +319,7 @@ struct CompactToolbar: View {
                 let stamps = ["✅", "❌", "⚠️", "💡", "🐛", "📌", "❗", "❓", "✨", "🔍",
                               "👆", "👀", "🔥", "💯", "🎯", "🔑", "⭐", "🚀", "🛑", "🤔"]
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
+                    HStack(spacing: DS.Toolbar.itemSpacing) {
                         ForEach(stamps, id: \.self) { emoji in
                             Button(action: { canvas.currentStamp = emoji }) {
                                 Text(emoji)
@@ -320,7 +331,7 @@ struct CompactToolbar: View {
                             .buttonStyle(.plain)
                         }
                         // Custom stamp input
-                        Divider().frame(height: 20)
+                        Divider().frame(height: DS.Toolbar.separatorHeight)
                         TextField("絵文字", text: Binding(
                             get: { stamps.contains(canvas.currentStamp) ? "" : canvas.currentStamp },
                             set: { if !$0.isEmpty { canvas.currentStamp = String($0.unicodeScalars.suffix(2)) } }
@@ -341,34 +352,36 @@ struct CompactToolbar: View {
                 Toggle(isOn: $canvas.currentFilled) {
                     Image(systemName: canvas.currentFilled ? "square.fill" : "square")
                 }
-                .toggleStyle(.button)
+                .toggleStyle(DSToolToggleStyle())
                 .help(canvas.currentFilled ? "塗りつぶし → アウトライン (F)" : "アウトライン → 塗りつぶし (F)")
-                .controlSize(.small)
                 .onChange(of: canvas.currentFilled) { _, _ in canvas.applyCurrentFilledToSelection() }
             }
 
             if canvas.currentTool == .text {
-                Picker("", selection: $canvas.currentFontSize) {
-                    Text("S").tag(CGFloat(14))
-                    Text("M").tag(CGFloat(18))
-                    Text("L").tag(CGFloat(24))
-                    Text("XL").tag(CGFloat(32))
+                HStack(spacing: DS.Space.xxs) {
+                    Image(systemName: "textformat.size")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $canvas.currentFontSize) {
+                        Text("S").tag(CGFloat(14))
+                        Text("M").tag(CGFloat(18))
+                        Text("L").tag(CGFloat(24))
+                        Text("XL").tag(CGFloat(32))
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .frame(width: 90)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 90)
                 .help("テキストサイズ")
 
                 Toggle(isOn: $canvas.currentTextBackground) {
                     Image(systemName: canvas.currentTextBackground ? "textformat.alt" : "textformat")
                 }
-                .toggleStyle(.button)
+                .toggleStyle(DSToolToggleStyle())
                 .help(canvas.currentTextBackground ? "背景あり（クリックで背景なしへ）" : "背景なし（クリックで背景ありへ）")
-                .controlSize(.small)
             }
 
             // ─ カラー（シングルスウォッチ → ポップオーバーで全パレット）─
-            Divider().frame(height: 18)
-
             Button {
                 showColorPopover.toggle()
             } label: {
@@ -379,14 +392,12 @@ struct CompactToolbar: View {
                     }
                     return canvas.currentColor.color
                 }()
-                ZStack {
-                    Circle().fill(activeColor).frame(width: 18, height: 18)
-                        .overlay(Circle().stroke(Color.primary.opacity(activeColor == .white ? 0.3 : 0), lineWidth: 0.5))
-                    Circle().stroke(Color.primary.opacity(0.6), lineWidth: 1.5).frame(width: 22, height: 22)
-                }
+                Circle()
+                    .fill(activeColor)
+                    .frame(width: DS.Toolbar.swatchSize, height: DS.Toolbar.swatchSize)
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1))
             }
-            .buttonStyle(.plain)
-            .frame(width: 28, height: 28)
+            .buttonStyle(DSToolButtonStyle())
             .help("カラー (1-8, カスタム)")
             .popover(isPresented: $showColorPopover, arrowEdge: .bottom) {
                 colorPalettePopover
@@ -396,7 +407,7 @@ struct CompactToolbar: View {
 
     @ViewBuilder
     private var imageEditControls: some View {
-        Divider().frame(height: 18)
+        Divider().frame(height: DS.Toolbar.separatorHeight)
 
         Button { canvas.enterCropMode() } label: {
             Image(systemName: "crop")
@@ -443,13 +454,14 @@ struct CompactToolbar: View {
             Button("画面にピン留め (⌘⇧P)") { onPin() }
         } label: {
             Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 15, weight: .medium))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 22)
+        .frame(width: DS.Toolbar.menuWidth, height: DS.Toolbar.controlHeight)
         .help("別名保存 / 共有 / ピン留め")
 
-        Divider().frame(height: 18)
+        Divider().frame(height: DS.Toolbar.separatorHeight)
 
         // T3.2-B: 削除は選択中のみ表示(⌫は選択時に有効)
         if canvas.selectedAnnotationID != nil {
@@ -465,7 +477,7 @@ struct CompactToolbar: View {
             Toggle(isOn: $canvas.annotationsHidden) {
                 Image(systemName: canvas.annotationsHidden ? "eye.slash" : "eye")
             }
-            .toggleStyle(.button)
+            .toggleStyle(DSToolToggleStyle())
             .help(canvas.annotationsHidden ? "アノテーション表示 (⌘')" : "アノテーション非表示 (⌘')")
             .keyboardShortcut("'", modifiers: .command)
         }
@@ -483,8 +495,8 @@ struct CompactToolbar: View {
                       : "\(canvas.annotations.count)個のアノテーション (⌘Aで全選択、⌘⇧⌫で全削除)")
 
             if selCount > 1 {
-                Divider().frame(height: 14)
-                HStack(spacing: 1) {
+                Divider().frame(height: DS.Toolbar.separatorHeight)
+                HStack(spacing: DS.Toolbar.itemSpacing) {
                     ForEach([
                         ("align.horizontal.left", CanvasViewModel.AlignEdge.left, "左揃え"),
                         ("align.horizontal.center", .centerX, "中央揃え（水平）"),
@@ -565,10 +577,11 @@ struct CompactToolbar: View {
             }
         } label: {
             Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .medium))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 22)
+        .frame(width: DS.Toolbar.menuWidth, height: DS.Toolbar.controlHeight)
         .help("その他（回転・リサイズ・結合・テンプレート）")
         .sheet(isPresented: $showExtendCanvas) {
             extendCanvasSheet

@@ -53,6 +53,24 @@ enum DS {
         static let smooth: Animation = .easeInOut(duration: 0.2)
     }
 
+    /// ツールバーのレイアウト規律(T8.10)。高さ・セパレータ・メニュー幅・間隔はここの値のみ使う。
+    enum Toolbar {
+        /// 28pt — 全コントロールの統一高さ(DSToolButtonStyle の既定 size と一致)
+        static let controlHeight: CGFloat = 28
+        /// 18pt — グループ間セパレータの高さ
+        static let separatorHeight: CGFloat = 18
+        /// 22pt — chevron / ellipsis 等メニューボタンの幅
+        static let menuWidth: CGFloat = 22
+        /// 6pt — グループ間の間隔
+        static let groupSpacing: CGFloat = 6
+        /// 2pt — グループ内の間隔
+        static let itemSpacing: CGFloat = 2
+        /// 60pt — インラインスライダーの幅
+        static let sliderWidth: CGFloat = 60
+        /// 16pt — カラースウォッチの円直径
+        static let swatchSize: CGFloat = 16
+    }
+
     /// 影(2種)。`view.shadow(DS.Shadow.overlay)` の形で使う。
     enum Shadow {
         /// オーバーレイ要素(チップ・バッジ・ポップオーバー)
@@ -73,6 +91,16 @@ enum DS {
                 self.y = y
             }
         }
+    }
+}
+
+/// ツールバーのアイコントグル用スタイル(T8.10)。
+/// DSToolButtonStyle と同じ 28×28・active 強調・ホバー背景に統一する。
+struct DSToolToggleStyle: ToggleStyle {
+    var size: CGFloat = DS.Toolbar.controlHeight
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: { configuration.label }
+            .buttonStyle(DSToolButtonStyle(isActive: configuration.isOn, size: size))
     }
 }
 
