@@ -58,6 +58,10 @@ apply_partition_list() {
     # -s で署名鍵のみが対象。他の署名鍵にとってもこの値は既定値と同じため実害なし。
     echo ""
     echo "ビルドごとの鍵アクセス確認ダイアログを止めるため、鍵のパーティションリストを設定します。"
+    if [ ! -t 0 ]; then
+        echo "NG パスワードの対話入力が必要です。Terminal.app などの端末でこのスクリプトを実行してください。"
+        exit 1
+    fi
     read -r -s -p "login キーチェーンのパスワード(通常は Mac のログインパスワード): " KC_PASS
     echo ""
     if ! security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$LOGIN_KC" >/dev/null; then
