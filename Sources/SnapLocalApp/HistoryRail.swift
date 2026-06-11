@@ -32,7 +32,9 @@ struct HistoryRail: View {
     @State private var thumbCache: [UUID: NSImage] = [:]
     @State private var hoveredItemID: UUID? = nil
     @State private var popoverItemID: UUID? = nil   // delayed popover — avoids flicker on fast scroll
+    @State private var popoverHovered = false
     @State private var popoverTask: Task<Void, Never>? = nil
+    @State private var popoverCloseTask: Task<Void, Never>? = nil
     @State private var renamingItemID: UUID? = nil
     @State private var quickLookItem: VaultItem? = nil
     @State private var renameText: String = ""
@@ -159,20 +161,32 @@ struct HistoryRail: View {
                                 onRename: { name in onRename?(item, name); renamingItemID = nil },
                                 onRenameBegin: { renameText = item.title ?? ""; renamingItemID = item.id },
                                 onRenameCancelled: { renamingItemID = nil },
-                                onPopoverDismiss: { popoverItemID = nil },
+                                onPopoverDismiss: {
+                                    popoverItemID = nil
+                                    popoverHovered = false
+                                },
                                 onUpdateNotes: onUpdateNotes,
                                 onReocr: { onReocr?(item) },
                                 historyItemLabel: historyItemLabel,
+                                onPopoverHoverChanged: { hovering in
+                                    popoverHovered = hovering
+                                    if hovering {
+                                        popoverCloseTask?.cancel()
+                                    } else {
+                                        schedulePopoverClose(for: item.id)
+                                    }
+                                },
                                 onHoverChanged: { hovering in
                                     hoveredItemID = hovering ? item.id : nil
                                     popoverTask?.cancel()
                                     if hovering {
+                                        popoverCloseTask?.cancel()
                                         popoverTask = Task {
                                             try? await Task.sleep(nanoseconds: 400_000_000)
                                             if hoveredItemID == item.id { popoverItemID = item.id }
                                         }
                                     } else {
-                                        popoverItemID = nil
+                                        schedulePopoverClose(for: item.id)
                                     }
                                 }
                             )
@@ -300,6 +314,16 @@ struct HistoryRail: View {
             }
         }
     }
+
+    private func schedulePopoverClose(for itemID: UUID) {
+        popoverCloseTask?.cancel()
+        popoverCloseTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if popoverHovered == false && (hoveredItemID == nil || hoveredItemID != itemID) {
+                popoverItemID = nil
+            }
+        }
+    }
 }
 
 // MARK: - History Item Row
@@ -328,6 +352,7 @@ private struct HistoryItemRow: View {
     var onUpdateNotes: ((VaultItem, String?) -> Void)?
     var onReocr: (() -> Void)? = nil
     let historyItemLabel: (Date) -> String
+    let onPopoverHoverChanged: (Bool) -> Void
     let onHoverChanged: (Bool) -> Void
 
     var body: some View {
@@ -335,8 +360,8 @@ private struct HistoryItemRow: View {
             VStack(spacing: 3) {
                 thumbnailView
                 labelView
-                if !item.ocrText.isEmpty && !searchQuery.isEmpty {
-                    Text(item.ocrText)
+                if !searchQuery.isEmpty, let searchHitExcerpt {
+                    Text(searchHitExcerpt)
                         .font(.system(size: DS.FontSize.caption2))
                         .lineLimit(2)
                         .foregroundStyle(.secondary)
@@ -350,6 +375,7 @@ private struct HistoryItemRow: View {
         .onHover(perform: onHoverChanged)
         .popover(isPresented: Binding(get: { showPopover }, set: { if !$0 { onPopoverDismiss() } }), arrowEdge: .leading) {
             HistoryItemPopover(item: item, onUpdateNotes: onUpdateNotes)
+                .onHover(perform: onPopoverHoverChanged)
         }
         .contextMenu { contextMenuContent }
         .help(makeHelp())
@@ -369,8 +395,43 @@ private struct HistoryItemRow: View {
         var s = item.createdAt.formatted(date: .complete, time: .shortened)
         if item.width > 0 { s += "  \(item.width)×\(item.height)" }
         s += "  Space: クイックルック"
-        if !item.ocrText.isEmpty { s += "\n" + String(item.ocrText.prefix(80)) }
         return s
+    }
+
+    private var searchHitExcerpt: AttributedString? {
+        guard !searchQuery.isEmpty else { return nil }
+
+        if item.ocrText.localizedCaseInsensitiveContains(searchQuery) {
+            return highlightedExcerpt(in: item.ocrText, prefix: "")
+        }
+
+        if let notes = item.notes, notes.localizedCaseInsensitiveContains(searchQuery) {
+            return highlightedExcerpt(in: notes, prefix: "メモ: ")
+        }
+
+        guard !item.ocrText.isEmpty else { return nil }
+        return AttributedString(String(item.ocrText.prefix(72)).replacingOccurrences(of: "\n", with: " "))
+    }
+
+    private func highlightedExcerpt(in source: String, prefix: String) -> AttributedString {
+        guard let hitRange = source.range(of: searchQuery, options: [.caseInsensitive, .diacriticInsensitive]) else {
+            return AttributedString(prefix + String(source.prefix(72)).replacingOccurrences(of: "\n", with: " "))
+        }
+
+        let excerptStart = source.index(hitRange.lowerBound, offsetBy: -12, limitedBy: source.startIndex) ?? source.startIndex
+        let excerptEnd = source.index(hitRange.upperBound, offsetBy: 60, limitedBy: source.endIndex) ?? source.endIndex
+        let ellipsis = excerptStart > source.startIndex ? "…" : ""
+        let excerpt = ellipsis + String(source[excerptStart..<excerptEnd]).replacingOccurrences(of: "\n", with: " ")
+        var attributed = AttributedString(prefix + excerpt)
+
+        var searchStart = attributed.index(attributed.startIndex, offsetByCharacters: prefix.count)
+        while let range = attributed[searchStart...].range(of: searchQuery, options: [.caseInsensitive, .diacriticInsensitive]) {
+            attributed[range].font = .system(size: DS.FontSize.caption2, weight: .bold)
+            attributed[range].foregroundColor = Color.accentColor
+            searchStart = range.upperBound
+        }
+
+        return attributed
     }
 
     @ViewBuilder private var thumbnailView: some View {
@@ -594,7 +655,7 @@ struct HistoryItemPopover: View {
                         .font(.system(size: DS.FontSize.caption))
                         .scrollContentBackground(.hidden)
                         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: DS.Radius.small))
-                        .frame(height: 72)
+                        .frame(height: min(200, max(72, CGFloat(item.ocrText.components(separatedBy: "\n").count) * 16)))
                 }
                 .padding(.horizontal, DS.Space.s)
                 .padding(.vertical, DS.Space.xs)
