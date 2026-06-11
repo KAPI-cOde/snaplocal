@@ -49,6 +49,9 @@ extension CanvasViewModel {
             return
         }
 
+        // 選択中注釈のハンドルは描画ツールでも操作可能(T8.9)
+        if currentTool.supportsGrabMove, beginHandleDragIfHit(at: localPoint) { return }
+
         // Grab-to-move: in any drawing tool, clicking on an existing annotation moves it
         if currentTool.supportsGrabMove {
             let innerRect = CGRect(origin: .zero, size: canvasSize)
@@ -69,64 +72,7 @@ extension CanvasViewModel {
 
         switch currentTool {
         case .select:
-            // Check resize handles first (single selection only)
-            if let id = selectedAnnotationID,
-               selectedAnnotationIDs.count <= 1,
-               let ann = annotations.first(where: { $0.id == id }),
-               Self.isResizable(ann.type) {
-                let bounds = ann.bounds(in: CGRect(origin: .zero, size: canvasSize))
-                let corners = handleCorners(for: bounds)
-                if let h = hitTestHandle(at: localPoint, corners: corners) {
-                    dragState.start(at: localPoint)
-                    resizingHandleIndex = h
-                    resizingStartBounds = bounds
-                    resizingStartTransform = ann.transform
-                    dragStartAnnotation = ann
-                    return
-                }
-                // Callout tail handle (index 8)
-                if ann.type == .callout, let baseTail = ann.calloutTailPoint {
-                    let tailCanvas = baseTail.applying(ann.transform)
-                    let r: CGFloat = 10
-                    if abs(localPoint.x - tailCanvas.x) <= r && abs(localPoint.y - tailCanvas.y) <= r,
-                       let data = try? JSONEncoder().encode(ann),
-                       var decoded = try? JSONDecoder().decode(CalloutAnnotation.self, from: data) {
-                        // Bake the current AnyAnnotation.transform into absolute coordinates
-                        let t = ann.transform
-                        decoded.rect = decoded.rect.applying(t)
-                        decoded.tailPoint = decoded.tailPoint.applying(t)
-                        decoded.transform = .identity
-                        calloutTailBakedBase = decoded
-                        dragState.start(at: localPoint)
-                        resizingHandleIndex = 8
-                        dragStartAnnotation = ann
-                        return
-                    }
-                }
-            }
-
-            // Arrow / Line endpoint handles (indices 9=start, 10=end) — single selection
-            if let id = selectedAnnotationID,
-               selectedAnnotationIDs.count <= 1,
-               let ann = annotations.first(where: { $0.id == id }),
-               (ann.type == .arrow || ann.type == .line),
-               let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
-                let t = ann.transform
-                let startCanvas = baseStart.applying(t)
-                let endCanvas   = baseEnd.applying(t)
-                let r: CGFloat = 10
-                let hitStart = abs(localPoint.x - startCanvas.x) <= r && abs(localPoint.y - startCanvas.y) <= r
-                let hitEnd   = abs(localPoint.x - endCanvas.x)   <= r && abs(localPoint.y - endCanvas.y)   <= r
-                if hitStart || hitEnd {
-                    // Bake current transform into absolute canvas coords
-                    endpointDragBakedStart = startCanvas
-                    endpointDragBakedEnd   = endCanvas
-                    dragState.start(at: localPoint)
-                    resizingHandleIndex = hitEnd ? 10 : 9
-                    dragStartAnnotation = ann
-                    return
-                }
-            }
+            if beginHandleDragIfHit(at: localPoint) { return }
 
             if NSEvent.modifierFlags.contains(.option) {
                 // Option+drag: duplicate the hit annotation and drag the copy
@@ -238,6 +184,69 @@ extension CanvasViewModel {
         }
     }
 
+    private func beginHandleDragIfHit(at localPoint: CGPoint) -> Bool {
+        // Check resize handles first (single selection only)
+        if let id = selectedAnnotationID,
+           selectedAnnotationIDs.count <= 1,
+           let ann = annotations.first(where: { $0.id == id }),
+           Self.isResizable(ann.type) {
+            let bounds = ann.bounds(in: CGRect(origin: .zero, size: canvasSize))
+            let corners = handleCorners(for: bounds)
+            if let h = hitTestHandle(at: localPoint, corners: corners) {
+                dragState.start(at: localPoint)
+                resizingHandleIndex = h
+                resizingStartBounds = bounds
+                resizingStartTransform = ann.transform
+                dragStartAnnotation = ann
+                return true
+            }
+            // Callout tail handle (index 8)
+            if ann.type == .callout, let baseTail = ann.calloutTailPoint {
+                let tailCanvas = baseTail.applying(ann.transform)
+                let r: CGFloat = 10
+                if abs(localPoint.x - tailCanvas.x) <= r && abs(localPoint.y - tailCanvas.y) <= r,
+                   let data = try? JSONEncoder().encode(ann),
+                   var decoded = try? JSONDecoder().decode(CalloutAnnotation.self, from: data) {
+                    // Bake the current AnyAnnotation.transform into absolute coordinates
+                    let t = ann.transform
+                    decoded.rect = decoded.rect.applying(t)
+                    decoded.tailPoint = decoded.tailPoint.applying(t)
+                    decoded.transform = .identity
+                    calloutTailBakedBase = decoded
+                    dragState.start(at: localPoint)
+                    resizingHandleIndex = 8
+                    dragStartAnnotation = ann
+                    return true
+                }
+            }
+        }
+
+        // Arrow / Line endpoint handles (indices 9=start, 10=end) — single selection
+        if let id = selectedAnnotationID,
+           selectedAnnotationIDs.count <= 1,
+           let ann = annotations.first(where: { $0.id == id }),
+           (ann.type == .arrow || ann.type == .line),
+           let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
+            let t = ann.transform
+            let startCanvas = baseStart.applying(t)
+            let endCanvas   = baseEnd.applying(t)
+            let r: CGFloat = 10
+            let hitStart = abs(localPoint.x - startCanvas.x) <= r && abs(localPoint.y - startCanvas.y) <= r
+            let hitEnd   = abs(localPoint.x - endCanvas.x)   <= r && abs(localPoint.y - endCanvas.y)   <= r
+            if hitStart || hitEnd {
+                // Bake current transform into absolute canvas coords
+                endpointDragBakedStart = startCanvas
+                endpointDragBakedEnd   = endCanvas
+                dragState.start(at: localPoint)
+                resizingHandleIndex = hitEnd ? 10 : 9
+                dragStartAnnotation = ann
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func shiftConstrainedPoint(_ end: CGPoint, from start: CGPoint) -> CGPoint {
         let dx = end.x - start.x, dy = end.y - start.y
         let angle = atan2(abs(dy), abs(dx))
@@ -345,23 +354,49 @@ extension CanvasViewModel {
             return
         }
 
-        if currentTool == .select {
-            // Rubber-band update
-            if isRubberBanding, let start = dragState.startPoint {
-                let minX = min(start.x, localPoint.x), maxX = max(start.x, localPoint.x)
-                let minY = min(start.y, localPoint.y), maxY = max(start.y, localPoint.y)
-                rubberBandRect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-                objectWillChange.send()
-                return
+        // Callout tail drag (handle index 8)
+        if resizingHandleIndex == 8,
+           var baked = calloutTailBakedBase,
+           let id = selectedAnnotationID,
+           let origAnn = dragStartAnnotation {
+            baked.tailPoint = localPoint
+            var newAnn = AnyAnnotation(baked)
+            newAnn.opacity = origAnn.opacity
+            newAnn.isLocked = origAnn.isLocked
+            newAnn.lineStyle = origAnn.lineStyle
+            newAnn.customColorHex = origAnn.customColorHex
+            if let index = annotations.firstIndex(where: { $0.id == id }) {
+                annotations[index] = newAnn
             }
+            objectWillChange.send()
+            return
+        }
 
-            // Callout tail drag (handle index 8)
-            if resizingHandleIndex == 8,
-               var baked = calloutTailBakedBase,
-               let id = selectedAnnotationID,
-               let origAnn = dragStartAnnotation {
-                baked.tailPoint = localPoint
-                var newAnn = AnyAnnotation(baked)
+        // Arrow / Line endpoint drag (handle index 9=start, 10=end)
+        if let handleIdx = resizingHandleIndex, (handleIdx == 9 || handleIdx == 10),
+           let id = selectedAnnotationID,
+           let origAnn = dragStartAnnotation,
+           let data = try? JSONEncoder().encode(origAnn) {
+            // Shift-constrain to 45° increments
+            var pt = localPoint
+            if NSEvent.modifierFlags.contains(.shift) {
+                let anchor = handleIdx == 9 ? endpointDragBakedEnd : endpointDragBakedStart
+                pt = shiftConstrainedPoint(pt, from: anchor)
+            }
+            var json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+            let t = origAnn.transform
+            func encodePoint(_ p: CGPoint) -> [String: Double] { ["x": Double(p.x), "y": Double(p.y)] }
+            if handleIdx == 9 {
+                json["startPoint"] = encodePoint(pt)
+                json["endPoint"]   = encodePoint(endpointDragBakedEnd)
+            } else {
+                json["startPoint"] = encodePoint(endpointDragBakedStart)
+                json["endPoint"]   = encodePoint(pt)
+            }
+            // Reset transform to identity (coords now baked in canvas space)
+            json["transform"] = ["a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0]
+            if let newData = try? JSONSerialization.data(withJSONObject: json),
+               var newAnn = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) {
                 newAnn.opacity = origAnn.opacity
                 newAnn.isLocked = origAnn.isLocked
                 newAnn.lineStyle = origAnn.lineStyle
@@ -369,96 +404,70 @@ extension CanvasViewModel {
                 if let index = annotations.firstIndex(where: { $0.id == id }) {
                     annotations[index] = newAnn
                 }
-                objectWillChange.send()
-                return
             }
+            objectWillChange.send()
+            return
+        }
 
-            // Arrow / Line endpoint drag (handle index 9=start, 10=end)
-            if let handleIdx = resizingHandleIndex, (handleIdx == 9 || handleIdx == 10),
-               let id = selectedAnnotationID,
-               let origAnn = dragStartAnnotation,
-               let data = try? JSONEncoder().encode(origAnn) {
-                // Shift-constrain to 45° increments
-                var pt = localPoint
-                if NSEvent.modifierFlags.contains(.shift) {
-                    let anchor = handleIdx == 9 ? endpointDragBakedEnd : endpointDragBakedStart
-                    pt = shiftConstrainedPoint(pt, from: anchor)
+        // Resize mode
+        if let handleIdx = resizingHandleIndex,
+           let id = selectedAnnotationID,
+           let startBounds = resizingStartBounds,
+           let startTransform = resizingStartTransform,
+           var annotation = annotations.first(where: { $0.id == id }) {
+            let newBounds: CGRect
+            if handleIdx < 4 {
+                // Corner handles: both axes change
+                let fixedCorners: [CGPoint] = [
+                    CGPoint(x: startBounds.maxX, y: startBounds.maxY), // 0-TL → BR fixed
+                    CGPoint(x: startBounds.minX, y: startBounds.maxY), // 1-TR → BL fixed
+                    CGPoint(x: startBounds.maxX, y: startBounds.minY), // 2-BL → TR fixed
+                    CGPoint(x: startBounds.minX, y: startBounds.minY), // 3-BR → TL fixed
+                ]
+                let fx = fixedCorners[handleIdx]
+                let nx = min(localPoint.x, fx.x), ny = min(localPoint.y, fx.y)
+                let nw = max(abs(localPoint.x - fx.x), 4), nh = max(abs(localPoint.y - fx.y), 4)
+                newBounds = CGRect(x: nx, y: ny, width: nw, height: nh)
+            } else {
+                // Mid-edge handles: one axis changes, other stays fixed
+                switch handleIdx {
+                case 4: // Top-mid: only top edge moves, bottom fixed
+                    let newY = min(localPoint.y, startBounds.maxY - 4)
+                    newBounds = CGRect(x: startBounds.minX, y: newY, width: startBounds.width,
+                                       height: max(startBounds.maxY - newY, 4))
+                case 5: // Bottom-mid: only bottom edge moves, top fixed
+                    let newMaxY = max(localPoint.y, startBounds.minY + 4)
+                    newBounds = CGRect(x: startBounds.minX, y: startBounds.minY, width: startBounds.width,
+                                       height: newMaxY - startBounds.minY)
+                case 6: // Left-mid: only left edge moves, right fixed
+                    let newX = min(localPoint.x, startBounds.maxX - 4)
+                    newBounds = CGRect(x: newX, y: startBounds.minY, width: max(startBounds.maxX - newX, 4),
+                                       height: startBounds.height)
+                default: // 7: Right-mid: only right edge moves, left fixed
+                    let newMaxX = max(localPoint.x, startBounds.minX + 4)
+                    newBounds = CGRect(x: startBounds.minX, y: startBounds.minY,
+                                       width: newMaxX - startBounds.minX, height: startBounds.height)
                 }
-                var json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-                let t = origAnn.transform
-                func encodePoint(_ p: CGPoint) -> [String: Double] { ["x": Double(p.x), "y": Double(p.y)] }
-                if handleIdx == 9 {
-                    json["startPoint"] = encodePoint(pt)
-                    json["endPoint"]   = encodePoint(endpointDragBakedEnd)
-                } else {
-                    json["startPoint"] = encodePoint(endpointDragBakedStart)
-                    json["endPoint"]   = encodePoint(pt)
-                }
-                // Reset transform to identity (coords now baked in canvas space)
-                json["transform"] = ["a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0]
-                if let newData = try? JSONSerialization.data(withJSONObject: json),
-                   var newAnn = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) {
-                    newAnn.opacity = origAnn.opacity
-                    newAnn.isLocked = origAnn.isLocked
-                    newAnn.lineStyle = origAnn.lineStyle
-                    newAnn.customColorHex = origAnn.customColorHex
-                    if let index = annotations.firstIndex(where: { $0.id == id }) {
-                        annotations[index] = newAnn
-                    }
-                }
-                objectWillChange.send()
-                return
             }
+            let sx = newBounds.width / max(startBounds.width, 1)
+            let sy = newBounds.height / max(startBounds.height, 1)
+            let tx = newBounds.minX - startBounds.minX * sx
+            let ty = newBounds.minY - startBounds.minY * sy
+            let mapT = CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: tx, ty: ty)
+            annotation.transform = startTransform.concatenating(mapT)
+            if let index = annotations.firstIndex(where: { $0.id == id }) {
+                annotations[index] = annotation
+            }
+            objectWillChange.send()
+            return
+        }
 
-            // Resize mode
-            if let handleIdx = resizingHandleIndex,
-               let id = selectedAnnotationID,
-               let startBounds = resizingStartBounds,
-               let startTransform = resizingStartTransform,
-               var annotation = annotations.first(where: { $0.id == id }) {
-                let newBounds: CGRect
-                if handleIdx < 4 {
-                    // Corner handles: both axes change
-                    let fixedCorners: [CGPoint] = [
-                        CGPoint(x: startBounds.maxX, y: startBounds.maxY), // 0-TL → BR fixed
-                        CGPoint(x: startBounds.minX, y: startBounds.maxY), // 1-TR → BL fixed
-                        CGPoint(x: startBounds.maxX, y: startBounds.minY), // 2-BL → TR fixed
-                        CGPoint(x: startBounds.minX, y: startBounds.minY), // 3-BR → TL fixed
-                    ]
-                    let fx = fixedCorners[handleIdx]
-                    let nx = min(localPoint.x, fx.x), ny = min(localPoint.y, fx.y)
-                    let nw = max(abs(localPoint.x - fx.x), 4), nh = max(abs(localPoint.y - fx.y), 4)
-                    newBounds = CGRect(x: nx, y: ny, width: nw, height: nh)
-                } else {
-                    // Mid-edge handles: one axis changes, other stays fixed
-                    switch handleIdx {
-                    case 4: // Top-mid: only top edge moves, bottom fixed
-                        let newY = min(localPoint.y, startBounds.maxY - 4)
-                        newBounds = CGRect(x: startBounds.minX, y: newY, width: startBounds.width,
-                                           height: max(startBounds.maxY - newY, 4))
-                    case 5: // Bottom-mid: only bottom edge moves, top fixed
-                        let newMaxY = max(localPoint.y, startBounds.minY + 4)
-                        newBounds = CGRect(x: startBounds.minX, y: startBounds.minY, width: startBounds.width,
-                                           height: newMaxY - startBounds.minY)
-                    case 6: // Left-mid: only left edge moves, right fixed
-                        let newX = min(localPoint.x, startBounds.maxX - 4)
-                        newBounds = CGRect(x: newX, y: startBounds.minY, width: max(startBounds.maxX - newX, 4),
-                                           height: startBounds.height)
-                    default: // 7: Right-mid: only right edge moves, left fixed
-                        let newMaxX = max(localPoint.x, startBounds.minX + 4)
-                        newBounds = CGRect(x: startBounds.minX, y: startBounds.minY,
-                                           width: newMaxX - startBounds.minX, height: startBounds.height)
-                    }
-                }
-                let sx = newBounds.width / max(startBounds.width, 1)
-                let sy = newBounds.height / max(startBounds.height, 1)
-                let tx = newBounds.minX - startBounds.minX * sx
-                let ty = newBounds.minY - startBounds.minY * sy
-                let mapT = CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: tx, ty: ty)
-                annotation.transform = startTransform.concatenating(mapT)
-                if let index = annotations.firstIndex(where: { $0.id == id }) {
-                    annotations[index] = annotation
-                }
+        if currentTool == .select {
+            // Rubber-band update
+            if isRubberBanding, let start = dragState.startPoint {
+                let minX = min(start.x, localPoint.x), maxX = max(start.x, localPoint.x)
+                let minY = min(start.y, localPoint.y), maxY = max(start.y, localPoint.y)
+                rubberBandRect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
                 objectWillChange.send()
                 return
             }
@@ -607,6 +616,33 @@ extension CanvasViewModel {
             cropEnd = CGPoint(x: point.x - canvasRect.minX, y: point.y - canvasRect.minY)
             objectWillChange.send()
             if autoConfirmCropOnDragEnd { confirmCrop() }
+            return
+        }
+
+        // ハンドルドラッグの確定はツール非依存(T8.9)。select の場合も同一動作
+        if resizingHandleIndex != nil {
+            isDraggingAnnotation = false
+            snapGuides = []
+            resizingHandleIndex = nil
+            resizingStartBounds = nil
+            resizingStartTransform = nil
+            calloutTailBakedBase = nil
+            if let original = dragStartAnnotation,
+               let index = annotations.firstIndex(where: { $0.id == original.id }) {
+                let orig = original
+                undoManager.registerMainActorUndo(withTarget: self) { target in
+                    target.isUndoing = true
+                    target.annotations[index] = orig
+                    target.objectWillChange.send()
+                    target.isUndoing = false
+                }
+                updateUndoRedoState()
+                if !annotations[index].hasStrokeRepresentation {
+                    updateFilterPreview(for: annotations[index])
+                }
+            }
+            dragStartAnnotation = nil
+            objectWillChange.send()
             return
         }
 

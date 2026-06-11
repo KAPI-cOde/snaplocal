@@ -261,6 +261,8 @@ final class CanvasViewModel: ObservableObject {
             }
         }
         annotations.append(annotation)
+        selectedAnnotationID = annotation.id
+        selectedAnnotationIDs = [annotation.id]
         if !annotation.hasStrokeRepresentation {
             updateFilterPreview(for: annotation)
         }

@@ -120,7 +120,7 @@ extension AnnotationCanvasView {
     @ViewBuilder
     func selectionHandlesOverlay(size: CGSize) -> some View {
         let canvasRect = CGRect(origin: .zero, size: size)
-        if viewModel.currentTool == .select,
+        if viewModel.currentTool == .select || viewModel.currentTool.supportsGrabMove,
            !viewModel.isCropMode,
            !viewModel.annotationsHidden,
            viewModel.selectedAnnotationIDs.count <= 1,
