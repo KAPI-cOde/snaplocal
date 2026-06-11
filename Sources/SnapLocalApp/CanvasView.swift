@@ -36,7 +36,7 @@ struct AnnotationCanvasView: View {
     /// フレーム復元・リサイズ)に追従して自動フィットし直す
     @State private var userZoomed = false
 
-    @State private var hoverHandleIndex: Int? = nil
+    @State private var hoverHandleCursor: NSCursor? = nil
 
     // MARK: - Zoom semantics
     // zoom は「scaledToFit 済みベースサイズへの倍率」。したがってフィット表示 = zoom 1.0。
@@ -60,6 +60,15 @@ struct AnnotationCanvasView: View {
         return zoom / naturalZoom
     }
 
+    /// 線分の向きに応じた端点リサイズカーソル(±22.5°で4方位に量子化)。
+    /// view座標はY下向きのため dx・dy が同符号なら ↘ 方向 = NWSE 対角。
+    private func endpointCursor(dx: CGFloat, dy: CGFloat) -> NSCursor {
+        let ax = abs(dx), ay = abs(dy)
+        if ax >= ay * 2.414 { return .resizeLeftRight }
+        if ay >= ax * 2.414 { return .resizeUpDown }
+        return dx * dy > 0 ? cursorNWSE : cursorNESW
+    }
+
     private func updateCursor() {
         guard isHovering else { return }
         if isPanning {
@@ -73,14 +82,8 @@ struct AnnotationCanvasView: View {
         }
         switch viewModel.currentTool {
         case .select:
-            if let hi = hoverHandleIndex {
-                switch hi {
-                case 0, 3: cursorNWSE.set()               // TL, BR corners → ↖↘
-                case 1, 2: cursorNESW.set()               // TR, BL corners → ↗↙
-                case 4, 5: NSCursor.resizeUpDown.set()    // Top/Bottom mid
-                case 6, 7: NSCursor.resizeLeftRight.set() // Left/Right mid
-                default:   NSCursor.crosshair.set()
-                }
+            if let c = hoverHandleCursor {
+                c.set()
             } else if viewModel.hoveredAnnotationID != nil {
                 NSCursor.openHand.set()
             } else {
@@ -92,7 +95,9 @@ struct AnnotationCanvasView: View {
             NSCursor.crosshair.set()
         default:
             // Show grab cursor when hovering over an annotation with a grab-capable drawing tool
-            if viewModel.hoveredAnnotationID != nil {
+            if let c = hoverHandleCursor {
+                c.set()
+            } else if viewModel.hoveredAnnotationID != nil {
                 NSCursor.openHand.set()
             } else {
                 NSCursor.crosshair.set()
@@ -790,8 +795,8 @@ struct AnnotationCanvasView: View {
                             !$0.isLocked && $0.hitTest(canvasLoc, in: CGRect(origin: .zero, size: viewModel.canvasSize))
                         })
                         viewModel.hoveredAnnotationID = hit?.id
-                        // Full handle detection only in select mode
-                        if viewModel.currentTool == .select {
+                        let handlesArmed = viewModel.currentTool == .select || (viewModel.currentTool.supportsGrabMove && !viewModel.selectionIsFromCreation)
+                        if handlesArmed {
                             if let selID = viewModel.selectedAnnotationID,
                                let ann = viewModel.annotations.first(where: { $0.id == selID }) {
                                 let r: CGFloat = 10
@@ -805,30 +810,43 @@ struct AnnotationCanvasView: View {
                                             hi = 8
                                         }
                                     }
-                                    hoverHandleIndex = hi
+                                    switch hi {
+                                    case 0, 3:
+                                        hoverHandleCursor = cursorNWSE
+                                    case 1, 2:
+                                        hoverHandleCursor = cursorNESW
+                                    case 4, 5:
+                                        hoverHandleCursor = NSCursor.resizeUpDown
+                                    case 6, 7:
+                                        hoverHandleCursor = NSCursor.resizeLeftRight
+                                    case 8:
+                                        hoverHandleCursor = NSCursor.openHand
+                                    default:
+                                        hoverHandleCursor = nil
+                                    }
                                 } else if (ann.type == .arrow || ann.type == .line),
                                           let baseStart = ann.lineStartPoint, let baseEnd = ann.lineEndPoint {
                                     let t = ann.transform
                                     let startC = baseStart.applying(t), endC = baseEnd.applying(t)
                                     if abs(canvasLoc.x - endC.x) <= r && abs(canvasLoc.y - endC.y) <= r {
-                                        hoverHandleIndex = 10
+                                        hoverHandleCursor = endpointCursor(dx: endC.x - startC.x, dy: endC.y - startC.y)
                                     } else if abs(canvasLoc.x - startC.x) <= r && abs(canvasLoc.y - startC.y) <= r {
-                                        hoverHandleIndex = 9
+                                        hoverHandleCursor = endpointCursor(dx: endC.x - startC.x, dy: endC.y - startC.y)
                                     } else {
-                                        hoverHandleIndex = nil
+                                        hoverHandleCursor = nil
                                     }
                                 } else {
-                                    hoverHandleIndex = nil
+                                    hoverHandleCursor = nil
                                 }
                             } else {
-                                hoverHandleIndex = nil
+                                hoverHandleCursor = nil
                             }
                         } else {
-                            hoverHandleIndex = nil
+                            hoverHandleCursor = nil
                         }
                     } else {
                         viewModel.hoveredAnnotationID = nil
-                        hoverHandleIndex = nil
+                        hoverHandleCursor = nil
                     }
                     updateCursor()
                 } else {
