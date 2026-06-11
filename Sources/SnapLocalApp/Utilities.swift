@@ -29,7 +29,29 @@ extension NSApplication {
     @MainActor
     func bringToFront() {
         activate(ignoringOtherApps: true)
-        windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        if let window = windows.first(where: { $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            reopenMainWindow()
+        }
+    }
+
+    /// 閉じて破棄された(または「閉じた状態」で復元された)WindowGroupウィンドウをSwiftUIに再生成させる。
+    /// Dockクリックと同じ reopen イベントを自分自身へ送る。
+    /// T9.2 実機検証: delegateの applicationShouldHandleReopen 直呼びはYESを返すだけで再生成されず、
+    /// SwiftUIの openWindow をグローバル退避する案もメニューバーラベルでは onAppear 非発火で不成立 —
+    /// この経路のみ動作確認できた。自分自身へのApple Event送信は権限プロンプト対象外。
+    @MainActor
+    func reopenMainWindow() {
+        let target = NSAppleEventDescriptor(processIdentifier: ProcessInfo.processInfo.processIdentifier)
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass),      // 'aevt'
+            eventID: AEEventID(kAEReopenApplication),       // 'rapp'
+            targetDescriptor: target,
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
+        _ = try? event.sendEvent(options: [.noReply], timeout: 0.1)
     }
 }
 

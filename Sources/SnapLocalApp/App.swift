@@ -210,6 +210,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         mainWindow.makeKeyAndOrderFront(nil)
                         mainWindow.orderFrontRegardless()
                         logger.debug("Main window configured (retry): \(mainWindow)")
+                    } else if NSApp.windows.first(where: { $0.canBecomeMain }) == nil {
+                        // 前回「閉じた状態」で復元されるとウィンドウなしで起動完了してしまう
+                        // (mainWindow はアプリ非アクティブ時も nil のため、実在チェックは canBecomeMain で)
+                        logger.warning("No main window after launch — recreating via reopen")
+                        NSApp.reopenMainWindow()
                     }
                 }
             }
