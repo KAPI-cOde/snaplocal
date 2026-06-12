@@ -249,6 +249,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
     private var cancellables = Set<AnyCancellable>()
     var clipboardOnlyCapture = false   // set before a "capture to clipboard only" call
     var fullScreenCapturePending = false
+    /// T9.9 撮影トリガ時の最前面アプリ。URL記録の対象判定用
+    var pendingSourceBundleID: String? = nil
     // T8.2: クイック注釈パネル表示中はメインウィンドウ側のキャンバスをヒエラルキーから
     // 外す(canvasSize の単一書き込み者を保証 — CLAUDE.md 最重要項)
     @Published var quickPanelActive = false

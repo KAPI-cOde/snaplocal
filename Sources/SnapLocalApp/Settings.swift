@@ -29,6 +29,7 @@ enum SettingsKey: String {
     case filenameTemplate = "filename.template"
     case captureWithCursor = "capture.withCursor"
     case autoCopyOnCapture = "capture.autoCopy"
+    case recordSourceURL = "capture.recordSourceURL"
     case openEditorOnCapture = "capture.openEditor"
     case panelAlwaysOnTop = "panel.alwaysOnTop"
     case annotationTemplates = "annotation.templates"
@@ -65,6 +66,7 @@ final class SettingsManager: ObservableObject {
             SettingsKey.notificationsEnabled.rawValue: true,
             SettingsKey.launchAtLogin.rawValue: false,
             SettingsKey.autoCopyOnCapture.rawValue: true,
+            SettingsKey.recordSourceURL.rawValue: true,
             SettingsKey.panelAlwaysOnTop.rawValue: true,
             SettingsKey.hijackRegionHotkey.rawValue: true
         ])
@@ -185,6 +187,13 @@ final class SettingsManager: ObservableObject {
     var autoCopyOnCapture: Bool {
         get { defaults.bool(forKey: SettingsKey.autoCopyOnCapture.rawValue) }
         set { defaults.set(newValue, forKey: SettingsKey.autoCopyOnCapture.rawValue) }
+    }
+
+    // MARK: - Record source browser URL on capture (T9.9)
+
+    var recordSourceURL: Bool {
+        get { defaults.bool(forKey: SettingsKey.recordSourceURL.rawValue) }
+        set { defaults.set(newValue, forKey: SettingsKey.recordSourceURL.rawValue) }
     }
 
     // MARK: - Open editor immediately after capture (skip HUD)

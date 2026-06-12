@@ -172,6 +172,10 @@ struct SettingsSheet: View {
                         get: { settings.autoCopyOnCapture },
                         set: { settings.autoCopyOnCapture = $0 }
                     ))
+                    Toggle("撮影時にブラウザのページURLを記録", isOn: Binding(
+                        get: { settings.recordSourceURL },
+                        set: { settings.recordSourceURL = $0 }
+                    ))
                     Toggle("撮影後にフルエディタを開く（クイック注釈パネルの代わり）", isOn: Binding(
                         get: { settings.openEditorOnCapture },
                         set: { settings.openEditorOnCapture = $0 }

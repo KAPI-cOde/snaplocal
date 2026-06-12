@@ -10,7 +10,14 @@ extension SnapLocalState {
 
     // MARK: - Capture
 
+    /// T9.9: 撮影トリガ時点の最前面アプリを記録(オーバーレイ/パネルがフォーカスを奪う前に呼ぶ)
+    private func snapshotSourceApp() {
+        pendingSourceBundleID = SettingsManager.shared.recordSourceURL
+            ? NSWorkspace.shared.frontmostApplication?.bundleIdentifier : nil
+    }
+
     func captureNow() {
+        snapshotSourceApp()
         showStatus("撮影中…")
         fullScreenCapturePending = true
         captureEngine?.captureScreen()
@@ -55,6 +62,7 @@ extension SnapLocalState {
                     CountdownOverlay.shared.hide()
                     showStatus("撮影中…")
                     fullScreenCapturePending = true
+                    snapshotSourceApp()
                     captureEngine?.captureScreen()
                 }
             }
@@ -62,6 +70,7 @@ extension SnapLocalState {
     }
 
     func captureWindowMode() {
+        snapshotSourceApp()
         showStatus("ウィンドウ一覧を取得中…")
         Task {
             do {
@@ -72,6 +81,7 @@ extension SnapLocalState {
                     if let win = selected {
                         self.captureWindowNow(win)
                     } else {
+                        self.pendingSourceBundleID = nil  // T9.9: キャンセル時の残骸が後続のペースト/ドロップに付かないように
                         self.showStatus("キャンセルしました", success: true)
                     }
                 }
@@ -88,6 +98,7 @@ extension SnapLocalState {
     }
 
     func captureRegion() {
+        snapshotSourceApp()
         fullScreenCapturePending = false  // 直前の全画面撮影が失敗していても即クロップを引き継がない
         isRegionCapturing = true
         showStatus("範囲を選択 — ドラッグして選択")
@@ -97,6 +108,7 @@ extension SnapLocalState {
             guard let self else { return }
             self.isRegionCapturing = false
             guard let rect else {
+                self.pendingSourceBundleID = nil  // T9.9: キャンセル時の残骸が後続のペースト/ドロップに付かないように
                 self.showStatus("キャンセルしました", success: true)
                 return
             }
@@ -113,6 +125,7 @@ extension SnapLocalState {
     }
 
     func repeatLastRegionCapture() {
+        snapshotSourceApp()
         guard let rect = lastRegionRect else {
             captureRegion()
             return
@@ -122,6 +135,8 @@ extension SnapLocalState {
     }
 
     func acceptCapture(_ image: CGImage) {
+        let sourceBundleID = pendingSourceBundleID
+        pendingSourceBundleID = nil
         let skipSound = regionCapturePlayedSound
         let wasFullScreen = fullScreenCapturePending
         fullScreenCapturePending = false
@@ -201,6 +216,12 @@ extension SnapLocalState {
             currentVaultID = item.id
             await loadHistory()
 
+            // T9.9: 撮影元ブラウザのURL記録(失敗・非対応は静かにスキップ)
+            if let tab = BrowserSourceService.fetchCurrentTab(bundleID: sourceBundleID) {
+                await vault.updateSource(id: item.id, url: tab.url, title: tab.title)
+                await loadHistory()
+            }
+
             // QR / barcode detection (runs in parallel with OCR below)
             async let qrPayloads = detectBarcodes(in: image)
 
@@ -243,6 +264,7 @@ extension SnapLocalState {
         case .success(let image):
             acceptCapture(image)
         case .failure(let error):
+            pendingSourceBundleID = nil  // T9.9: 失敗時の残骸が後続のペースト/ドロップに付かないように
             showStatus(Self.captureFailureMessage(for: error))
         }
     }

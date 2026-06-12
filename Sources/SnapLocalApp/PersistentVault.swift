@@ -21,6 +21,10 @@ struct VaultManifestEntry: Codable, Sendable {
     /// annotationsData の座標が表現されている基準キャンバスサイズ(保存時の表示サイズ)。
     /// 追加キー(T9.5)— nil = 旧データ(基準不明、ロード時は換算なしで現サイズを採用)
     var annotationsBasis: CGSize? = nil
+    /// T9.9 撮影元ブラウザのタブURL。追加キーのみ・互換維持
+    var sourceURL: String? = nil
+    /// T9.9 撮影元ブラウザのページタイトル。追加キーのみ・互換維持
+    var sourcePageTitle: String? = nil
     var width: Int
     var height: Int
     var title: String?
@@ -39,6 +43,8 @@ struct VaultItem: Identifiable, Sendable {
     var annotations: [AnyAnnotation]
     /// annotations の基準キャンバスサイズ(T9.5)。nil = 旧データ
     var annotationsBasis: CGSize? = nil
+    var sourceURL: String? = nil
+    var sourcePageTitle: String? = nil
     var title: String?
     var notes: String?
     var width: Int = 0
@@ -190,6 +196,8 @@ actor PersistentVault {
             ocrText: "",
             annotations: annotations,
             annotationsBasis: entry.annotationsBasis,
+            sourceURL: entry.sourceURL,
+            sourcePageTitle: entry.sourcePageTitle,
             title: nil,
             notes: nil,
             width: image.width,
@@ -217,6 +225,15 @@ actor PersistentVault {
         let normalized = notes?.isEmpty == true ? nil : notes
         guard let entry = manifest[id], entry.notes != normalized else { return }
         manifest[id]!.notes = normalized
+        persist(id)
+    }
+
+    /// T9.9: 撮影元ブラウザのURL+ページタイトルを記録
+    func updateSource(id: UUID, url: String?, title: String?) {
+        guard let entry = manifest[id],
+              entry.sourceURL != url || entry.sourcePageTitle != title else { return }
+        manifest[id]!.sourceURL = url
+        manifest[id]!.sourcePageTitle = title
         persist(id)
     }
 
@@ -368,6 +385,7 @@ actor PersistentVault {
         return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
                          thumbnailData: thumbData, ocrText: entry.ocrText,
                          annotations: annotations, annotationsBasis: entry.annotationsBasis,
+                         sourceURL: entry.sourceURL, sourcePageTitle: entry.sourcePageTitle,
                          title: entry.title,
                          notes: entry.notes, width: entry.width, height: entry.height)
     }
@@ -402,6 +420,8 @@ actor PersistentVault {
             ocrText: entry.ocrText,
             annotations: annotations,
             annotationsBasis: entry.annotationsBasis,
+            sourceURL: entry.sourceURL,
+            sourcePageTitle: entry.sourcePageTitle,
             title: entry.title,
             notes: entry.notes,
             width: entry.width,
@@ -437,7 +457,7 @@ actor PersistentVault {
     }
 
     private static func searchText(for entry: VaultManifestEntry) -> String {
-        [entry.ocrText, entry.title ?? "", entry.notes ?? "", entry.annotationTexts ?? ""]
+        [entry.ocrText, entry.title ?? "", entry.notes ?? "", entry.annotationTexts ?? "", entry.sourceURL ?? "", entry.sourcePageTitle ?? ""]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
     }

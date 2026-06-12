@@ -65,3 +65,55 @@ extension DateFormatter {
         return df
     }()
 }
+
+/// 撮影元ブラウザの現在タブURL+タイトルを Apple Events(ローカルのみ)で取得する(T9.9)。
+/// 非対応ブラウザ・権限拒否・取得失敗は全て nil = 静かにスキップ
+@MainActor
+enum BrowserSourceService {
+    private enum ScriptForm { case safari, chromium }
+    private static let browsers: [String: ScriptForm] = [
+        "com.apple.Safari": .safari,
+        "com.apple.SafariTechnologyPreview": .safari,
+        "com.google.Chrome": .chromium,
+        "com.microsoft.edgemac": .chromium,
+        "com.brave.Browser": .chromium,
+        "com.vivaldi.Vivaldi": .chromium,
+        "org.chromium.Chromium": .chromium,
+        "company.thebrowser.Browser": .chromium,  // Arc
+    ]
+
+    static func fetchCurrentTab(bundleID: String?) -> (url: String, title: String)? {
+        guard let bid = bundleID, let form = browsers[bid] else { return nil }
+        let script: String
+        switch form {
+        case .safari:
+            script = """
+            try
+              tell application id "\(bid)"
+                set u to URL of current tab of front window
+                set t to name of current tab of front window
+                return u & linefeed & t
+              end tell
+            end try
+            """
+        case .chromium:
+            script = """
+            try
+              tell application id "\(bid)"
+                set u to URL of active tab of front window
+                set t to title of active tab of front window
+                return u & linefeed & t
+              end tell
+            end try
+            """
+        }
+        var err: NSDictionary?
+        guard let result = NSAppleScript(source: script)?.executeAndReturnError(&err).stringValue else { return nil }
+        let parts = result.components(separatedBy: "\n")
+        let rawURL = parts.first ?? ""
+        let rawTitle = parts.count > 1 ? parts[1] : ""
+        guard let parsed = URL(string: rawURL), parsed.scheme == "http" || parsed.scheme == "https" else { return nil }
+        let title = rawTitle.isEmpty ? (parsed.host ?? rawURL) : rawTitle
+        return (rawURL, title)
+    }
+}

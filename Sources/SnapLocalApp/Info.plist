@@ -28,5 +28,7 @@
     <string>保存先フォルダへのアクセスに必要です。</string>
     <key>NSDownloadsFolderUsageDescription</key>
     <string>ダウンロードフォルダへの保存に必要です。</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>撮影元のブラウザからページのURLとタイトルを取得するために使用します（Mac内の問い合わせのみ）。</string>
 </dict>
 </plist>

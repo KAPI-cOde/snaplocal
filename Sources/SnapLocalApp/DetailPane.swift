@@ -35,25 +35,37 @@ struct DetailPane: View {
                         if wasFocused && !isFocused { commitTitle() }
                     }
 
-                Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
+                HStack(spacing: DS.Space.xs) {
+                    Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: DS.FontSize.caption))
+                        .foregroundStyle(.secondary)
+
+                    if let urlString = item.sourceURL, let url = URL(string: urlString) {
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            HStack(spacing: 2) {
+                                Image(systemName: "link")
+                                Text({
+                                    if let t = item.sourcePageTitle, !t.isEmpty { return t }
+                                    return url.host ?? urlString
+                                }())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            }
+                            .font(.system(size: DS.FontSize.caption))
+                            .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help(urlString)
+                    }
+                }
+
+                TextField("メモを追加…", text: $notesText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...2)
                     .font(.system(size: DS.FontSize.caption))
                     .foregroundStyle(.secondary)
-
-                TextEditor(text: $notesText)
-                    .font(.system(size: DS.FontSize.body))
-                    .scrollContentBackground(.hidden)
-                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: DS.Radius.small))
-                    .frame(maxHeight: .infinity)
-                    .overlay(alignment: .topLeading) {
-                        if notesText.isEmpty {
-                            Text("メモを追加…")
-                                .foregroundStyle(.tertiary)
-                                .font(.system(size: DS.FontSize.body))
-                                .padding(.top, DS.Space.xxs)
-                                .padding(.leading, DS.Space.xxs)
-                                .allowsHitTesting(false)
-                        }
-                    }
                     .onChange(of: notesText) { _, newVal in
                         onUpdateNotes?(item, newVal.isEmpty ? nil : newVal)
                     }
@@ -100,7 +112,7 @@ struct DetailPane: View {
             .layoutPriority(2)
         }
         .padding(DS.Space.s)
-        .frame(height: 150)
+        .frame(height: 92)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
