@@ -355,6 +355,11 @@ struct AnnotationCanvasView: View {
                 .allowsHitTesting(true)
                 .opacity(0)
             )
+            // 最前面に重ねる(クリック自体はNSEventローカルモニタ経由 — miniActionsOverlay参照)
+            .overlay(
+                miniActionsOverlay(viewport: proxy.size, fit: fit, zoom: zoom, pan: panOffset)
+                    .animation(DS.Anim.fast, value: viewModel.selectedAnnotationID)
+            )
             .overlay(alignment: .topTrailing) {
                 // 100% = 実寸(撮影時と同じ大きさ)。タップで既定表示に戻す
                 let pct = Int(round(effectiveZoom * 100))

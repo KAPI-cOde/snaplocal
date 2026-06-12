@@ -591,6 +591,9 @@ final class CanvasViewModel: ObservableObject {
         newAnnotation.applyTransform(CGAffineTransform(translationX: 10, y: 10))
         addAnnotation(newAnnotation)
         selectedAnnotationID = newAnnotation.id
+        // 複製は明示操作なので、コピーを「明示選択」として扱い
+        // 選択ハンドル・ミニアクションを出したままにする(T9.11)
+        selectionIsFromCreation = false
     }
 
     func bringSelectedToFront() {

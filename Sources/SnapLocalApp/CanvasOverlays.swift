@@ -150,6 +150,176 @@ extension AnnotationCanvasView {
         }
     }
 
+    /// 選択注釈の近くに出すミニアクション(ゴミ箱+複製、T9.11)。
+    /// クリックは MiniActionsInterceptView の NSEvent ローカルモニタで受ける
+    /// (キャンバスの DragGesture が SwiftUI 内部ディスパッチで勝つため、
+    /// ボタンの通常経路ではクリックが届かない — 詳細は MiniActionsBarHost)。
+    /// 座標はキャンバス(fit)空間から順写像 view = viewCenter + (canvas - canvasCenter) * zoom + pan
+    /// で自前変換する(バー自体はズームに追従して拡大しない)。
+    @ViewBuilder
+    func miniActionsOverlay(viewport: CGSize, fit: CGSize, zoom: CGFloat, pan: CGSize) -> some View {
+        let canvasRect = CGRect(origin: .zero, size: fit)
+        if viewModel.currentTool == .select || (viewModel.currentTool.supportsGrabMove && !viewModel.selectionIsFromCreation),
+           !viewModel.isCropMode,
+           !viewModel.annotationsHidden,
+           viewModel.selectedAnnotationIDs.count <= 1,
+           !viewModel.isDraggingAnnotation,
+           viewModel.resizingHandleIndex == nil,
+           !viewModel.isGrabMoving,
+           !viewModel.dragState.isDrawing,
+           !(viewModel.showTextInput && viewModel.editingAnnotationID != nil),
+           !viewModel.selectionIsFromCreation,
+           let ann = viewModel.annotations.first(where: { $0.id == viewModel.selectedAnnotationID }) {
+            let bounds: CGRect = {
+                if (ann.type == .arrow || ann.type == .line),
+                   let baseStart = ann.lineStartPoint,
+                   let baseEnd = ann.lineEndPoint {
+                    let start = baseStart.applying(ann.transform)
+                    let end = baseEnd.applying(ann.transform)
+                    return CGRect(
+                        x: min(start.x, end.x),
+                        y: min(start.y, end.y),
+                        width: abs(start.x - end.x),
+                        height: abs(start.y - end.y)
+                    )
+                }
+                return ann.bounds(in: canvasRect)
+            }()
+            let viewMidX = viewport.width / 2 + (bounds.midX - fit.width / 2) * zoom + pan.width
+            let viewTopY = viewport.height / 2 + (bounds.minY - fit.height / 2) * zoom + pan.height
+            let viewBottomY = viewport.height / 2 + (bounds.maxY - fit.height / 2) * zoom + pan.height
+            let estimatedWidth: CGFloat = 80
+            let estimatedHeight = DS.Toolbar.controlHeight
+            let gap = DS.Space.xs
+            let x = min(max(viewMidX, estimatedWidth / 2), max(estimatedWidth / 2, viewport.width - estimatedWidth / 2))
+            let aboveY = viewTopY - gap - estimatedHeight / 2
+            let rawY = aboveY < estimatedHeight / 2 ? viewBottomY + gap + estimatedHeight / 2 : aboveY
+            let y = min(max(rawY, estimatedHeight / 2), viewport.height - estimatedHeight / 2)
+
+            // 純SwiftUIのButton/onTapGestureはキャンバスのDragGestureにクリックを
+            // 奪われる(実機検証済み: AXPressは効くが座標クリックは祖先ジェスチャへ)。
+            // NSTextView(注釈テキスト入力)が動くのと同じ理屈で、実NSViewだけが
+            // AppKitヒットテストで勝てるため、NSHostingViewでラップする(T9.11)
+            MiniActionsBarHost(
+                onDelete: { viewModel.deleteSelectedAnnotation() },
+                onDuplicate: { viewModel.duplicateSelectedAnnotation() }
+            )
+            .fixedSize()
+            .position(x: x, y: y)
+            .transition(.opacity.combined(with: .scale(scale: 0.5)))
+        }
+    }
+
+    /// ミニアクションバーの中身(NSHostingView内で動く素のSwiftUI)。
+    /// ここではキャンバスのジェスチャと競合しないため普通のButtonでよい。
+    struct MiniActionsBar: View {
+        let onDelete: () -> Void
+        let onDuplicate: () -> Void
+
+        var body: some View {
+            HStack(spacing: DS.Space.xxs) {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .frame(width: DS.Toolbar.menuWidth, height: DS.Toolbar.menuWidth)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("削除 (Del)")
+
+                Button(action: onDuplicate) {
+                    Image(systemName: "plus.square.on.square")
+                        .frame(width: DS.Toolbar.menuWidth, height: DS.Toolbar.menuWidth)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("複製 (⌘D)")
+            }
+            .font(.system(size: DS.FontSize.caption, weight: .medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, DS.Space.xs)
+            .padding(.vertical, DS.Space.xxs)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.small))
+            .shadow(DS.Shadow.overlay)
+        }
+    }
+
+    /// MiniActionsBar を実NSViewとして埋め込み、クリックをNSEventローカルモニタで
+    /// 横取りするラッパー。SwiftUIルート(AppKitWindowHostingView)の hitTest は
+    /// 自分自身を返してSwiftUI内部ディスパッチに回し、そこではキャンバスの
+    /// DragGestureが勝つため、Button/onTapGesture/実NSViewのどれもクリックを
+    /// 受け取れない(lldbで実機確認済み)。ウィンドウ配送前のローカルモニタが
+    /// 唯一確実な経路(RegionCaptureに前例)。バー非表示中はviewがwindowから
+    /// 外れるためモニタも自動で解除される
+    struct MiniActionsBarHost: NSViewRepresentable {
+        let onDelete: () -> Void
+        let onDuplicate: () -> Void
+
+        func makeNSView(context: Context) -> MiniActionsInterceptView {
+            MiniActionsInterceptView(onDelete: onDelete, onDuplicate: onDuplicate)
+        }
+
+        func updateNSView(_ nsView: MiniActionsInterceptView, context: Context) {
+            nsView.onDelete = onDelete
+            nsView.onDuplicate = onDuplicate
+        }
+    }
+
+    final class MiniActionsInterceptView: NSView {
+        var onDelete: () -> Void
+        var onDuplicate: () -> Void
+        private let hosting: NSHostingView<MiniActionsBar>
+        private var monitor: Any?
+
+        init(onDelete: @escaping () -> Void, onDuplicate: @escaping () -> Void) {
+            self.onDelete = onDelete
+            self.onDuplicate = onDuplicate
+            self.hosting = NSHostingView(rootView: MiniActionsBar(onDelete: onDelete, onDuplicate: onDuplicate))
+            super.init(frame: .zero)
+            hosting.sizingOptions = .intrinsicContentSize
+            hosting.autoresizingMask = [.width, .height]
+            addSubview(hosting)
+            hosting.frame = bounds
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override var intrinsicContentSize: NSSize { hosting.intrinsicContentSize }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                removeMonitor()
+            } else {
+                installMonitor()
+            }
+        }
+
+        private func installMonitor() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+                guard let self, let win = self.window, event.window === win else { return event }
+                let p = self.convert(event.locationInWindow, from: nil)
+                guard self.bounds.contains(p) else { return event }
+                // 左半分=削除 / 右半分=複製。イベントは飲み込んで
+                // キャンバスのジェスチャ(選択解除等)へ流さない
+                if p.x < self.bounds.midX {
+                    self.onDelete()
+                } else {
+                    self.onDuplicate()
+                }
+                return nil
+            }
+        }
+
+        private func removeMonitor() {
+            if let m = monitor {
+                NSEvent.removeMonitor(m)
+                monitor = nil
+            }
+        }
+    }
+
     func handleDot(circle: Bool, diameter: CGFloat, tint: Color) -> some View {
         Group {
             if circle {
