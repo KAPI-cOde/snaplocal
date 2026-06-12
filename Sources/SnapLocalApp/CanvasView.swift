@@ -935,7 +935,13 @@ struct AnnotationCanvasView: View {
                     viewModel.handleDragUpdate(at: loc, in: rect)
                 } else {
                     canvasFocused = true
-                    viewModel.handleDragStart(at: loc, in: rect)
+                    // T9.17: ヒット判定は「押した点」で行う。最初のonChangedのlocationは
+                    // 速いドラッグだと押下点から10〜40pt飛んでおり、端点ハンドル等を取りこぼす
+                    let start = toCanvas(value.startLocation, size: size)
+                    viewModel.handleDragStart(at: start, in: rect)
+                    if viewModel.dragState.isDrawing, start != loc {
+                        viewModel.handleDragUpdate(at: loc, in: rect)
+                    }
                 }
                 updateCursor()
             }

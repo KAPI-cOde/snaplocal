@@ -382,28 +382,31 @@ extension CanvasViewModel {
         // Arrow / Line endpoint drag (handle index 9=start, 10=end)
         if let handleIdx = resizingHandleIndex, (handleIdx == 9 || handleIdx == 10),
            let id = selectedAnnotationID,
-           let origAnn = dragStartAnnotation,
-           let data = try? JSONEncoder().encode(origAnn) {
+           let origAnn = dragStartAnnotation {
             // Shift-constrain to 45° increments
             var pt = localPoint
             if NSEvent.modifierFlags.contains(.shift) {
                 let anchor = handleIdx == 9 ? endpointDragBakedEnd : endpointDragBakedStart
                 pt = shiftConstrainedPoint(pt, from: anchor)
             }
-            var json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-            let t = origAnn.transform
-            func encodePoint(_ p: CGPoint) -> [String: Double] { ["x": Double(p.x), "y": Double(p.y)] }
-            if handleIdx == 9 {
-                json["startPoint"] = encodePoint(pt)
-                json["endPoint"]   = encodePoint(endpointDragBakedEnd)
-            } else {
-                json["startPoint"] = encodePoint(endpointDragBakedStart)
-                json["endPoint"]   = encodePoint(pt)
+            let newStart = handleIdx == 9 ? pt : endpointDragBakedStart
+            let newEnd   = handleIdx == 10 ? pt : endpointDragBakedEnd
+            // T9.17根治: 旧実装はJSON再ラップでCGPointを辞書として書き込んでいたが、
+            // 実際のエンコード形式は配列[x,y]のためdecodeが静かに失敗し端点ドラッグは無反応だった。
+            // reverseArrow(T9.15)と同じ直接再構築に変更。座標はドラッグ開始時に
+            // transform込みでbake済みのcanvas座標なので transform は identity
+            var rebuilt: AnyAnnotation?
+            if origAnn.type == .arrow {
+                rebuilt = AnyAnnotation(ArrowAnnotation(
+                    id: origAnn.id, color: origAnn.color, lineWidth: origAnn.lineWidth,
+                    transform: .identity, startPoint: newStart, endPoint: newEnd,
+                    doubleSided: origAnn.arrowDoubleSided))
+            } else if origAnn.type == .line {
+                rebuilt = AnyAnnotation(LineAnnotation(
+                    id: origAnn.id, color: origAnn.color, lineWidth: origAnn.lineWidth,
+                    transform: .identity, startPoint: newStart, endPoint: newEnd))
             }
-            // Reset transform to identity (coords now baked in canvas space)
-            json["transform"] = ["a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0]
-            if let newData = try? JSONSerialization.data(withJSONObject: json),
-               var newAnn = try? JSONDecoder().decode(AnyAnnotation.self, from: newData) {
+            if var newAnn = rebuilt {
                 newAnn.opacity = origAnn.opacity
                 newAnn.isLocked = origAnn.isLocked
                 newAnn.lineStyle = origAnn.lineStyle
