@@ -264,6 +264,9 @@ struct AnnotationCanvasView: View {
                         Divider()
                     }
                     Button(ann.isLocked ? "ロック解除" : "ロック") { viewModel.toggleLockSelected() }
+                    if ann.type == .arrow {
+                        Button("向きを反転") { viewModel.reverseArrow(id: ann.id) }
+                    }
                     Button("複製 (⌘D)") { viewModel.duplicateSelectedAnnotation() }
                     Button("前面へ (⌘])") { viewModel.bringSelectedToFront() }
                     Button("背面へ (⌘[)") { viewModel.sendSelectedToBack() }

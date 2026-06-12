@@ -596,6 +596,34 @@ final class CanvasViewModel: ObservableObject {
         selectionIsFromCreation = false
     }
 
+    func reverseArrow(id: UUID) {
+        guard let i = annotations.firstIndex(where: { $0.id == id }),
+              annotations[i].type == .arrow,
+              !annotations[i].isLocked,
+              let s = annotations[i].lineStartPoint,
+              let e = annotations[i].lineEndPoint else { return }
+        let old = annotations[i]
+        // _basePath が concrete struct を捕捉しているため、点のスワップは再ラップが必要
+        var reversed = AnyAnnotation(ArrowAnnotation(
+            id: old.id, color: old.color, lineWidth: old.lineWidth,
+            transform: old.transform, startPoint: e, endPoint: s,
+            doubleSided: old.arrowDoubleSided))
+        reversed.opacity = old.opacity
+        reversed.isLocked = old.isLocked
+        reversed.lineStyle = old.lineStyle
+        reversed.customColorHex = old.customColorHex
+        let snapshot = annotations
+        undoManager.registerMainActorUndo(withTarget: self) { target in
+            target.isUndoing = true
+            target.annotations = snapshot
+            target.isUndoing = false
+            target.updateUndoRedoState()
+        }
+        annotations[i] = reversed
+        updateUndoRedoState()
+        objectWillChange.send()
+    }
+
     func bringSelectedToFront() {
         guard let id = selectedAnnotationID,
               let i = annotations.firstIndex(where: { $0.id == id }),
