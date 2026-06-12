@@ -237,7 +237,7 @@ extension CanvasViewModel {
             let t = ann.transform
             let startCanvas = baseStart.applying(t)
             let endCanvas   = baseEnd.applying(t)
-            let r: CGFloat = 10
+            let r: CGFloat = 16   // T9.17: 実機で「白丸を掴めない」FB — 端点判定を±10→16ptへ拡大(線本体22ptより先勝ちなので競合しない)
             let hitStart = abs(localPoint.x - startCanvas.x) <= r && abs(localPoint.y - startCanvas.y) <= r
             let hitEnd   = abs(localPoint.x - endCanvas.x)   <= r && abs(localPoint.y - endCanvas.y)   <= r
             if hitStart || hitEnd {
