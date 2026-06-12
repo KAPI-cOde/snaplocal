@@ -69,7 +69,7 @@ final class QuickAnnotatePanel {
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = true
-        p.level = .floating
+        p.level = SettingsManager.shared.panelAlwaysOnTop ? .floating : .normal
         // 注意: isMovableByWindowBackground は使わない — キャンバス上のドラッグ(注釈描画)が
         // ウィンドウ移動に吸われる(実機で発生)。移動はツールバー/フッターの WindowDragHandle と
         // QuickAnnotatePanelWindow.mouseDown(未消費クリックのフォールバック)で行う。
@@ -109,6 +109,12 @@ final class QuickAnnotatePanel {
         NSApp.bringToFront()
     }
 
+    /// ピンインジケータ(T9.8): 表示中パネルの最前面固定をその場で切り替える。
+    /// 設定 panelAlwaysOnTop は「次に開くパネルの既定値」であり、ここでは書き換えない。
+    func setPinned(_ pinned: Bool) {
+        panel?.level = pinned ? .floating : .normal
+    }
+
     private func persistAnnotations(_ state: SnapLocalState) {
         guard let id = state.currentVaultID, !state.canvas.annotations.isEmpty else { return }
         let anns = state.canvas.annotations
@@ -142,31 +148,44 @@ final class QuickAnnotatePanel {
 struct QuickAnnotateView: View {
     @ObservedObject var state: SnapLocalState
     let canvasArea: CGSize
+    @State private var pinned = SettingsManager.shared.panelAlwaysOnTop
 
     var body: some View {
         VStack(spacing: 0) {
-            CompactToolbar(
-                canvas: state.canvas,
-                onCapture: state.captureNow,
-                onCaptureRegion: state.captureRegion,
-                onCaptureWindow: state.captureWindowMode,
-                onPin: state.pinCurrentImage,
-                onCaptureWithDelay: state.captureWithDelay,
-                onRepeatRegion: state.repeatLastRegionCapture,
-                onSave: state.saveAnnotatedImage,
-                onSaveAs: state.saveAnnotatedImageAs,
-                onCopy: state.copyToClipboard,
-                onPaste: state.pasteFromClipboard,
-                onShare: state.shareCurrentImage,
-                onAutoRedactFaces: {
-                    guard let img = state.canvas.backgroundImage else { return }
-                    state.autoRedactFaces(in: img, canvas: state.canvas)
-                },
-                sidebarVisible: .constant(false),
-                showsSidebarToggle: false,
-                onCaptureToClipboard: state.captureNowToClipboard,
-                onCaptureRegionToClipboard: state.captureRegionToClipboard
-            )
+            HStack(spacing: 0) {
+                CompactToolbar(
+                    canvas: state.canvas,
+                    onCapture: state.captureNow,
+                    onCaptureRegion: state.captureRegion,
+                    onCaptureWindow: state.captureWindowMode,
+                    onPin: state.pinCurrentImage,
+                    onCaptureWithDelay: state.captureWithDelay,
+                    onRepeatRegion: state.repeatLastRegionCapture,
+                    onSave: state.saveAnnotatedImage,
+                    onSaveAs: state.saveAnnotatedImageAs,
+                    onCopy: state.copyToClipboard,
+                    onPaste: state.pasteFromClipboard,
+                    onShare: state.shareCurrentImage,
+                    onAutoRedactFaces: {
+                        guard let img = state.canvas.backgroundImage else { return }
+                        state.autoRedactFaces(in: img, canvas: state.canvas)
+                    },
+                    sidebarVisible: .constant(false),
+                    showsSidebarToggle: false,
+                    onCaptureToClipboard: state.captureNowToClipboard,
+                    onCaptureRegionToClipboard: state.captureRegionToClipboard
+                )
+                Button {
+                    pinned.toggle()
+                    QuickAnnotatePanel.shared.setPinned(pinned)
+                } label: {
+                    Image(systemName: pinned ? "pin.fill" : "pin")
+                        .foregroundStyle(pinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                }
+                .buttonStyle(DSToolButtonStyle(isActive: pinned))
+                .help(pinned ? "最前面に固定中（クリックで解除）" : "最前面に固定")
+                .padding(.trailing, DS.Space.xs)
+            }
             .background(WindowDragHandle())
             Divider()
             AnnotationCanvasView(

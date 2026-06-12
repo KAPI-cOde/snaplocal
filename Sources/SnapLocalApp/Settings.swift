@@ -30,6 +30,7 @@ enum SettingsKey: String {
     case captureWithCursor = "capture.withCursor"
     case autoCopyOnCapture = "capture.autoCopy"
     case openEditorOnCapture = "capture.openEditor"
+    case panelAlwaysOnTop = "panel.alwaysOnTop"
     case annotationTemplates = "annotation.templates"
     case exportFormat = "export.format"        // "png" | "jpeg"
     case jpegQuality = "export.jpegQuality"    // 0.0-1.0
@@ -64,6 +65,7 @@ final class SettingsManager: ObservableObject {
             SettingsKey.notificationsEnabled.rawValue: true,
             SettingsKey.launchAtLogin.rawValue: false,
             SettingsKey.autoCopyOnCapture.rawValue: true,
+            SettingsKey.panelAlwaysOnTop.rawValue: true,
             SettingsKey.hijackRegionHotkey.rawValue: true
         ])
     }
@@ -190,6 +192,13 @@ final class SettingsManager: ObservableObject {
     var openEditorOnCapture: Bool {
         get { defaults.bool(forKey: SettingsKey.openEditorOnCapture.rawValue) }
         set { defaults.set(newValue, forKey: SettingsKey.openEditorOnCapture.rawValue) }
+    }
+
+    // MARK: - Quick annotate panel always on top (default level for new panels)
+
+    var panelAlwaysOnTop: Bool {
+        get { defaults.bool(forKey: SettingsKey.panelAlwaysOnTop.rawValue) }
+        set { defaults.set(newValue, forKey: SettingsKey.panelAlwaysOnTop.rawValue) }
     }
 
     // MARK: - Export Format

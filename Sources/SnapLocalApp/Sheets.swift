@@ -176,10 +176,14 @@ struct SettingsSheet: View {
                         get: { settings.openEditorOnCapture },
                         set: { settings.openEditorOnCapture = $0 }
                     ))
+                    Toggle("クイック注釈パネルを常に最前面に表示", isOn: Binding(
+                        get: { settings.panelAlwaysOnTop },
+                        set: { settings.panelAlwaysOnTop = $0 }
+                    ))
                 } header: {
                     Text("キャプチャ")
                 } footer: {
-                    Text("「カーソルを含める」は撮影画像にマウスポインタを写し込みます。既定では撮影後に中央へクイック注釈パネルが開きます（⌘↩=注釈込みコピー+保存、Esc=閉じる）")
+                    Text("「カーソルを含める」は撮影画像にマウスポインタを写し込みます。既定では撮影後に中央へクイック注釈パネルが開きます（⌘↩=注釈込みコピー+保存、Esc=閉じる）。最前面表示はパネル右上のピンでその場でも切り替えられます")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -311,4 +315,3 @@ struct SettingsSheet: View {
         }
     }
 }
-
