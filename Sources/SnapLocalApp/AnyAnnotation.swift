@@ -99,7 +99,10 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
             return p.boundingRect.contains(point)
         }
         if p.contains(point) { return true }
-        let tolerance = max(lineWidth.rawValue + 8, 12)
+        // 線系は面を持たず細線だと±6ptしか掴めないため許容幅を広げる(T9.14)
+        let tolerance = (type == .line || type == .arrow)
+            ? max(lineWidth.rawValue + 8, 22)
+            : max(lineWidth.rawValue + 8, 12)
         return p.strokedPath(StrokeStyle(lineWidth: tolerance, lineCap: .round, lineJoin: .round)).contains(point)
     }
 

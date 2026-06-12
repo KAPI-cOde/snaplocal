@@ -14,6 +14,7 @@ struct LineAnnotation: AnnotationElement {
     var transform: CGAffineTransform = .identity
     var startPoint: CGPoint
     var endPoint: CGPoint
+    var hitTolerance: CGFloat { max(lineWidth.rawValue + 8, 22) }
 
     func path(in rect: CGRect) -> Path {
         let s = startPoint.applying(transform)
@@ -41,6 +42,7 @@ struct ArrowAnnotation: AnnotationElement {
     var transform: CGAffineTransform = .identity
     var startPoint: CGPoint
     var endPoint: CGPoint
+    var hitTolerance: CGFloat { max(lineWidth.rawValue + 8, 22) }
     var doubleSided: Bool = false
 
     func path(in rect: CGRect) -> Path {
