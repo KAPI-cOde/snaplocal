@@ -131,6 +131,9 @@ final class QuickAnnotatePanel {
         state?.quickPanelActive = false
     }
 
+    /// T9.18: ツール選択でパネルが自動拡張しないための初期幅下限(実測ツールバー最悪幅758+余裕)
+    static let minPanelContentWidth: CGFloat = 760
+
     /// 撮影画像の論理ptサイズを基準に、画面の約70%へクランプしたキャンバス領域
     private static func canvasArea(for image: CGImage?, on screen: NSScreen?) -> CGSize {
         let scale = screen?.backingScaleFactor ?? 2
@@ -138,8 +141,9 @@ final class QuickAnnotatePanel {
         let imgH = max(CGFloat(image?.height ?? 800) / scale, 1)
         let visible = screen?.visibleFrame.size ?? CGSize(width: 1440, height: 900)
         let fit = min(1, min(visible.width * 0.7 / imgW, visible.height * 0.7 / imgH))
-        // 幅はツールバーが収まる下限(メインウィンドウの minWidth と同値)、高さは操作可能な下限
-        return CGSize(width: max(600, imgW * fit), height: max(280, imgH * fit))
+        // 幅下限 = ツールバーのインライン調整込み最悪幅(2026-06-13 全17ツール実測 758pt)+余裕。
+        // これ未満だとツール選択で minSize が増えウィンドウが勝手に広がる(T9.18 の画像ズレの根因)
+        return CGSize(width: max(Self.minPanelContentWidth, imgW * fit), height: max(280, imgH * fit))
     }
 }
 
@@ -195,9 +199,10 @@ struct QuickAnnotateView: View {
                 onCapture: state.captureNow,
                 onCopyOriginal: state.copyOriginalToClipboard,
                 onCopyRegion: state.copySelectedRegion,
-                onOcrRegion: state.ocrSelectedRegion
+                onOcrRegion: state.ocrSelectedRegion,
+                fillsViewport: true
             )
-            .frame(minWidth: 600, idealWidth: canvasArea.width, maxWidth: .infinity,
+            .frame(minWidth: QuickAnnotatePanel.minPanelContentWidth, idealWidth: canvasArea.width, maxWidth: .infinity,
                    minHeight: 280, idealHeight: canvasArea.height, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
             .overlay(alignment: .bottom) {

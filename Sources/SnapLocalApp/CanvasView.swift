@@ -17,6 +17,8 @@ struct AnnotationCanvasView: View {
     var onCopyOriginal: (() -> Void)? = nil
     var onCopyRegion: (() -> Void)? = nil
     var onOcrRegion: (() -> Void)? = nil
+    /// T9.18: パネル用 — 実寸上限なしのフィット基準表示(ウィンドウリサイズに画像が追従)
+    var fillsViewport: Bool = false
 
     @FocusState private var textFieldFocused: Bool
     @FocusState private var canvasFocused: Bool
@@ -51,9 +53,9 @@ struct AnnotationCanvasView: View {
     private var naturalZoom: CGFloat {
         (1.0 / (NSScreen.main?.backingScaleFactor ?? 2.0)) / fitScale
     }
-    /// 読み込み直後の既定: 実寸。ビューポートに収まらない場合のみフィットまで縮小
-    /// (常に zoom ≤ 1.0 なので画像がUIから溢れない)
-    private var autoFitZoom: CGFloat { max(0.25, min(1.0, naturalZoom)) }
+    /// T9.18: fillsViewport(パネル)はフィット基準(1.0=ビューポートいっぱい、実寸上限なし)。
+    /// メインエディタは従来どおり実寸既定(zoom ≤ 1.0)
+    private var autoFitZoom: CGFloat { fillsViewport ? 1.0 : max(0.25, min(1.0, naturalZoom)) }
     /// バッジ・状態表示用の実ピクセル比(1.0 = 実寸)
     private var effectiveZoom: CGFloat {
         guard viewModel.backgroundImage != nil else { return zoom }
