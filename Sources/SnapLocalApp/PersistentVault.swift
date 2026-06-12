@@ -14,6 +14,8 @@ struct VaultManifestEntry: Codable, Sendable {
     var filename: String        // {uuid}.png
     var thumbFilename: String   // thumbnails/{uuid}.jpg
     var ocrText: String
+    /// T9.7 FoundationModelsで整形したOCRテキスト。nil=未整形
+    var ocrTextPolished: String? = nil
     var annotationsData: Data?  // JSON-encoded [AnyAnnotation]
     /// テキストアノテーションの平文(検索用)。annotationsDataのデコードなしに検索できるようにする
     /// 追加キー(T6.2)— 旧エントリでは nil で、読み込み時に一度だけ補完される
@@ -40,6 +42,7 @@ struct VaultItem: Identifiable, Sendable {
     let imageURL: URL
     let thumbnailData: Data
     var ocrText: String
+    var ocrTextPolished: String? = nil
     var annotations: [AnyAnnotation]
     /// annotations の基準キャンバスサイズ(T9.5)。nil = 旧データ
     var annotationsBasis: CGSize? = nil
@@ -194,6 +197,7 @@ actor PersistentVault {
             imageURL: imageURL,
             thumbnailData: thumbData,
             ocrText: "",
+            ocrTextPolished: entry.ocrTextPolished,
             annotations: annotations,
             annotationsBasis: entry.annotationsBasis,
             sourceURL: entry.sourceURL,
@@ -209,6 +213,16 @@ actor PersistentVault {
     func updateOCR(id: UUID, text: String) {
         guard let entry = manifest[id], entry.ocrText != text else { return }
         manifest[id]!.ocrText = text
+        manifest[id]!.ocrTextPolished = nil
+        persist(id)
+    }
+
+    /// Update polished OCR text only if it still corresponds to the raw OCR source.
+    func updatePolishedOCR(id: UUID, rawText: String, polished: String) {
+        guard let entry = manifest[id],
+              entry.ocrText == rawText,
+              entry.ocrTextPolished != polished else { return }
+        manifest[id]!.ocrTextPolished = polished
         persist(id)
     }
 
@@ -384,6 +398,7 @@ actor PersistentVault {
             .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
         return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
                          thumbnailData: thumbData, ocrText: entry.ocrText,
+                         ocrTextPolished: entry.ocrTextPolished,
                          annotations: annotations, annotationsBasis: entry.annotationsBasis,
                          sourceURL: entry.sourceURL, sourcePageTitle: entry.sourcePageTitle,
                          title: entry.title,
@@ -418,6 +433,7 @@ actor PersistentVault {
             imageURL: imageURL,
             thumbnailData: thumbData,
             ocrText: entry.ocrText,
+            ocrTextPolished: entry.ocrTextPolished,
             annotations: annotations,
             annotationsBasis: entry.annotationsBasis,
             sourceURL: entry.sourceURL,
@@ -457,7 +473,7 @@ actor PersistentVault {
     }
 
     private static func searchText(for entry: VaultManifestEntry) -> String {
-        [entry.ocrText, entry.title ?? "", entry.notes ?? "", entry.annotationTexts ?? "", entry.sourceURL ?? "", entry.sourcePageTitle ?? ""]
+        [entry.ocrText, entry.ocrTextPolished ?? "", entry.title ?? "", entry.notes ?? "", entry.annotationTexts ?? "", entry.sourceURL ?? "", entry.sourcePageTitle ?? ""]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
     }

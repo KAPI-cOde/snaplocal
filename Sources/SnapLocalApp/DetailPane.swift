@@ -6,6 +6,13 @@ struct DetailPane: View {
     var onRename: ((VaultItem, String?) -> Void)?
     var onUpdateNotes: ((VaultItem, String?) -> Void)?
 
+    private var displayedOCRText: String {
+        if let polished = item.ocrTextPolished, !polished.isEmpty {
+            return polished
+        }
+        return item.ocrText
+    }
+
     @State private var titleText: String
     @State private var notesText: String
     @State private var ocrCopied = false
@@ -87,7 +94,7 @@ struct DetailPane: View {
                         Spacer()
                         Button {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(item.ocrText, forType: .string)
+                            NSPasteboard.general.setString(displayedOCRText, forType: .string)
                             ocrCopied = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                                 ocrCopied = false
@@ -101,7 +108,7 @@ struct DetailPane: View {
                         .buttonStyle(.plain)
                     }
 
-                    TextEditor(text: .constant(item.ocrText))
+                    TextEditor(text: .constant(displayedOCRText))
                         .font(.system(size: DS.FontSize.caption))
                         .scrollContentBackground(.hidden)
                         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: DS.Radius.small))

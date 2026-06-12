@@ -22,12 +22,24 @@ extension SnapLocalState {
             let text = await OCRService.recognizeText(in: cg)
             await v.updateOCR(id: item.id, text: text)
             await MainActor.run {
+                self?.polishOCRInBackground(id: item.id, rawText: text)
                 self?.refreshHistory()
                 self?.showStatus(text.isEmpty
                                  ? "テキストは見つかりませんでした"
                                  : "文字認識を再実行しました (\(text.count)文字)",
                                  success: !text.isEmpty)
             }
+        }
+    }
+
+    /// T9.7: 生OCR保存後にバックグラウンドで整形し、二段書きする(生で即検索可→整形後に表示が置き換わる)
+    func polishOCRInBackground(id: UUID, rawText: String) {
+        guard !rawText.isEmpty else { return }
+        let v = vault
+        Task { [weak self] in
+            guard let polished = await OCRPolishService.polish(rawText) else { return }
+            await v.updatePolishedOCR(id: id, rawText: rawText, polished: polished)
+            await MainActor.run { self?.refreshHistory() }
         }
     }
 

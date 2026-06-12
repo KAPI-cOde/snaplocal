@@ -406,6 +406,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             await vault.updateAnnotations(id: id, annotations: anns, basis: basis)
             let text = await OCRService.recognizeText(in: bg)
             await vault.updateOCR(id: id, text: text)
+            polishOCRInBackground(id: id, rawText: text)
             await loadHistory()
             return
         }
@@ -429,6 +430,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         // 切り抜きでテキストが減っている可能性があるため、検索用OCRを撮り直す
         let text = await OCRService.recognizeText(in: bg)
         await vault.updateOCR(id: item.id, text: text)
+        polishOCRInBackground(id: item.id, rawText: text)
         await loadHistory()
     }
 
@@ -450,12 +452,14 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                 await v.updateAnnotations(id: id, annotations: anns, basis: basis)
                 let text = await OCRService.recognizeText(in: bg)
                 await v.updateOCR(id: id, text: text)
+                await MainActor.run { self?.polishOCRInBackground(id: id, rawText: text) }
             } else if let item = await v.save(image: bg, annotations: anns, annotationsBasis: basis) {
                 if let t = sourceTitle { await v.updateTitle(id: item.id, title: t) }
                 if let n = sourceNotes { await v.updateNotes(id: item.id, notes: n) }
                 await MainActor.run { self?.forkedThisSession.insert(item.id) }
                 let text = await OCRService.recognizeText(in: bg)
                 await v.updateOCR(id: item.id, text: text)
+                await MainActor.run { self?.polishOCRInBackground(id: item.id, rawText: text) }
             }
             await MainActor.run { self?.refreshHistory() }
         }

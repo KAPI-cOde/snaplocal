@@ -157,6 +157,66 @@ struct PersistentVaultTests {
             width: 10, height: 10, title: title, notes: nil)
     }
 
+    @Test("VaultManifestEntry decodes legacy JSON without ocrTextPolished key")
+    func manifestEntryDecodesWithoutPolishedOCRKey() throws {
+        let id = UUID()
+        let json = """
+        {
+          "id": "\(id.uuidString)",
+          "createdAt": 0,
+          "filename": "\(id.uuidString).png",
+          "thumbFilename": "thumbnails/\(id.uuidString).jpg",
+          "ocrText": "raw",
+          "annotationsData": null,
+          "width": 10,
+          "height": 10,
+          "title": null,
+          "notes": null,
+          "isStarred": false
+        }
+        """
+
+        let entry = try JSONDecoder().decode(VaultManifestEntry.self, from: Data(json.utf8))
+
+        #expect(entry.ocrText == "raw")
+        #expect(entry.ocrTextPolished == nil)
+    }
+
+    @Test("VaultManifestEntry round-trips ocrTextPolished")
+    func manifestEntryRoundTripsPolishedOCR() throws {
+        var entry = makeEntry(createdAt: Date(timeIntervalSince1970: 0))
+        entry.ocrText = "raw"
+        entry.ocrTextPolished = "foo"
+
+        let decoded = try JSONDecoder().decode(
+            VaultManifestEntry.self,
+            from: JSONEncoder().encode(entry)
+        )
+
+        #expect(decoded.ocrText == "raw")
+        #expect(decoded.ocrTextPolished == "foo")
+    }
+
+    @Test("stripMarkdownDecoration removes common wrappers but preserves dash bullets")
+    func stripMarkdownDecoration() {
+        let input = """
+        ```text
+        # 見出し
+        **太字**の行
+        * 箇条書き
+        - 残す行
+        ```
+        """
+
+        let stripped = OCRPolishService.stripMarkdownDecoration(input)
+
+        #expect(!stripped.contains("```"))
+        #expect(!stripped.contains("**"))
+        #expect(stripped.contains("見出し"))
+        #expect(stripped.contains("箇条書き"))
+        #expect(stripped.contains("- 残す行"))
+    }
+
     @Test("cleanOrphans keeps recently-modified files (cloud sync grace window)")
     func cleanOrphansKeepsRecentFiles() async throws {
         let (vault, dir) = makeTempVault()

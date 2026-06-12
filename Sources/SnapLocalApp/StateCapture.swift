@@ -240,6 +240,7 @@ extension SnapLocalState {
                 }
                 await loadHistory()
                 showStatus("OCR完了 — 検索可能になりました", success: true)
+                polishOCRInBackground(id: item.id, rawText: ocrText)
             }
 
             // Handle QR results
