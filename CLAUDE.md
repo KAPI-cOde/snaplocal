@@ -38,6 +38,7 @@ bash build-app.sh && open .build/debug/SnapLocal.app
 アノテーションはview座標(0..canvasSize)で記録されるため、画像ピクセルサイズで上書きすると全アノテーションがズレる。
 例外: `resizeCanvas` / `stitch` / `extendCanvas` は処理後にセットしてよい(次のリドローで上書きされる一時値)。
 ジェスチャ/ホバーの座標変換は `toCanvas()` 1箇所の漏斗を必ず通す(キャンバスはビューポート中央配置・中心基準で写像)。
+**T9.5以降**: view からの canvasSize 更新は `adoptCanvasSpace(fit)` 漏斗経由のみ(直接代入禁止)。`annotationsBasis` が「注釈座標が今どの canvasSize 空間か」を保持し、基準が変わるとき注釈ごと比例換算する。永続化キー `VaultManifestEntry.annotationsBasis` は注釈とセットで常に更新する(`updateAnnotations(id:annotations:basis:)`)。
 
 ### renderAnnotations のストローク描画はコンテキスト反転が前提
 CGContext は左下原点・パスはY下向きview座標のため、ストローク描画前の `translateBy(0,imageH)+scaleBy(1,-1)` が必須(無いと書き出しが上下ミラーになる — T7.3で修正済みの実バグ)。テキストは `NSGraphicsContext(flipped: true)`、コンテキストへ画像を再描画する箇所(スポットライト)だけ局所的に反転を戻す。

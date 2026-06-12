@@ -56,6 +56,10 @@ final class CanvasViewModel: ObservableObject {
     var redactPreviewThrottle = 0
     @Published var backgroundImage: CGImage?
     @Published var canvasSize: CGSize = .zero
+    /// annotations が現在どの座標空間(canvasSizeの値)で表現されているか(T9.5)。
+    /// adoptCanvasSpace() がこの値と新fitの比で注釈を換算し、常に canvasSize と一致させる。
+    /// nil = 基準不明(旧データ等)。その場合は換算せず次の adopt で現サイズを採用する
+    var annotationsBasis: CGSize? = nil
     @Published var loadToken: UUID = UUID()
     /// 背景画像が編集(クロップ・回転・結合等)されてvault未保存の状態か。
     /// SnapLocalState が注釈と同じ保存タイミングで読み、新規アイテムとして永続化する(T7.2)
@@ -254,6 +258,11 @@ final class CanvasViewModel: ObservableObject {
     // MARK: - Annotation Management
 
     func addAnnotation(_ annotation: AnyAnnotation) {
+        // 安全網(T9.5): 同サイズ連続キャプチャ+キー遷移なし等で adoptCanvasSpace が
+        // 一度も走らないまま描き始めた場合。新注釈は現 canvasSize 空間で作られている
+        if annotationsBasis == nil, canvasSize.width > 1, canvasSize.height > 1 {
+            annotationsBasis = canvasSize
+        }
         if !isUndoing {
             undoManager.registerMainActorUndo(withTarget: self) { target in
                 target.isUndoing = true
@@ -717,18 +726,57 @@ final class CanvasViewModel: ObservableObject {
         canRedo = undoManager.canRedo
     }
 
-    func resetAndLoad(image: CGImage, annotations: [AnyAnnotation]) {
+    func resetAndLoad(image: CGImage, annotations: [AnyAnnotation], basis: CGSize? = nil) {
         backgroundImage = image
         backgroundDirty = false
         // canvasSize は View の onAppear/onChange が管理する — ここで上書きしない
         self.annotations = annotations
+        // 保存時の基準サイズ(nil = 旧データ)。次の adoptCanvasSpace() が現fitへ換算する
+        annotationsBasis = basis
+        // 画像サイズが同じ項目への切替では fit が変わらず onChange(of: fit) が発火しない。
+        // canvasSize が確定済みならこの場で現空間へ換算する(値は変えないので所有権規約に抵触しない)
+        if canvasSize.width > 1, canvasSize.height > 1 {
+            adoptCanvasSpace(canvasSize)
+        }
         selectedAnnotationID = nil
         undoManager.removeAllActions()
         updateUndoRedoState()
         recomputeAllFilterPreviews()
         loadToken = UUID()
     }
-    
+
+    /// fit(表示画像サイズ)の確定・変化時に View から呼ぶ漏斗(T9.5)。
+    /// annotations は常に annotationsBasis 空間の座標なので、基準が変わるときは
+    /// 注釈ごと新空間へ比例換算してから canvasSize を更新する。
+    /// 基準不明(nil・旧データ)のときは換算せず現サイズを基準として採用する。
+    func adoptCanvasSpace(_ newSize: CGSize) {
+        if canvasSize == newSize, annotationsBasis == newSize { return }
+        canvasSize = newSize
+        guard newSize.width > 1, newSize.height > 1 else { return }
+        if let basis = annotationsBasis, basis.width > 1, basis.height > 1 {
+            let s = newSize.width / basis.width
+            if abs(s - 1) > 0.0005 {
+                rescaleAnnotations(by: s)
+            }
+        }
+        annotationsBasis = newSize
+    }
+
+    /// 全注釈に一様スケール(+任意の平行移動)を適用し、テキストのフォントサイズも追従させる。
+    /// 座標空間の付け替え(ビューサイズ追従・画像オペの空間変換)用であり、undo には載せない
+    func rescaleAnnotations(by s: CGFloat, then translation: CGSize = .zero) {
+        guard !annotations.isEmpty else { return }
+        let t = CGAffineTransform(scaleX: s, y: s)
+            .concatenating(CGAffineTransform(translationX: translation.width, y: translation.height))
+        for i in annotations.indices {
+            annotations[i].transform = annotations[i].transform.concatenating(t)
+            if annotations[i].type == .text, let fs = annotations[i].textFontSize {
+                annotations[i].textFontSize = fs * s
+            }
+        }
+        objectWillChange.send()
+    }
+
 }
 // MARK: - UndoManager + MainActor
 

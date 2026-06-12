@@ -316,6 +316,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let anns = self.canvas.annotations
+                let basis = self.canvas.annotationsBasis
                 let v = self.vault
                 let sem = DispatchSemaphore(value: 0)
                 if self.canvas.backgroundDirty, let bg = self.canvas.backgroundImage {
@@ -325,15 +326,15 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                     Task.detached {
                         if let id = targetID {
                             _ = await v.updateImage(id: id, image: bg)
-                            await v.updateAnnotations(id: id, annotations: anns)
+                            await v.updateAnnotations(id: id, annotations: anns, basis: basis)
                         } else {
-                            _ = await v.save(image: bg, annotations: anns)
+                            _ = await v.save(image: bg, annotations: anns, annotationsBasis: basis)
                         }
                         sem.signal()
                     }
                 } else if let id = self.currentVaultID, !anns.isEmpty {
                     Task.detached {
-                        await v.updateAnnotations(id: id, annotations: anns)
+                        await v.updateAnnotations(id: id, annotations: anns, basis: basis)
                         sem.signal()
                     }
                 } else {
@@ -368,7 +369,8 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
                     await persistEditedBackground(selectResult: true)
                 } else if let id = currentVaultID {
                     let anns = canvas.annotations
-                    await vault.updateAnnotations(id: id, annotations: anns)
+                    await vault.updateAnnotations(id: id, annotations: anns,
+                                                  basis: canvas.annotationsBasis)
                 }
             } catch {}
         }
@@ -389,12 +391,13 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         guard canvas.backgroundDirty, let bg = canvas.backgroundImage else { return }
         canvas.backgroundDirty = false
         let anns = canvas.annotations
+        let basis = canvas.annotationsBasis
         let sourceID = currentVaultID
 
         // フォーク済みアイテムの続き編集 → 同じアイテムを上書き
         if let id = sourceID, forkedThisSession.contains(id) {
             _ = await vault.updateImage(id: id, image: bg)
-            await vault.updateAnnotations(id: id, annotations: anns)
+            await vault.updateAnnotations(id: id, annotations: anns, basis: basis)
             let text = await OCRService.recognizeText(in: bg)
             await vault.updateOCR(id: id, text: text)
             await loadHistory()
@@ -402,7 +405,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         }
 
         // 新しいアイテムとして保存(元アイテムは無変更)
-        guard let item = await vault.save(image: bg, annotations: anns) else {
+        guard let item = await vault.save(image: bg, annotations: anns, annotationsBasis: basis) else {
             showStatus("編集の保存に失敗しました")
             return
         }
@@ -429,6 +432,7 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         guard canvas.backgroundDirty, let bg = canvas.backgroundImage else { return }
         canvas.backgroundDirty = false
         let anns = canvas.annotations
+        let basis = canvas.annotationsBasis
         let sourceID = currentVaultID
         let targetID = sourceID.flatMap { forkedThisSession.contains($0) ? $0 : nil }
         let sourceTitle = sourceID.flatMap { sid in history.first(where: { $0.id == sid })?.title }
@@ -437,10 +441,10 @@ final class SnapLocalState: ObservableObject, @unchecked Sendable {
         Task { [weak self] in
             if let id = targetID {
                 _ = await v.updateImage(id: id, image: bg)
-                await v.updateAnnotations(id: id, annotations: anns)
+                await v.updateAnnotations(id: id, annotations: anns, basis: basis)
                 let text = await OCRService.recognizeText(in: bg)
                 await v.updateOCR(id: id, text: text)
-            } else if let item = await v.save(image: bg, annotations: anns) {
+            } else if let item = await v.save(image: bg, annotations: anns, annotationsBasis: basis) {
                 if let t = sourceTitle { await v.updateTitle(id: item.id, title: t) }
                 if let n = sourceNotes { await v.updateNotes(id: item.id, notes: n) }
                 await MainActor.run { self?.forkedThisSession.insert(item.id) }

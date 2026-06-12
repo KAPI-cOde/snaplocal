@@ -191,7 +191,7 @@ struct PersistentVaultTests {
         await vault.updateOCR(id: saved.id, text: "hello")
         await vault.updateTitle(id: saved.id, title: nil)
         await vault.updateNotes(id: saved.id, notes: nil)
-        await vault.updateAnnotations(id: saved.id, annotations: [])
+        await vault.updateAnnotations(id: saved.id, annotations: [], basis: nil)
 
         let mtimeAfter = try FileManager.default
             .attributesOfItem(atPath: shardURL.path)[.modificationDate] as! Date

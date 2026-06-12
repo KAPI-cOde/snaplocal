@@ -300,11 +300,15 @@ struct AnnotationCanvasView: View {
                     }
                 }
             }
-            .onAppear { viewModel.canvasSize = fit; viewModel.currentZoom = effectiveZoom }
+            .onAppear { viewModel.adoptCanvasSpace(fit); viewModel.currentZoom = effectiveZoom }
+            // パネル⇄エディタ等、別ウィンドウのキャンバスが canvasSize を変えた後に
+            // このウィンドウへ戻ると、fit が前回値と同じで onChange が発火しない。
+            // キーウィンドウになった瞬間に必ず座標空間を取り直す(T9.5)
+            .background(WindowKeyObserver { viewModel.adoptCanvasSpace(fit) })
             .onChange(of: fit) { _, newFit in
                 // fit はビューポートと画像アスペクトの両方に依存するため、
                 // ウィンドウリサイズだけでなく画像差し替え(クロップ・回転等)にも追従する
-                viewModel.canvasSize = newFit
+                viewModel.adoptCanvasSpace(newFit)
                 // 手動ズーム前ならレイアウト確定に追従して再フィット
                 // (起動時、ウィンドウフレーム復元前の小さいcanvasSizeで計算された
                 //  ズームのまま固まる問題の自己修正)

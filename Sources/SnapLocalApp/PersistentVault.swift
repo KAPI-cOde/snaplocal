@@ -18,6 +18,9 @@ struct VaultManifestEntry: Codable, Sendable {
     /// テキストアノテーションの平文(検索用)。annotationsDataのデコードなしに検索できるようにする
     /// 追加キー(T6.2)— 旧エントリでは nil で、読み込み時に一度だけ補完される
     var annotationTexts: String? = nil
+    /// annotationsData の座標が表現されている基準キャンバスサイズ(保存時の表示サイズ)。
+    /// 追加キー(T9.5)— nil = 旧データ(基準不明、ロード時は換算なしで現サイズを採用)
+    var annotationsBasis: CGSize? = nil
     var width: Int
     var height: Int
     var title: String?
@@ -34,6 +37,8 @@ struct VaultItem: Identifiable, Sendable {
     let thumbnailData: Data
     var ocrText: String
     var annotations: [AnyAnnotation]
+    /// annotations の基準キャンバスサイズ(T9.5)。nil = 旧データ
+    var annotationsBasis: CGSize? = nil
     var title: String?
     var notes: String?
     var width: Int = 0
@@ -138,7 +143,9 @@ actor PersistentVault {
     // MARK: - Public API
 
     /// Save a new screenshot. Returns the VaultItem immediately (OCR runs separately).
-    func save(image: CGImage, annotations: [AnyAnnotation] = []) async -> VaultItem? {
+    /// annotationsBasis: 注釈座標の基準キャンバスサイズ(T9.5)。注釈ありなら必ず渡す
+    func save(image: CGImage, annotations: [AnyAnnotation] = [],
+              annotationsBasis: CGSize? = nil) async -> VaultItem? {
         let id = UUID()
         let filename = "\(id.uuidString).png"
         let thumbFilename = "thumbnails/\(id.uuidString).jpg"
@@ -167,6 +174,7 @@ actor PersistentVault {
             ocrText: "",
             annotationsData: annotationsData,
             annotationTexts: annotations.compactMap { $0.textContent }.joined(separator: " "),
+            annotationsBasis: annotations.isEmpty ? nil : annotationsBasis,
             width: image.width,
             height: image.height
         )
@@ -181,6 +189,7 @@ actor PersistentVault {
             thumbnailData: thumbData,
             ocrText: "",
             annotations: annotations,
+            annotationsBasis: entry.annotationsBasis,
             title: nil,
             notes: nil,
             width: image.width,
@@ -218,14 +227,28 @@ actor PersistentVault {
         persist(id)
     }
 
+    /// 最新の注釈+基準サイズをディスク(manifest)から読む(T9.5)。
+    /// UI の history 配列はロード時のスナップショットで、項目切替の persist を反映しない。
+    /// 古い注釈を resetAndLoad → オートセーブで保存し直すと直前の編集が巻き戻るため、
+    /// キャンバスへのロードは必ずこちらを使う
+    func currentAnnotations(id: UUID) -> ([AnyAnnotation], CGSize?)? {
+        guard let entry = manifest[id] else { return nil }
+        let anns = entry.annotationsData
+            .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
+        return (anns, entry.annotationsBasis)
+    }
+
     /// Update annotations for an item
-    func updateAnnotations(id: UUID, annotations: [AnyAnnotation]) {
+    /// basis: 注釈座標の基準キャンバスサイズ(T9.5)。注釈とセットで常に更新する
+    func updateAnnotations(id: UUID, annotations: [AnyAnnotation], basis: CGSize?) {
         guard let entry = manifest[id] else { return }
         let newData = try? JSONEncoder().encode(annotations)
+        let newBasis = annotations.isEmpty ? nil : basis
         // 内容が同じならシャードを書き直さない(クラウド同期フォルダでの無駄な同期防止)
-        guard entry.annotationsData != newData else { return }
+        guard entry.annotationsData != newData || entry.annotationsBasis != newBasis else { return }
         manifest[id]!.annotationsData = newData
         manifest[id]!.annotationTexts = annotations.compactMap { $0.textContent }.joined(separator: " ")
+        manifest[id]!.annotationsBasis = newBasis
         persist(id)
     }
 
@@ -344,7 +367,8 @@ actor PersistentVault {
             .flatMap { try? JSONDecoder().decode([AnyAnnotation].self, from: $0) } ?? []
         return VaultItem(id: newID, createdAt: entry.createdAt, imageURL: dstURL,
                          thumbnailData: thumbData, ocrText: entry.ocrText,
-                         annotations: annotations, title: entry.title,
+                         annotations: annotations, annotationsBasis: entry.annotationsBasis,
+                         title: entry.title,
                          notes: entry.notes, width: entry.width, height: entry.height)
     }
 
@@ -377,6 +401,7 @@ actor PersistentVault {
             thumbnailData: thumbData,
             ocrText: entry.ocrText,
             annotations: annotations,
+            annotationsBasis: entry.annotationsBasis,
             title: entry.title,
             notes: entry.notes,
             width: entry.width,

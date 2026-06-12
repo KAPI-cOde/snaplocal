@@ -168,7 +168,8 @@ extension SnapLocalState {
                     await persistEditedBackground(selectResult: true)
                 }
                 if let id = currentVaultID {
-                    await vault.updateAnnotations(id: id, annotations: canvas.annotations)
+                    await vault.updateAnnotations(id: id, annotations: canvas.annotations,
+                                                  basis: canvas.annotationsBasis)
                     if !canvas.annotations.isEmpty, let annotatedRaw = canvas.renderAnnotations() {
                         await vault.updateThumbnail(id: id, annotatedImage: annotatedRaw)
                     }

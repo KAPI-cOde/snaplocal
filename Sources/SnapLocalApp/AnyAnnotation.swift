@@ -118,13 +118,19 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
     func encode(to encoder: Encoder) throws {
         try _encode(encoder)
         // Write opacity alongside concrete annotation keys (shared keyed container)
-        if opacity != 1.0 || isLocked || lineStyle != .solid || customColorHex != nil {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            if opacity != 1.0 { try container.encode(opacity, forKey: .opacity) }
-            if isLocked { try container.encode(isLocked, forKey: .isLocked) }
-            if lineStyle != .solid { try container.encode(lineStyle, forKey: .lineStyle) }
-            if let hex = customColorHex { try container.encode(hex, forKey: .customColorHex) }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // _encode はラップ時点の concrete struct を捕捉しているため、ラップ後に
+        // applyTransform 等で変更された transform / fontSize は反映されない。
+        // 共有キーコンテナへの後書きが勝つことを利用して現在値で上書きする(T9.5)。
+        try container.encode(transform, forKey: .transform)
+        if type == .text, let fs = textFontSize {
+            var textContainer = encoder.container(keyedBy: TextOverrideKeys.self)
+            try textContainer.encode(fs, forKey: .fontSize)
         }
+        if opacity != 1.0 { try container.encode(opacity, forKey: .opacity) }
+        if isLocked { try container.encode(isLocked, forKey: .isLocked) }
+        if lineStyle != .solid { try container.encode(lineStyle, forKey: .lineStyle) }
+        if let hex = customColorHex { try container.encode(hex, forKey: .customColorHex) }
     }
 
     init(from decoder: Decoder) throws {
@@ -189,5 +195,10 @@ struct AnyAnnotation: AnnotationElement, Codable, @unchecked Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, type, color, lineWidth, transform, opacity, isLocked, lineStyle, customColorHex
+    }
+
+    /// TextAnnotation の fontSize キーを上書きするためのキー(raw value 変更禁止)
+    private enum TextOverrideKeys: String, CodingKey {
+        case fontSize
     }
 }

@@ -19,8 +19,9 @@ extension SnapLocalState {
             flushPendingBackgroundEdit()
         } else if let id = currentVaultID, !canvas.annotations.isEmpty {
             let anns = canvas.annotations
+            let basis = canvas.annotationsBasis
             let v = vault
-            Task { await v.updateAnnotations(id: id, annotations: anns) }
+            Task { await v.updateAnnotations(id: id, annotations: anns, basis: basis) }
         }
         // Set selection immediately for responsive UI
         currentVaultID = item.id
@@ -28,13 +29,17 @@ extension SnapLocalState {
         // Load image off the main thread to avoid blocking on large PNGs
         loadHistoryTask?.cancel()
         let url = item.imageURL
-        let annotations = item.annotations
+        let itemID = item.id
+        let v = vault
         loadHistoryTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let nsImage = NSImage(contentsOf: url),
                   let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+            // 注釈は history スナップショットでなく vault の最新を読む(T9.5)。
+            // 直前の updateAnnotations(切替時 persist)は同じ actor 内で先に処理される
+            let (annotations, basis) = await v.currentAnnotations(id: itemID) ?? (item.annotations, item.annotationsBasis)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
-                self?.canvas.resetAndLoad(image: cgImage, annotations: annotations)
+                self?.canvas.resetAndLoad(image: cgImage, annotations: annotations, basis: basis)
                 if !quiet { self?.showStatus("履歴を読み込みました") }
             }
         }

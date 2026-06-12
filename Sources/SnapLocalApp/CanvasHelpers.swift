@@ -248,3 +248,46 @@ private func makeDiagonalCursor(nwse: Bool) -> NSCursor {
 
 @MainActor let cursorNWSE = makeDiagonalCursor(nwse: true)
 @MainActor let cursorNESW = makeDiagonalCursor(nwse: false)
+
+// MARK: - Window Key Observer (T9.5)
+
+/// 所属ウィンドウがキーになった瞬間だけを通知する透明NSView。
+/// パネル⇄エディタの行き来などで、隠れていたウィンドウの fit が前回値と
+/// 同じため onChange(of: fit) が発火しないケースの座標空間再同期に使う。
+/// (他ウィンドウの didBecomeKey には反応しない — object: window で限定)
+struct WindowKeyObserver: NSViewRepresentable {
+    var onBecomeKey: () -> Void
+
+    func makeNSView(context: Context) -> KeyObserverView {
+        let v = KeyObserverView()
+        v.onBecomeKey = onBecomeKey
+        return v
+    }
+
+    func updateNSView(_ view: KeyObserverView, context: Context) {
+        view.onBecomeKey = onBecomeKey
+    }
+
+    final class KeyObserverView: NSView {
+        var onBecomeKey: (() -> Void)?
+        // deinit(nonisolated)から removeObserver するため。NSView の解放は実質メインスレッド
+        nonisolated(unsafe) private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer); self.observer = nil }
+            guard let window else { return }
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                // 通知はメインキューで届くが、クロージャ自体は nonisolated のため
+                // MainActor 隔離の self へは assumeIsolated で入る(UndoManager拡張と同形)
+                MainActor.assumeIsolated { self?.onBecomeKey?() }
+            }
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
+    }
+}

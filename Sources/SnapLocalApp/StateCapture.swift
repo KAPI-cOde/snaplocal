@@ -139,12 +139,14 @@ extension SnapLocalState {
             flushPendingBackgroundEdit()
         } else if let id = currentVaultID, !canvas.annotations.isEmpty {
             let anns = canvas.annotations
+            let basis = canvas.annotationsBasis
             let v = vault
-            Task { await v.updateAnnotations(id: id, annotations: anns) }
+            Task { await v.updateAnnotations(id: id, annotations: anns, basis: basis) }
         }
         canvas.backgroundImage = image
         canvas.backgroundDirty = false
         canvas.annotations.removeAll()
+        canvas.annotationsBasis = nil  // 新画像 — 次の adoptCanvasSpace が新fitを基準に採用(T9.5)
         canvas.loadToken = UUID()
         currentVaultID = nil
         selectedHistoryID = nil

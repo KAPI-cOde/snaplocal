@@ -93,8 +93,9 @@ final class QuickAnnotatePanel {
     private func persistAnnotations(_ state: SnapLocalState) {
         guard let id = state.currentVaultID, !state.canvas.annotations.isEmpty else { return }
         let anns = state.canvas.annotations
+        let basis = state.canvas.annotationsBasis
         let v = state.vault
-        Task { await v.updateAnnotations(id: id, annotations: anns) }
+        Task { await v.updateAnnotations(id: id, annotations: anns, basis: basis) }
     }
 
     private func close() {

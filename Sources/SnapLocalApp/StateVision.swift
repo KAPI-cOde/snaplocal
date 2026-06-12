@@ -61,6 +61,10 @@ extension SnapLocalState {
             let scaleX = canvas.canvasSize.width / iw
             let scaleY = canvas.canvasSize.height / ih
             let isBlur = canvas.currentRedactMode == .blur
+            // 安全網(T9.5): addAnnotation を通らない直接 append のため、ここでも基準を確定する
+            if canvas.annotationsBasis == nil, canvas.canvasSize.width > 1, canvas.canvasSize.height > 1 {
+                canvas.annotationsBasis = canvas.canvasSize
+            }
             for normalized in normalizedFaces {
                 let pixX = normalized.minX * iw
                 let pixY = (1 - normalized.maxY) * ih   // flip Y

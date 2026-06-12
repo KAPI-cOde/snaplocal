@@ -32,11 +32,14 @@ extension CanvasViewModel {
               let cropped = bgImage.cropping(to: pixelRect) else { return }
         let prevImage = bgImage
         let prevAnnotations = annotations
+        let prevBasis = annotationsBasis
         backgroundImage = cropped
         annotations.removeAll()
+        annotationsBasis = nil  // 注釈ゼロ — 次の adoptCanvasSpace が新fitを基準に採用する
         selectedAnnotationID = nil
         cropAnimToken = UUID()
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: prevBasis)
         recomputeAllFilterPreviews()
     }
 
@@ -56,10 +59,13 @@ extension CanvasViewModel {
               let cropped = bgImage.cropping(to: pixelRect) else { return }
         let prevImage = bgImage
         let prevAnnotations = annotations
+        let prevBasis = annotationsBasis
         backgroundImage = cropped
         annotations.removeAll()
+        annotationsBasis = nil  // 注釈ゼロ — 次の adoptCanvasSpace が新fitを基準に採用する
         selectedAnnotationID = nil
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: prevBasis)
         recomputeAllFilterPreviews()
     }
 
@@ -117,29 +123,37 @@ extension CanvasViewModel {
 
         let prevImage = img
         let prevAnnotations = annotations
+        let prevBasis = annotationsBasis
         backgroundImage = cropped
         annotations.removeAll()
+        annotationsBasis = nil  // 注釈ゼロ — 次の adoptCanvasSpace が新fitを基準に採用する
         selectedAnnotationID = nil
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: prevBasis)
         recomputeAllFilterPreviews()
     }
 
-    // Register undo for a background image replacement (saves previous image + annotations)
-    private func registerBackgroundUndo(previousImage: CGImage, previousAnnotations: [AnyAnnotation]) {
+    // Register undo for a background image replacement (saves previous image + annotations + basis)
+    // basis も往復させないと、別ウィンドウサイズでの undo/redo 後に注釈空間がズレる(T9.5)
+    private func registerBackgroundUndo(previousImage: CGImage, previousAnnotations: [AnyAnnotation],
+                                        previousBasis: CGSize?) {
         backgroundDirty = true
-        undoManager.registerMainActorUndo(withTarget: self) { [previousImage, previousAnnotations] vm in
+        undoManager.registerMainActorUndo(withTarget: self) { [previousImage, previousAnnotations, previousBasis] vm in
             let currentImage = vm.backgroundImage
             let currentAnnotations = vm.annotations
+            let currentBasis = vm.annotationsBasis
             vm.backgroundImage = previousImage
             vm.annotations = previousAnnotations
+            vm.annotationsBasis = previousBasis
             vm.backgroundDirty = true
             vm.selectedAnnotationID = nil
             vm.selectedAnnotationIDs = []
             vm.updateUndoRedoState()
             vm.recomputeAllFilterPreviews()
-            vm.undoManager.registerMainActorUndo(withTarget: vm) { [currentImage, currentAnnotations] vm2 in
+            vm.undoManager.registerMainActorUndo(withTarget: vm) { [currentImage, currentAnnotations, currentBasis] vm2 in
                 vm2.backgroundImage = currentImage
                 vm2.annotations = currentAnnotations
+                vm2.annotationsBasis = currentBasis
                 vm2.backgroundDirty = true
                 vm2.selectedAnnotationID = nil
                 vm2.selectedAnnotationIDs = []
@@ -171,9 +185,19 @@ extension CanvasViewModel {
         guard let result = ctx.makeImage() else { return }
         let prevImage = src
         let prevAnnotations = annotations
+        let prevBasis = annotationsBasis
+        // 注釈を basis空間 → 新画像ピクセル空間へ換算し、元画像の配置先 (left, top) へ平行移動。
+        // 以後 basis = 新画像ピクセルサイズとなり、次の adoptCanvasSpace が現fitへ戻す(T9.5)
+        let basisW = (annotationsBasis ?? canvasSize).width
+        if basisW > 1 {
+            rescaleAnnotations(by: CGFloat(src.width) / basisW,
+                               then: CGSize(width: left, height: top))
+        }
         backgroundImage = result
         canvasSize = CGSize(width: newW, height: newH)
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        annotationsBasis = canvasSize
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: prevBasis)
         recomputeAllFilterPreviews()
         objectWillChange.send()
     }
@@ -205,9 +229,18 @@ extension CanvasViewModel {
         guard let stitched = ctx.makeImage() else { return }
         let prevImage = src
         let prevAnnotations = annotations
+        let prevBasis = annotationsBasis
+        // 注釈を basis空間 → 元画像ピクセル空間へ換算(元画像は結合後も左上 (0,0) に配置)。
+        // 以後 basis = 結合後ピクセルサイズとなり、次の adoptCanvasSpace が現fitへ戻す(T9.5)
+        let basisW = (annotationsBasis ?? canvasSize).width
+        if basisW > 1 {
+            rescaleAnnotations(by: CGFloat(src.width) / basisW)
+        }
         backgroundImage = stitched
         canvasSize = CGSize(width: CGFloat(outW), height: CGFloat(outH))
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        annotationsBasis = canvasSize
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: prevBasis)
         recomputeAllFilterPreviews()
     }
 
@@ -240,7 +273,8 @@ extension CanvasViewModel {
         let prevAnnotations = annotations
         backgroundImage = baked
         adjustBrightness = 0; adjustContrast = 1; adjustSaturation = 1; adjustSharpness = 0
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: annotationsBasis)
     }
 
     func resetAdjustments() {
@@ -276,6 +310,12 @@ extension CanvasViewModel {
 
         let oldW = canvasSize.width, oldH = canvasSize.height
 
+        // undo スナップショットは注釈の回転「前」に取る(後で取ると undo 時に
+        // 元画像へ回転済み注釈が載る)
+        let prevImage = src
+        let prevAnnotations = annotations
+        let prevBasis = annotationsBasis
+
         // Transform each annotation so it stays in place on the new (swapped) canvas
         // 90° CW: (x, y) → (oldH - y, x)  →  transform: translate(0, oldH) then rotate -π/2 (screen coords)
         // 90° CCW: (x, y) → (y, oldW - x)  →  transform: translate(oldW, 0) then rotate +π/2 (screen coords)
@@ -287,11 +327,11 @@ extension CanvasViewModel {
             annotations[i].transform = annotations[i].transform.concatenating(rotT)
         }
 
-        let prevImage = src
-        let prevAnnotations = annotations
         backgroundImage = rotated
         canvasSize = CGSize(width: oldH, height: oldW)
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        annotationsBasis = canvasSize  // 注釈は縦横入替後の空間に揃った(T9.5)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: prevBasis)
         recomputeAllFilterPreviews()
         objectWillChange.send()
     }
@@ -317,6 +357,11 @@ extension CanvasViewModel {
         ctx.draw(src, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
         guard let flipped = ctx.makeImage() else { return }
 
+        // undo スナップショットは注釈の反転「前」に取る(後で取ると undo 時に
+        // 元画像へ反転済み注釈が載る)
+        let prevImage = src
+        let prevAnnotations = annotations
+
         // Mirror each annotation's transform to match the flipped canvas
         let flipT: CGAffineTransform = horizontal
             ? CGAffineTransform(scaleX: -1, y: 1).concatenating(CGAffineTransform(translationX: canvasSize.width, y: 0))
@@ -324,10 +369,9 @@ extension CanvasViewModel {
         for i in 0..<annotations.count {
             annotations[i].transform = annotations[i].transform.concatenating(flipT)
         }
-        let prevImage = src
-        let prevAnnotations = annotations
         backgroundImage = flipped
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: annotationsBasis)  // 反転は空間サイズ不変
         recomputeAllFilterPreviews()
         objectWillChange.send()
     }
@@ -357,17 +401,13 @@ extension CanvasViewModel {
         ctx.draw(src, in: CGRect(x: 0, y: 0, width: newW, height: newH))
         guard let resized = ctx.makeImage() else { return }
 
-        // Scale all annotation transforms
-        let scaleT = CGAffineTransform(scaleX: scale, y: scale)
-        for i in 0..<annotations.count {
-            annotations[i].transform = annotations[i].transform.concatenating(scaleT)
-        }
-
+        // 注釈は basis空間の相対座標なので、画像の解像度変更では触らない(T9.5)。
+        // アスペクト不変のため fit も変わらず、canvasSize / basis ともに現状維持
         let prevImage = src
         let prevAnnotations = annotations
         backgroundImage = resized
-        canvasSize = CGSize(width: CGFloat(newW), height: CGFloat(newH))
-        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations)
+        registerBackgroundUndo(previousImage: prevImage, previousAnnotations: prevAnnotations,
+                               previousBasis: annotationsBasis)
         recomputeAllFilterPreviews()
         loadToken = UUID()
         objectWillChange.send()
