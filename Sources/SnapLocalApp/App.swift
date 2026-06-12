@@ -577,31 +577,32 @@ struct ContentView: View {
             .navigationTitle(windowTitle)
             Divider()
             HStack(spacing: 0) {
-                Group {
-                    if state.quickPanelActive {
-                        // クイック注釈パネルが canvasSize を所有している間はメイン側の
-                        // キャンバスを外す(二重書き込み防止)。閉じれば onAppear が取り戻す
-                        VStack(spacing: DS.Space.xs) {
-                            Text("クイック注釈パネルで編集中")
-                                .font(.system(size: DS.FontSize.body))
-                                .foregroundStyle(.secondary)
-                            Button("このウィンドウで編集する") {
-                                QuickAnnotatePanel.shared.closeKeepingAnnotations()
+                VStack(spacing: 0) {
+                    Group {
+                        if state.quickPanelActive {
+                            // クイック注釈パネルが canvasSize を所有している間はメイン側の
+                            // キャンバスを外す(二重書き込み防止)。閉じれば onAppear が取り戻す
+                            VStack(spacing: DS.Space.xs) {
+                                Text("クイック注釈パネルで編集中")
+                                    .font(.system(size: DS.FontSize.body))
+                                    .foregroundStyle(.secondary)
+                                Button("このウィンドウで編集する") {
+                                    QuickAnnotatePanel.shared.closeKeepingAnnotations()
+                                }
                             }
+                        } else {
+                            AnnotationCanvasView(
+                                viewModel: state.canvas,
+                                onCapture: state.captureNow,
+                                onOpenPermissions: state.hasScreenRecordingPermission ? nil : { state.openScreenRecordingSettings() },
+                                onFocusSearch: { state.searchFocusTrigger.toggle() },
+                                onNavigateHistory: { delta in state.navigateHistory(by: delta) },
+                                onCopyOriginal: state.copyOriginalToClipboard,
+                                onCopyRegion: state.copySelectedRegion,
+                                onOcrRegion: state.ocrSelectedRegion
+                            )
                         }
-                    } else {
-                        AnnotationCanvasView(
-                            viewModel: state.canvas,
-                            onCapture: state.captureNow,
-                            onOpenPermissions: state.hasScreenRecordingPermission ? nil : { state.openScreenRecordingSettings() },
-                            onFocusSearch: { state.searchFocusTrigger.toggle() },
-                            onNavigateHistory: { delta in state.navigateHistory(by: delta) },
-                            onCopyOriginal: state.copyOriginalToClipboard,
-                            onCopyRegion: state.copySelectedRegion,
-                            onOcrRegion: state.ocrSelectedRegion
-                        )
                     }
-                }
                     .frame(minWidth: 600, minHeight: 400)
                     .background(Color(nsColor: .windowBackgroundColor))
                     .onDrop(of: [UTType.image, UTType.fileURL], isTargeted: $isDropTargeted) { providers in
@@ -675,6 +676,18 @@ struct ContentView: View {
                         CanvasInfoChip(canvas: state.canvas)
                     }
 
+                    if !state.quickPanelActive,
+                       let item = state.selectedHistoryID.flatMap({ id in state.history.first(where: { $0.id == id }) }) {
+                        Divider()
+                        DetailPane(
+                            item: item,
+                            onRename: state.renameHistoryItem,
+                            onUpdateNotes: state.updateNotesForItem
+                        )
+                        .id(item.id)
+                    }
+                }
+
                 if sidebarVisible {
                     Divider()
                     HistoryRail(
@@ -692,7 +705,6 @@ struct ContentView: View {
                         onDeleteAll: state.deleteAllHistory,
                         onExportZip: state.exportHistoryAsZip,
                         onExportPDF: state.exportHistoryAsPDF,
-                        onUpdateNotes: state.updateNotesForItem,
                         onToggleStar: state.toggleStar,
                         onReocr: state.reRunOCR
                     )
@@ -712,4 +724,3 @@ struct ContentView: View {
         }
     }
 }
-

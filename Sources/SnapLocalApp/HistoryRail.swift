@@ -1,5 +1,5 @@
 // HistoryRail.swift
-// SnapLocal - History sidebar: HistoryRail, HistoryItemRow, HistoryItemPopover
+// SnapLocal - History sidebar: HistoryRail, HistoryItemRow
 // (extracted from App.swift — PLAN.md T0.3, mechanical move only)
 
 import SwiftUI
@@ -24,17 +24,12 @@ struct HistoryRail: View {
     var onDeleteAll: (() -> Void)? = nil
     var onExportZip: (() -> Void)? = nil
     var onExportPDF: (() -> Void)? = nil
-    var onUpdateNotes: ((VaultItem, String?) -> Void)? = nil
     var onToggleStar: ((VaultItem) -> Void)? = nil
     var onReocr: ((VaultItem) -> Void)? = nil
 
     @FocusState private var searchFocused: Bool
     @State private var thumbCache: [UUID: NSImage] = [:]
     @State private var hoveredItemID: UUID? = nil
-    @State private var popoverItemID: UUID? = nil   // delayed popover — avoids flicker on fast scroll
-    @State private var popoverHovered = false
-    @State private var popoverTask: Task<Void, Never>? = nil
-    @State private var popoverCloseTask: Task<Void, Never>? = nil
     @State private var renamingItemID: UUID? = nil
     @State private var quickLookItem: VaultItem? = nil
     @State private var renameText: String = ""
@@ -147,7 +142,6 @@ struct HistoryRail: View {
                                 item: item,
                                 isSelected: item.id == selectedID,
                                 isHovered: hoveredItemID == item.id,
-                                showPopover: popoverItemID == item.id,
                                 isRenaming: renamingItemID == item.id,
                                 renameText: $renameText,
                                 searchQuery: searchQuery,
@@ -161,33 +155,10 @@ struct HistoryRail: View {
                                 onRename: { name in onRename?(item, name); renamingItemID = nil },
                                 onRenameBegin: { renameText = item.title ?? ""; renamingItemID = item.id },
                                 onRenameCancelled: { renamingItemID = nil },
-                                onPopoverDismiss: {
-                                    popoverItemID = nil
-                                    popoverHovered = false
-                                },
-                                onUpdateNotes: onUpdateNotes,
                                 onReocr: { onReocr?(item) },
                                 historyItemLabel: historyItemLabel,
-                                onPopoverHoverChanged: { hovering in
-                                    popoverHovered = hovering
-                                    if hovering {
-                                        popoverCloseTask?.cancel()
-                                    } else {
-                                        schedulePopoverClose(for: item.id)
-                                    }
-                                },
                                 onHoverChanged: { hovering in
                                     hoveredItemID = hovering ? item.id : nil
-                                    popoverTask?.cancel()
-                                    if hovering {
-                                        popoverCloseTask?.cancel()
-                                        popoverTask = Task {
-                                            try? await Task.sleep(nanoseconds: 400_000_000)
-                                            if hoveredItemID == item.id { popoverItemID = item.id }
-                                        }
-                                    } else {
-                                        schedulePopoverClose(for: item.id)
-                                    }
                                 }
                             )
                         }   // ForEach(items)
@@ -315,15 +286,6 @@ struct HistoryRail: View {
         }
     }
 
-    private func schedulePopoverClose(for itemID: UUID) {
-        popoverCloseTask?.cancel()
-        popoverCloseTask = Task {
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            if popoverHovered == false && (hoveredItemID == nil || hoveredItemID != itemID) {
-                popoverItemID = nil
-            }
-        }
-    }
 }
 
 // MARK: - History Item Row
@@ -332,7 +294,6 @@ private struct HistoryItemRow: View {
     let item: VaultItem
     let isSelected: Bool
     let isHovered: Bool
-    let showPopover: Bool
     let isRenaming: Bool
     @Binding var renameText: String
     let searchQuery: String
@@ -348,11 +309,8 @@ private struct HistoryItemRow: View {
     let onRename: (String?) -> Void
     let onRenameBegin: () -> Void
     let onRenameCancelled: () -> Void
-    let onPopoverDismiss: () -> Void
-    var onUpdateNotes: ((VaultItem, String?) -> Void)?
     var onReocr: (() -> Void)? = nil
     let historyItemLabel: (Date) -> String
-    let onPopoverHoverChanged: (Bool) -> Void
     let onHoverChanged: (Bool) -> Void
 
     var body: some View {
@@ -373,10 +331,6 @@ private struct HistoryItemRow: View {
         .buttonStyle(.plain)
         .onDrag { NSItemProvider(contentsOf: item.imageURL) ?? NSItemProvider() }
         .onHover(perform: onHoverChanged)
-        .popover(isPresented: Binding(get: { showPopover }, set: { if !$0 { onPopoverDismiss() } }), arrowEdge: .leading) {
-            HistoryItemPopover(item: item, onUpdateNotes: onUpdateNotes)
-                .onHover(perform: onPopoverHoverChanged)
-        }
         .contextMenu { contextMenuContent }
         .help(makeHelp())
     }
@@ -593,111 +547,5 @@ private struct HistoryItemRow: View {
         Button("文字認識を再実行") { onReocr?() }
         Divider()
         Button("削除", role: .destructive) { onDelete() }
-    }
-}
-
-// MARK: - History Item Popover
-
-struct HistoryItemPopover: View {
-    let item: VaultItem
-    var onUpdateNotes: ((VaultItem, String?) -> Void)?
-
-    @State private var notesText: String
-    @State private var fullImage: NSImage? = nil
-    @State private var ocrCopied = false
-
-    init(item: VaultItem, onUpdateNotes: ((VaultItem, String?) -> Void)?) {
-        self.item = item
-        self.onUpdateNotes = onUpdateNotes
-        self._notesText = State(initialValue: item.notes ?? "")
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Preview image
-            let displayImage: NSImage? = fullImage ?? NSImage(data: item.thumbnailData)
-            if let nsImage = displayImage {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 380, maxHeight: 220)
-                    .clipped()
-                    .animation(DS.Anim.fast, value: fullImage != nil)
-            } else {
-                Color.secondary.opacity(0.1)
-                    .frame(width: 380, height: 120)
-            }
-
-            // OCR text — selectable, shown immediately if available
-            if !item.ocrText.isEmpty {
-                Divider()
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("テキスト")
-                            .font(.system(size: DS.FontSize.caption, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(item.ocrText, forType: .string)
-                            ocrCopied = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { ocrCopied = false }
-                        } label: {
-                            Label(ocrCopied ? "コピー済" : "全コピー",
-                                  systemImage: ocrCopied ? "checkmark" : "doc.on.clipboard")
-                                .font(.system(size: DS.FontSize.caption))
-                                .foregroundStyle(ocrCopied ? .green : Color.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    // Selectable text via TextEditor (read-only binding workaround)
-                    TextEditor(text: .constant(item.ocrText))
-                        .font(.system(size: DS.FontSize.caption))
-                        .scrollContentBackground(.hidden)
-                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: DS.Radius.small))
-                        .frame(height: min(200, max(72, CGFloat(item.ocrText.components(separatedBy: "\n").count) * 16)))
-                }
-                .padding(.horizontal, DS.Space.s)
-                .padding(.vertical, DS.Space.xs)
-            }
-
-            Divider()
-
-            // Notes
-            VStack(alignment: .leading, spacing: 4) {
-                Text("メモ")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $notesText)
-                    .font(.system(size: DS.FontSize.body))
-                    .frame(height: 52)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: DS.Radius.small))
-                    .overlay(alignment: .topLeading) {
-                        if notesText.isEmpty {
-                            Text("メモを追加…")
-                                .foregroundStyle(.tertiary)
-                                .font(.system(size: DS.FontSize.body))
-                                .padding(.top, DS.Space.xxs).padding(.leading, DS.Space.xxs)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .onChange(of: notesText) { _, newVal in
-                        onUpdateNotes?(item, newVal.isEmpty ? nil : newVal)
-                    }
-            }
-            .padding(.horizontal, DS.Space.s)
-            .padding(.vertical, DS.Space.xs)
-        }
-        .frame(width: 380)
-        .task {
-            guard fullImage == nil else { return }
-            let url = item.imageURL
-            // NSImageは非Sendableなので、Dataだけバックグラウンドで読みメインで画像化する
-            let data = await Task.detached(priority: .userInitiated) {
-                try? Data(contentsOf: url)
-            }.value
-            if let data { fullImage = NSImage(data: data) }
-        }
     }
 }
