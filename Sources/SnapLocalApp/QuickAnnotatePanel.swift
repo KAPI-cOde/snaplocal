@@ -12,11 +12,28 @@
 
 import SwiftUI
 
+private struct WindowDragHandle: NSViewRepresentable {
+    final class DragView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            window?.performDrag(with: event)
+        }
+    }
+
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ nsView: DragView, context: Context) {}
+}
+
 // Borderless panel that can still become key (text annotation needs keyboard focus).
 final class QuickAnnotatePanelWindow: NSPanel {
     var onEscape: (() -> Void)?
     override var canBecomeKey: Bool { true }
     override func cancelOperation(_ sender: Any?) { onEscape?() }
+    // ボタンや canvas のジェスチャに消費されなかったクリックだけがレスポンダチェーンで
+    // ここまで届く(ツールバーの .ultraThinMaterial は NSVisualEffectView 実体のため、
+    // 背景に敷いた WindowDragHandle にはヒットテストが届かない)→ ウィンドウ移動にする
+    override func mouseDown(with event: NSEvent) {
+        performDrag(with: event)
+    }
 }
 
 @MainActor
@@ -42,10 +59,11 @@ final class QuickAnnotatePanel {
         let canvasArea = Self.canvasArea(for: state.canvas.backgroundImage, on: screen)
         let hosting = NSHostingView(rootView: QuickAnnotateView(state: state, canvasArea: canvasArea))
         let size = hosting.fittingSize
+        hosting.sizingOptions = [.minSize]
 
         let p = QuickAnnotatePanelWindow(
             contentRect: CGRect(origin: .zero, size: size),
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered, defer: false
         )
         p.isOpaque = false
@@ -53,7 +71,8 @@ final class QuickAnnotatePanel {
         p.hasShadow = true
         p.level = .floating
         // 注意: isMovableByWindowBackground は使わない — キャンバス上のドラッグ(注釈描画)が
-        // ウィンドウ移動に吸われる(実機で発生)。パネルは中央固定のまま動かさない
+        // ウィンドウ移動に吸われる(実機で発生)。移動はツールバー/フッターの WindowDragHandle と
+        // QuickAnnotatePanelWindow.mouseDown(未消費クリックのフォールバック)で行う。
         p.isMovableByWindowBackground = false
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
@@ -148,6 +167,7 @@ struct QuickAnnotateView: View {
                 onCaptureToClipboard: state.captureNowToClipboard,
                 onCaptureRegionToClipboard: state.captureRegionToClipboard
             )
+            .background(WindowDragHandle())
             Divider()
             AnnotationCanvasView(
                 viewModel: state.canvas,
@@ -156,7 +176,8 @@ struct QuickAnnotateView: View {
                 onCopyRegion: state.copySelectedRegion,
                 onOcrRegion: state.ocrSelectedRegion
             )
-            .frame(width: canvasArea.width, height: canvasArea.height)
+            .frame(minWidth: 600, idealWidth: canvasArea.width, maxWidth: .infinity,
+                   minHeight: 280, idealHeight: canvasArea.height, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
             .overlay(alignment: .bottom) {
                 StatusChip(message: state.statusMessage, visible: state.statusVisible, success: state.statusIsSuccess)
@@ -176,6 +197,7 @@ struct QuickAnnotateView: View {
             }
             .padding(.horizontal, DS.Space.s)
             .padding(.vertical, DS.Space.xs)
+            .background(WindowDragHandle())
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.large))
