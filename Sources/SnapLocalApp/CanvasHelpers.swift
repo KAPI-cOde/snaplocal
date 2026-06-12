@@ -85,6 +85,59 @@ struct ScrollWheelHandler: NSViewRepresentable {
     }
 }
 
+// MARK: - Right-click selection hook (T9.15 FB)
+
+/// SwiftUIの.contextMenuはクリック位置を渡さないため、メニューが開く前に
+/// ローカルモニタで位置を拾い「カーソル直下の注釈を選択」だけ済ませる。
+/// イベントは飲み込まない(返す)のでメニューはそのまま開く — miniActionsOverlay と同方式。
+struct RightClickSelectionHandler: NSViewRepresentable {
+    let onRightClick: (CGPoint) -> Void
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.onRightClick = onRightClick
+        return view
+    }
+
+    func updateNSView(_ nsView: MonitorView, context: Context) {
+        nsView.onRightClick = onRightClick
+    }
+
+    final class MonitorView: NSView {
+        var onRightClick: ((CGPoint) -> Void)?
+        private var monitor: Any?
+
+        // SwiftUI座標(上原点)で返すため flipped。直接イベントは受けない(モニタのみ)
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { removeMonitor() } else { installMonitor() }
+        }
+
+        private func installMonitor() {
+            guard monitor == nil else { return }
+            // 右クリックに加え、control+左クリック(同じくコンテキストメニューを開く)も対象
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
+                guard let self, let win = self.window, event.window === win else { return event }
+                if event.type == .leftMouseDown && !event.modifierFlags.contains(.control) { return event }
+                let p = self.convert(event.locationInWindow, from: nil)
+                guard self.bounds.contains(p) else { return event }
+                self.onRightClick?(p)
+                return event
+            }
+        }
+
+        private func removeMonitor() {
+            if let m = monitor {
+                NSEvent.removeMonitor(m)
+                monitor = nil
+            }
+        }
+    }
+}
+
 
 // MARK: - Multiline text input (NSTextView wrapper)
 // Supports Return=commit, Shift/Option+Return=newline, Escape=cancel

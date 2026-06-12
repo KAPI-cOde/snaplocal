@@ -358,6 +358,22 @@ struct AnnotationCanvasView: View {
                 .allowsHitTesting(true)
                 .opacity(0)
             )
+            // 右クリック時にカーソル直下の注釈を選択してからコンテキストメニューを開く(T9.15 FB)
+            .overlay(
+                RightClickSelectionHandler { p in
+                    guard !viewModel.isCropMode, !viewModel.showTextInput,
+                          !viewModel.annotationsHidden else { return }
+                    let canvasPt = toCanvas(p, size: proxy.size)
+                    let rect = CGRect(origin: .zero, size: viewModel.canvasSize)
+                    guard let hit = viewModel.annotations.reversed()
+                        .first(where: { $0.hitTest(canvasPt, in: rect) }) else { return }
+                    if viewModel.selectedAnnotationID != hit.id {
+                        viewModel.selectedAnnotationID = hit.id
+                        viewModel.selectedAnnotationIDs = []
+                        viewModel.selectionIsFromCreation = false
+                    }
+                }
+            )
             // 最前面に重ねる(クリック自体はNSEventローカルモニタ経由 — miniActionsOverlay参照)
             .overlay(
                 miniActionsOverlay(viewport: proxy.size, fit: fit, zoom: zoom, pan: panOffset)
