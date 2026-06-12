@@ -180,6 +180,8 @@ struct QuickAnnotateView: View {
                     QuickAnnotatePanel.shared.setPinned(pinned)
                 } label: {
                     Image(systemName: pinned ? "pin.fill" : "pin")
+                        // インジケータなので通常のツールアイコン(15pt)より小さく(ユーザーFB 2026-06-12)
+                        .font(.system(size: DS.FontSize.caption, weight: .medium))
                         .foregroundStyle(pinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
                 }
                 .buttonStyle(DSToolButtonStyle(isActive: pinned))
