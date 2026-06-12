@@ -473,14 +473,7 @@ struct CompactToolbar: View {
             .keyboardShortcut(.delete, modifiers: [])
         }
 
-        if !canvas.annotations.isEmpty {
-            Toggle(isOn: $canvas.annotationsHidden) {
-                Image(systemName: canvas.annotationsHidden ? "eye.slash" : "eye")
-            }
-            .toggleStyle(DSToolToggleStyle())
-            .help(canvas.annotationsHidden ? "アノテーション表示 (⌘')" : "アノテーション非表示 (⌘')")
-            .keyboardShortcut("'", modifiers: .command)
-        }
+        // T9.16: 目トグルはツールバーから「その他(…)」メニューと表示メニュー(⌘')へ移設
 
         // T3.2-F: 件数バッジは選択中のみ表示
         if !canvas.annotations.isEmpty &&
@@ -517,6 +510,11 @@ struct CompactToolbar: View {
 
         // T3.2-C/D: 低頻度機能(テンプレート・回転・リサイズ・結合)のオーバーフローメニュー
         Menu {
+            Section("表示") {
+                // ショートカット表記は載せない: ⌘'はJIS配列では⌘^等にOS側で自動リマップされる
+                // (正規の表記は表示メニューが配列に合わせて自動表示する)
+                Toggle("アノテーションを隠す", isOn: $canvas.annotationsHidden)
+            }
             Section("回転・反転") {
                 Button("90°左に回転 (⌘⌥←)") { canvas.rotateImage(clockwise: false) }
                 Button("90°右に回転 (⌘⌥→)") { canvas.rotateImage(clockwise: true) }
@@ -582,7 +580,7 @@ struct CompactToolbar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: DS.Toolbar.menuWidth, height: DS.Toolbar.controlHeight)
-        .help("その他（回転・リサイズ・結合・テンプレート）")
+        .help("その他（表示・回転・リサイズ・結合・テンプレート）")
         .sheet(isPresented: $showExtendCanvas) {
             extendCanvasSheet
         }

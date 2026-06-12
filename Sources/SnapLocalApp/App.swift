@@ -89,6 +89,10 @@ struct SnapLocalApp: App {
                 Button("フィット表示") { NotificationCenter.default.post(name: .snapLocalZoomFit, object: nil) }
                     .keyboardShortcut("9", modifiers: .command)
                 Divider()
+                // T9.16: ツールバーの目トグル移設に伴う到達経路(パネルもcanvasを共有)
+                Toggle("アノテーションを隠す", isOn: $appState.canvas.annotationsHidden)
+                    .keyboardShortcut("'", modifiers: .command)
+                Divider()
                 Button("履歴を検索") { appState.searchFocusTrigger.toggle() }
                     .keyboardShortcut("f", modifiers: .command)
                 Divider()
